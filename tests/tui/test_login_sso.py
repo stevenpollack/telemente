@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from aioresponses import aioresponses
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Label, Static
 
@@ -21,6 +22,35 @@ from telemente.matrix.sso import SsoTimeoutError
 from telemente.tui.screens.login import LoginScreen
 
 FakeMatrixClient = fakes_module.FakeMatrixClient
+
+_CLAM_WELL_KNOWN = "https://clam.au/.well-known/matrix/client"
+_CLAM_DISCOVERY = {
+    "m.homeserver": {"base_url": "https://clam.au"},
+    "org.matrix.msc4143.rtc_foci": [
+        {
+            "type": "livekit",
+            "livekit_service_url": "https://livekit.clam.au/livekit/jwt",
+        }
+    ],
+    "org.matrix.msc2965.authentication": {
+        "issuer": "https://mas.clam.au/",
+        "account": "https://mas.clam.au/human/account",
+    },
+}
+
+
+def _tracking_factory(
+    fake: FakeMatrixClient,
+) -> tuple[Callable[[str], FakeMatrixClient], list[str]]:
+    """Return a client factory that records homeserver args on the fake."""
+    calls: list[str] = []
+
+    def factory(homeserver: str) -> FakeMatrixClient:
+        calls.append(homeserver)
+        fake._fake_homeserver = homeserver
+        return fake
+
+    return factory, calls
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +141,8 @@ async def test_sso_button_shown_when_supported() -> None:
     fake = FakeMatrixClient()
     fake.set_flows(flows)
 
-    app = SsoHostApp(lambda _hs: fake)
+    factory, _calls = _tracking_factory(fake)
+    app = SsoHostApp(factory)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -143,7 +174,8 @@ async def test_both_flows_shown() -> None:
     fake = FakeMatrixClient()
     fake.set_flows(flows)
 
-    app = SsoHostApp(lambda _hs: fake)
+    factory, _calls = _tracking_factory(fake)
+    app = SsoHostApp(factory)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -172,7 +204,8 @@ async def test_no_supported_flow_shows_error() -> None:
     fake = FakeMatrixClient()
     fake.set_flows(flows)
 
-    app = SsoHostApp(lambda _hs: fake)
+    factory, _calls = _tracking_factory(fake)
+    app = SsoHostApp(factory)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -205,8 +238,9 @@ async def test_sso_loopback_success() -> None:
         browser_opened.append(url)
         return True
 
+    factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(
-        lambda _hs: fake,
+        factory,
         sso_server_factory=lambda: fake_server,
         open_browser=stub_open_browser,
     )
@@ -254,8 +288,9 @@ async def test_sso_no_browser_switches_to_manual() -> None:
     def no_browser(url: str) -> bool:
         return False
 
+    factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(
-        lambda _hs: fake,
+        factory,
         sso_server_factory=lambda: fake_server,
         open_browser=no_browser,
     )
@@ -307,8 +342,9 @@ async def test_sso_timeout_shows_error() -> None:
     def stub_browser(url: str) -> bool:
         return True
 
+    factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(
-        lambda _hs: fake,
+        factory,
         sso_server_factory=lambda: fake_server,
         open_browser=stub_browser,
     )
@@ -355,8 +391,9 @@ async def test_idp_buttons() -> None:
     def stub_browser(url: str) -> bool:
         return True
 
+    factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(
-        lambda _hs: fake,
+        factory,
         sso_server_factory=lambda: fake_server,
         open_browser=stub_browser,
     )
@@ -378,3 +415,97 @@ async def test_idp_buttons() -> None:
     # The fake client should have been asked for sso_redirect_url with the correct idp_id
     assert fake.sso_redirect_url_called is True
     assert fake.sso_redirect_url_idp_id == "oidc-google"
+
+
+# ---------------------------------------------------------------------------
+# Homeserver resolution (MXID + stale client)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sso_uses_resolved_homeserver_for_mxid() -> None:
+    """SSO redirect uses discovered clam.au, not default matrix.org."""
+    flows = LoginFlows(password=False, sso=True, token=True)
+    fake = FakeMatrixClient()
+    fake.set_flows(flows)
+    factory, factory_calls = _tracking_factory(fake)
+
+    fake_server = FakeSsoCallbackServer(token_result="clam_token")
+    browser_urls: list[str] = []
+
+    def stub_browser(url: str) -> bool:
+        browser_urls.append(url)
+        return True
+
+    with aioresponses() as m:
+        m.get(_CLAM_WELL_KNOWN, payload=_CLAM_DISCOVERY)
+
+        app = SsoHostApp(
+            factory,
+            default_homeserver="https://matrix.org",
+            sso_server_factory=lambda: fake_server,
+            open_browser=stub_browser,
+        )
+
+        async with app.run_test() as pilot:
+            for _ in range(5):
+                await pilot.pause()
+
+            screen = app.screen
+            screen.query_one("#homeserver", Input).value = "@steven:clam.au"
+
+            sso_button = screen.query(".sso-button").first()
+            await pilot.click(sso_button)
+
+            for _ in range(10):
+                await pilot.pause()
+
+    assert "https://clam.au" in factory_calls
+    assert fake._fake_homeserver == "https://clam.au"
+    assert browser_urls
+    assert "clam.au" in browser_urls[0]
+    assert "matrix.org" not in browser_urls[0]
+
+
+@pytest.mark.asyncio
+async def test_sso_stale_homeserver_without_enter() -> None:
+    """Changing homeserver without Enter still re-detects before SSO."""
+    flows = LoginFlows(password=False, sso=True, token=True)
+    fake = FakeMatrixClient()
+    fake.set_flows(flows)
+    factory, factory_calls = _tracking_factory(fake)
+
+    fake_server = FakeSsoCallbackServer(token_result="tok")
+    browser_urls: list[str] = []
+
+    with aioresponses() as m:
+        m.get(_CLAM_WELL_KNOWN, payload=_CLAM_DISCOVERY)
+
+        def record_browser(url: str) -> bool:
+            browser_urls.append(url)
+            return True
+
+        app = SsoHostApp(
+            factory,
+            default_homeserver="https://matrix.org",
+            sso_server_factory=lambda: fake_server,
+            open_browser=record_browser,
+        )
+
+        async with app.run_test() as pilot:
+            for _ in range(5):
+                await pilot.pause()
+
+            assert factory_calls == ["https://matrix.org"]
+
+            screen = app.screen
+            screen.query_one("#homeserver", Input).value = "@steven:clam.au"
+
+            await pilot.click(screen.query(".sso-button").first())
+
+            for _ in range(10):
+                await pilot.pause()
+
+    assert factory_calls[-1] == "https://clam.au"
+    assert browser_urls
+    assert "clam.au" in browser_urls[0]

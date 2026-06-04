@@ -9,8 +9,8 @@ Security notes:
 - The ``loginToken`` is single-use and short-lived — exchange it immediately; NEVER log it.
 - Some homeservers restrict allowed SSO redirect URLs; if loopback is rejected,
   the manual-paste path is the documented escape hatch.
-- ``.well-known`` homeserver discovery (resolving a bare server name to a base URL)
-  is out of scope — the user enters a full base URL. This is a future enhancement.
+- Homeserver discovery (MXID, bare server name, ``.well-known``) lives in
+  ``matrix.discovery`` and is applied on the login screen before flow detection.
 """
 
 from __future__ import annotations

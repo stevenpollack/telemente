@@ -14,7 +14,7 @@ Security notes (plan 0011):
 - The SSO redirectUrl is always loopback ``http://localhost:PORT/<nonce>``.
 - The loginToken is NEVER logged.
 - Manual-paste fallback works over SSH where the browser is on another machine.
-- ``.well-known`` discovery is out of scope; the user enters a full base URL.
+- Homeserver values (MXID, bare name, or URL) are resolved via ``matrix.discovery``.
 """
 
 from __future__ import annotations
@@ -35,6 +35,12 @@ from textual.worker import Worker, WorkerState
 
 from telemente.config import Session
 from telemente.matrix.auth import LoginFlows
+from telemente.matrix.discovery import (
+    DiscoveryError,
+    resolve_homeserver,
+    server_name_from_mxid,
+    server_name_matches_resolved_url,
+)
 from telemente.matrix.sso import SsoCallbackServer, SsoTimeoutError
 
 if TYPE_CHECKING:
@@ -118,6 +124,7 @@ class LoginScreen(Screen[None]):
         # Set after flow detection
         self._client: _LoginClient | None = None
         self._flows: LoginFlows | None = None
+        self._active_homeserver: str | None = None
         # SSO redirect URL displayed to the user (read-only)
         self._sso_url: str = ""
         # Shared future: set by the manual-confirm button to deliver a token
@@ -211,25 +218,89 @@ class LoginScreen(Screen[None]):
         self._clear_error()
         self._do_detect_flows(homeserver)
 
-    @work(exclusive=True, exit_on_error=False)
-    async def _do_detect_flows(self, homeserver: str) -> None:
+    async def _resolve_effective_homeserver(self, username: str | None = None) -> str:
+        """Resolve homeserver from the field and optional MXID username."""
+        hs_raw = self.query_one("#homeserver", Input).value.strip()
+        user_raw = (username or "").strip()
+        mxid_server = server_name_from_mxid(user_raw)
+
+        if mxid_server:
+            if not hs_raw:
+                return await resolve_homeserver(user_raw)
+            from_field = await resolve_homeserver(hs_raw)
+            if not server_name_matches_resolved_url(mxid_server, from_field):
+                raise DiscoveryError("Homeserver does not match Matrix ID.")
+            return from_field
+
+        if not hs_raw:
+            raise DiscoveryError("Homeserver is required.")
+        return await resolve_homeserver(hs_raw)
+
+    async def _ensure_client_for_current_homeserver(
+        self,
+        username: str | None = None,
+        *,
+        update_ui: bool = True,
+    ) -> bool:
+        """Ensure ``self._client`` matches the current homeserver field (and MXID)."""
+        try:
+            resolved = await self._resolve_effective_homeserver(username)
+        except DiscoveryError as exc:
+            self._on_login_failure(str(exc))
+            return False
+
+        if resolved == self._active_homeserver and self._client is not None:
+            return True
+
+        if not await self._rebuild_client_for_resolved(resolved, update_ui=update_ui):
+            self._on_login_failure("Could not connect to homeserver.")
+            return False
+        return True
+
+    async def _rebuild_client_for_resolved(self, resolved: str, *, update_ui: bool) -> bool:
+        """Fetch login flows and attach a client for ``resolved``."""
         from telemente.matrix.client import LoginError
 
         try:
-            client = self._client_factory(homeserver)
+            client = self._client_factory(resolved)
             flows = await client.login_flows()
         except LoginError as exc:
             logger.warning("login_flows failed: %s", exc)
-            self._on_flows_failure(str(exc))
-            return
+            if update_ui:
+                self._on_flows_failure(str(exc))
+            else:
+                self._on_login_failure(str(exc))
+            return False
         except Exception as exc:
             logger.exception("Unexpected error fetching login flows: %s", exc)
-            self._on_flows_failure(f"Could not reach homeserver: {exc}")
-            return
+            message = f"Could not reach homeserver: {exc}"
+            if update_ui:
+                self._on_flows_failure(message)
+            else:
+                self._on_login_failure(message)
+            return False
 
         self._client = client
         self._flows = flows
-        self._on_flows_detected(flows)
+        self._active_homeserver = resolved
+        self.query_one("#homeserver", Input).value = resolved
+        if update_ui:
+            self._on_flows_detected(flows)
+        return True
+
+    async def _detect_flows_for_resolved(self, resolved: str) -> None:
+        """Fetch login flows for a resolved homeserver base URL and refresh the UI."""
+        await self._rebuild_client_for_resolved(resolved, update_ui=True)
+
+    @work(exclusive=True, exit_on_error=False)
+    async def _do_detect_flows(self, raw_homeserver: str) -> None:
+        try:
+            resolved = await resolve_homeserver(raw_homeserver)
+        except DiscoveryError as exc:
+            self._on_flows_failure(str(exc))
+            return
+
+        await self._detect_flows_for_resolved(resolved)
 
     def _on_flows_detected(self, flows: LoginFlows) -> None:
         self.query_one("#loading", LoadingIndicator).display = False
@@ -256,6 +327,9 @@ class LoginScreen(Screen[None]):
             self._hide_sso_area()
 
     def _on_flows_failure(self, message: str) -> None:
+        self._active_homeserver = None
+        self._client = None
+        self._flows = None
         self.query_one("#loading", LoadingIndicator).display = False
         self._set_homeserver_enabled(True)
         self._show_error(message)
@@ -283,10 +357,11 @@ class LoginScreen(Screen[None]):
     async def _do_login(self, username: str, password: str) -> None:
         from telemente.matrix.client import LoginError
 
-        client = self._client
-        if client is None:
-            self._on_login_failure("No client — wait for flow detection to complete.")
+        if not await self._ensure_client_for_current_homeserver(username):
             return
+
+        client = self._client
+        assert client is not None
 
         try:
             session = await client.login(username, password)
@@ -313,9 +388,13 @@ class LoginScreen(Screen[None]):
 
     @work(exclusive=True, exit_on_error=False)
     async def _do_sso_login(self, idp_id: str | None) -> None:
+        if not await self._ensure_client_for_current_homeserver(update_ui=False):
+            return
+
         client = self._client
-        if client is None:
-            self._on_login_failure("No client — wait for flow detection.")
+        assert client is not None
+        if self._flows is not None and not self._flows.sso:
+            self._on_login_failure("This homeserver does not support SSO.")
             return
 
         # Create a fresh future for manual-token delivery on this SSO attempt
@@ -442,10 +521,11 @@ class LoginScreen(Screen[None]):
         """Direct token login: no loopback server needed (manual-only path)."""
         from telemente.matrix.client import LoginError
 
-        client = self._client
-        if client is None:
-            self._on_login_failure("No client — wait for flow detection.")
+        if not await self._ensure_client_for_current_homeserver():
             return
+
+        client = self._client
+        assert client is not None
 
         try:
             session = await client.login_with_token(token)
