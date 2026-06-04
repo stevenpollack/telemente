@@ -176,27 +176,16 @@ class MainScreen(Screen[None]):
             if view is not None:
                 view.append_message(msg)
         else:
-            # Bump unread and show a toast if the room has an open tab
+            # Bump unread counter and patch the room-list item in place —
+            # no full rebuild needed for a single unread count change.
             self._unread[msg.room_id] = self._unread.get(msg.room_id, 0) + 1
             room_list = self.query_one(RoomList)
-            updated: list[RoomSummary] = []
-            display_name = msg.room_id
-            for room in room_list.all_rooms:
-                if room.room_id == msg.room_id:
-                    display_name = room.display_name
-                    updated.append(
-                        RoomSummary(
-                            room_id=room.room_id,
-                            display_name=room.display_name,
-                            unread_count=self._unread[msg.room_id],
-                            last_activity=room.last_activity,
-                            encrypted=room.encrypted,
-                            tags=room.tags,
-                        )
-                    )
-                else:
-                    updated.append(room)
-            room_list.set_rooms(updated)
+            room_list.update_unread(msg.room_id, self._unread[msg.room_id])
+            # Resolve display_name for the toast (cheaply, from cached all_rooms).
+            display_name = next(
+                (r.display_name for r in room_list.all_rooms if r.room_id == msg.room_id),
+                msg.room_id,
+            )
             # Toast only when the room is in an open (but non-active) tab
             if msg.room_id in self._open_tabs:
                 self.app.notify(

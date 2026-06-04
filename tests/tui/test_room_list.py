@@ -625,3 +625,92 @@ async def test_set_sort_mode_recent() -> None:
         assert visible[0].room_id == "!z:h"
         assert visible[1].room_id == "!m:h"
         assert visible[2].room_id == "!a:h"
+
+
+# ---------------------------------------------------------------------------
+# Test 20: debounced search — rapid keystrokes do not rebuild on every character
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_debounced_search_does_not_rebuild_per_keystroke() -> None:
+    """Rapid Input.Changed events must not trigger an immediate rebuild.
+
+    We send two rapid Input.Changed messages and check visible_rooms without
+    pausing — the filter must still be deferred (visible_rooms unchanged).
+    Then we manually fire the deferred callback to verify it applies correctly.
+    This avoids wall-clock timing dependencies in the test environment.
+    """
+    app = HostApp()
+    rooms = [
+        _room("!a:h", "General"),
+        _room("!b:h", "Random"),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        from textual.widgets import Input
+
+        search = room_list.query_one("#room-search", Input)
+        # Post two Input.Changed events in sequence ("rand" only matches "Random").
+        room_list.post_message(Input.Changed(search, "ran"))
+        room_list.post_message(Input.Changed(search, "rand"))
+        # Process messages but NOT the timer.
+        await pilot.pause()
+        # visible_rooms must NOT yet be filtered — debounce deferred the rebuild.
+        assert len(room_list.visible_rooms) == 2
+        # _pending_filter must reflect the last value.
+        assert room_list._pending_filter == "rand"
+
+        # Fire the deferred callback manually.
+        # _rebuild() is synchronous, so visible_rooms is updated immediately.
+        room_list._apply_pending_filter()
+        assert len(room_list.visible_rooms) == 1
+        assert room_list.visible_rooms[0].room_id == "!b:h"
+
+
+# ---------------------------------------------------------------------------
+# Test 21: update_unread patches the label without a full rebuild
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_unread_patches_label_in_place() -> None:
+    """update_unread(room_id, count) updates the unread display without
+    a full ListView rebuild — the same _RoomItem instance stays in the DOM."""
+    from telemente.tui.widgets.room_list import _RoomItem
+
+    app = HostApp()
+    rooms = [
+        _room("!a:h", "General"),
+        _room("!b:h", "Random"),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        items_before = list(app.query(_RoomItem))
+        assert len(items_before) == 2
+        # Grab identity of the item for room a
+        item_a_before = next(i for i in items_before if i._room.room_id == "!a:h")
+
+        room_list.update_unread("!a:h", 5)
+        await pilot.pause()
+
+        items_after = list(app.query(_RoomItem))
+        assert len(items_after) == 2
+        item_a_after = next(i for i in items_after if i._room.room_id == "!a:h")
+
+        # Same DOM node — no teardown+rebuild.
+        assert item_a_before is item_a_after
+
+        # Label updated to reflect new unread count.
+        rendered = str(item_a_after.query_one(".room-name").render())
+        assert "(5)" in rendered

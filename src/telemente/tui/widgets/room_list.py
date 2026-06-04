@@ -15,6 +15,7 @@ from textual.binding import BindingType
 from textual.containers import Horizontal
 from textual.events import Key
 from textual.message import Message as TextualMessage
+from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
@@ -53,6 +54,18 @@ class _RoomItem(ListItem):
         return self._room
 
     def compose(self) -> ComposeResult:
+        yield Label(self._render_name(), markup=True, classes=self._name_classes())
+
+    def update_room(self, room: RoomSummary) -> None:
+        """Mutate this item's data and re-render its label in place."""
+        self._room = room
+        label = self.query_one(".room-name", Label)
+        label.update(self._render_name())
+        # Sync CSS classes without forcing a full remount.
+        new_classes = self._name_classes()
+        label.set_classes(new_classes)
+
+    def _render_name(self) -> str:
         room = self._room
         name = f"\U0001f512 {room.display_name}" if room.encrypted else room.display_name
         if "m.favourite" in room.tags:
@@ -61,11 +74,13 @@ class _RoomItem(ListItem):
             name = f"{name} ↓"
         if "m.mute" in room.tags:
             name = f"{name} 🔕"
-        unread = room.unread_count > 0
-        if unread:
+        if room.unread_count > 0:
             name = f"[bold]{name} ({room.unread_count})[/bold]"
-        extra = " -unread" if unread else ""
-        yield Label(name, markup=True, classes=f"room-name{extra}")
+        return name
+
+    def _name_classes(self) -> str:
+        extra = " -unread" if self._room.unread_count > 0 else ""
+        return f"room-name{extra}"
 
 
 class RoomList(Widget):
@@ -110,6 +125,8 @@ class RoomList(Widget):
         self._has_loaded: bool = False
         self._active_room_id: str | None = None
         self._sort_mode: str = "recent"  # "recent" | "alpha"
+        self._filter_timer: Timer | None = None
+        self._pending_filter: str = ""
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="search-bar"):
@@ -158,6 +175,36 @@ class RoomList(Widget):
         self._sort_mode = mode
         self._rebuild()
 
+    def update_unread(self, room_id: str, count: int) -> None:
+        """Update the unread count for a single room without a full list rebuild.
+
+        Mutates the matching _RoomItem in place and updates _all_rooms and
+        _visible_rooms so the count survives the next set_rooms() call.
+        """
+
+        def _patch(rooms: list[RoomSummary]) -> list[RoomSummary]:
+            return [
+                RoomSummary(
+                    room_id=r.room_id,
+                    display_name=r.display_name,
+                    unread_count=count if r.room_id == room_id else r.unread_count,
+                    last_activity=r.last_activity,
+                    encrypted=r.encrypted,
+                    tags=r.tags,
+                )
+                if r.room_id == room_id
+                else r
+                for r in rooms
+            ]
+
+        self._all_rooms = _patch(self._all_rooms)
+        self._visible_rooms = _patch(self._visible_rooms)
+        for item in self.query(_RoomItem):
+            if item._room.room_id == room_id:
+                updated = next(r for r in self._all_rooms if r.room_id == room_id)
+                item.update_room(updated)
+                break
+
     @property
     def all_rooms(self) -> list[RoomSummary]:
         """Full unfiltered room list."""
@@ -204,8 +251,7 @@ class RoomList(Widget):
         list_view = self.query_one("#room-list-view", ListView)
         list_view.clear()
         for room in self._visible_rooms:
-            active = self._active_room_id is not None and room.room_id == self._active_room_id
-            list_view.append(_RoomItem(room, active=active))
+            list_view.append(_RoomItem(room, active=self._active_room_id == room.room_id))
         self._sync_empty_state()
 
     def _apply_active_highlight(self) -> None:
@@ -237,9 +283,17 @@ class RoomList(Widget):
     # ------------------------------------------------------------------
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Live-filter rooms as the user types in #room-search."""
-        if event.input.id == "room-search":
-            self.apply_filter(event.value)
+        """Live-filter rooms as the user types in #room-search (debounced 150ms)."""
+        if event.input.id != "room-search":
+            return
+        self._pending_filter = event.value
+        if self._filter_timer is not None:
+            self._filter_timer.stop()
+        self._filter_timer = self.set_timer(0.15, self._apply_pending_filter)
+
+    def _apply_pending_filter(self) -> None:
+        self._filter_timer = None
+        self.apply_filter(self._pending_filter)
 
     def on_key(self, event: Key) -> None:
         """ESC in the search input clears the filter."""

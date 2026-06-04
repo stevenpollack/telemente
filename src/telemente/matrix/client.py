@@ -116,6 +116,8 @@ class MatrixClient:
         self._last_activity: dict[str, datetime] = {}
         # Rooms we have locally left but nio hasn't pruned from its dict yet.
         self._left_rooms: set[str] = set()
+        # Fingerprint of the last RoomsChanged payload; skip emit when unchanged.
+        self._last_rooms_fingerprint: frozenset[tuple[str, str, int]] = frozenset()
 
         if nio_client is not None:
             self._client = nio_client
@@ -673,6 +675,10 @@ class MatrixClient:
         self._client.add_event_callback(self._on_megolm_event, nio.MegolmEvent)
         self._client.add_response_callback(self._on_sync, nio.SyncResponse)
 
+    def _rooms_fingerprint(self, rooms: list[RoomSummary]) -> frozenset[tuple[str, str, int]]:
+        """Cheap identity check: (room_id, display_name, unread_count) for each room."""
+        return frozenset((r.room_id, r.display_name, r.unread_count) for r in rooms)
+
     async def _emit(self, event: ClientEvent) -> None:
         """Deliver an event to all subscribed handlers."""
         for handler in list(self._handlers):
@@ -836,7 +842,10 @@ class MatrixClient:
             except Exception as exc:
                 logger.warning("keys_query() failed: %s", exc)
 
-        await self._emit(RoomsChanged(rooms=rooms))
+        fp = self._rooms_fingerprint(rooms)
+        if fp != self._last_rooms_fingerprint:
+            self._last_rooms_fingerprint = fp
+            await self._emit(RoomsChanged(rooms=rooms))
 
 
 # ---------------------------------------------------------------------------

@@ -755,3 +755,38 @@ async def test_update_last_activity_populates_cache() -> None:
     client._update_last_activity(fake_response)
 
     assert client._last_activity.get("!r:example.com") == expected
+
+
+async def test_on_sync_skips_rooms_changed_when_nothing_changed() -> None:
+    """_on_sync must NOT emit RoomsChanged when room list is identical to last emit."""
+    from types import SimpleNamespace
+
+    room_id = "!stable:example.com"
+    nio_mock = _build_nio_mock(
+        rooms={room_id: _make_nio_room(room_id=room_id, display_name="Stable")}
+    )
+    nio_mock.should_upload_keys = False
+    nio_mock.should_query_keys = False
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+
+    emitted: list[object] = []
+    client.subscribe(lambda e: emitted.append(e))
+
+    fake_response = SimpleNamespace(
+        rooms=SimpleNamespace(join={room_id: SimpleNamespace(timeline=SimpleNamespace(events=[]))})
+    )
+
+    # First call — should emit (establishes baseline).
+    await client._on_sync(fake_response)
+    assert len(emitted) == 1
+
+    # Second call with identical state — must not emit.
+    await client._on_sync(fake_response)
+    assert len(emitted) == 1  # still 1
+
+    # Mutate display_name — should emit again.
+    nio_mock.rooms[room_id].display_name = "Changed Name"
+    await client._on_sync(fake_response)
+    assert len(emitted) == 2
