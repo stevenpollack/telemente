@@ -8,6 +8,7 @@ all protocol access goes through the injected client.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime
 from typing import ClassVar, Protocol
 
@@ -39,6 +40,14 @@ class _MessageViewClient(Protocol):
 # ---------------------------------------------------------------------------
 # Per-message widget
 # ---------------------------------------------------------------------------
+
+
+_URL_RE = re.compile(r"(https?://\S+)")
+
+
+def _linkify(text: str) -> str:
+    """Wrap bare https?:// URLs in Textual link markup for OSC 8 hyperlinks."""
+    return _URL_RE.sub(lambda m: f'[link="{m.group(1)}"]{m.group(1)}[/link]', text)
 
 
 class _DateSeparator(Static):
@@ -77,11 +86,12 @@ class _MessageRow(Static):
         time_str = local_ts.strftime("%H:%M")
         color = sender_color(message.sender)
         sender = message.sender_display_name
-        body = message.body
+        body = _linkify(message.body)
         text = f"[bold {color}]{sender}[/bold {color}] [dim]{time_str}[/dim]\n{body}"
         if message.media_url:
             icon = {"image": "🖼", "video": "🎬", "audio": "🎵"}.get(message.media_type or "", "📎")
-            text += f"\n{icon} {message.media_url}"
+            url = message.media_url
+            text += f'\n{icon} [link="{url}"]{url}[/link]'
         super().__init__(text, markup=True)
 
 
