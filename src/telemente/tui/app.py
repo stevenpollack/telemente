@@ -1,11 +1,9 @@
-"""The root Textual application (plan 0004).
+"""The root Textual application (plan 0004 / 0005).
 
 TelementeApp owns the MatrixClient and CredentialStore.  On startup it
 either restores a saved session (skipping the login screen) or pushes
 LoginScreen.  Successful login is handled here: the session is persisted
-and the app navigates forward.
-
-TODO (plan 0005): replace the post-login placeholder with the real main screen.
+and the app navigates to MainScreen.
 """
 
 from __future__ import annotations
@@ -15,11 +13,12 @@ from typing import ClassVar
 
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Header, Static  # Static used in compose() placeholder
 
 from telemente.config import CredentialStore, Paths, Session, Settings
 from telemente.matrix.client import MatrixClient
 from telemente.tui.screens.login import LoginScreen
+from telemente.tui.screens.main import MainScreen
 
 logger = logging.getLogger(__name__)
 
@@ -87,13 +86,12 @@ class TelementeApp(App[None]):
 
     async def _restore_session(self, session: Session) -> None:
         await self._client.restore(session)
-        # TODO (plan 0005): push main screen here.
-        logger.info("Session restored; main screen not yet implemented (plan 0005).")
+        logger.info("Session restored for %s; pushing main screen", session.user_id)
+        self.push_screen(MainScreen(self._client))
 
     def on_login_screen_logged_in(self, message: LoginScreen.LoggedIn) -> None:
-        """Persist the session and navigate forward after a successful login."""
+        """Persist the session and navigate to the main screen after successful login."""
         session = message.session
         logger.info("Logged in as %s — persisting session", session.user_id)
         self._credential_store.save(session)
-        # TODO (plan 0005): push the main screen here instead of logging only.
-        logger.info("Navigation to main screen not yet implemented (plan 0005).")
+        self.push_screen(MainScreen(self._client))

@@ -7,3 +7,34 @@
     text-align: center;
     color: $text-muted;
 }
+
+/* -------------------------------------------------------------------------
+   Main screen — three-panel layout (plan 0005)
+   ------------------------------------------------------------------------- */
+
+#main-layout {
+    height: 1fr;
+}
+
+#rooms-panel {
+    width: 30;
+    border: solid $primary;
+    border-title-color: $text;
+}
+
+#message-panel {
+    width: 1fr;
+    border: solid $primary;
+    border-title-color: $text;
+}
+
+#members-panel {
+    width: 24;
+    border: solid $primary;
+    border-title-color: $text;
+}
+
+/* Collapse helper — apply/remove via widget.add_class / remove_class */
+.collapsed {
+    display: none;
+}
