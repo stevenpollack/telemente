@@ -600,6 +600,66 @@ async def test_send_reaction_requires_login() -> None:
         await client.send_reaction("!room:example.com", "$ev:example.com", "👍")
 
 
+async def test_edit_message_sends_m_replace() -> None:
+    """edit_message() calls room_send with m.replace content."""
+    import nio
+
+    nio_mock = _build_nio_mock()
+    nio_mock.access_token = _TOKEN
+    nio_mock.user_id = _USER
+    nio_mock.room_send.return_value = MagicMock(spec=nio.RoomSendResponse)
+    nio_mock.rooms = {}
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    await client.edit_message("!room:example.com", "$orig:example.com", "new body")
+
+    nio_mock.room_send.assert_awaited_once_with(
+        "!room:example.com",
+        "m.room.message",
+        {
+            "msgtype": "m.text",
+            "body": "* new body",
+            "m.new_content": {"msgtype": "m.text", "body": "new body"},
+            "m.relates_to": {"rel_type": "m.replace", "event_id": "$orig:example.com"},
+        },
+    )
+
+
+async def test_edit_message_requires_login() -> None:
+    """edit_message() raises NotLoggedInError if not logged in."""
+    nio_mock = _build_nio_mock()
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+
+    with pytest.raises(NotLoggedInError):
+        await client.edit_message("!room:example.com", "$ev", "new")
+
+
+async def test_redact_message_calls_room_redact() -> None:
+    """redact_message() calls nio room_redact with the correct args."""
+    import nio
+
+    nio_mock = _build_nio_mock()
+    nio_mock.access_token = _TOKEN
+    nio_mock.user_id = _USER
+    nio_mock.room_redact.return_value = MagicMock(spec=nio.RoomRedactResponse)
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    await client.redact_message("!room:example.com", "$ev:example.com")
+
+    nio_mock.room_redact.assert_awaited_once_with("!room:example.com", "$ev:example.com", reason="")
+
+
+async def test_redact_message_requires_login() -> None:
+    """redact_message() raises NotLoggedInError if not logged in."""
+    nio_mock = _build_nio_mock()
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+
+    with pytest.raises(NotLoggedInError):
+        await client.redact_message("!room:example.com", "$ev")
+
+
 async def test_messages_reaction_unknown_event_id_ignored() -> None:
     """Reactions targeting unknown event_ids are silently dropped."""
     text_ev = _make_text_event(event_id="$ev1:example.com", body="hi")

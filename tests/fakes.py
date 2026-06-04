@@ -137,6 +137,8 @@ class FakeMatrixClient:
         self.close_called: bool = False
         self.sent_messages: list[tuple[str, str, str | None]] = []
         self.sent_reactions: list[tuple[str, str, str]] = []
+        self.edited_messages: list[tuple[str, str, str]] = []
+        self.redacted_messages: list[tuple[str, str]] = []
         self.left_rooms: list[str] = []
         self.set_tags: list[tuple[str, str, float | None]] = []
         self.removed_tags: list[tuple[str, str]] = []
@@ -256,6 +258,17 @@ class FakeMatrixClient:
         if not self._logged_in:
             raise NotLoggedInError("Not logged in")
         self.sent_reactions.append((room_id, event_id, emoji))
+
+    async def edit_message(self, room_id: str, event_id: str, new_body: str) -> str:
+        if not self._logged_in:
+            raise NotLoggedInError("Not logged in")
+        self.edited_messages.append((room_id, event_id, new_body))
+        return f"$fake_edit_{len(self.edited_messages)}:matrix.org"
+
+    async def redact_message(self, room_id: str, event_id: str, reason: str = "") -> None:
+        if not self._logged_in:
+            raise NotLoggedInError("Not logged in")
+        self.redacted_messages.append((room_id, event_id))
 
     async def leave_room(self, room_id: str) -> None:
         if not self._logged_in:

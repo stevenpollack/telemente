@@ -553,6 +553,26 @@ class MatrixClient:
             },
         )
 
+    async def edit_message(self, room_id: str, event_id: str, new_body: str) -> str:
+        """Send an m.replace edit for an existing message. Returns the new event_id."""
+        if not self._logged_in:
+            raise NotLoggedInError("Must be logged in to edit messages")
+        content: dict[str, object] = {
+            "msgtype": "m.text",
+            "body": f"* {new_body}",
+            "m.new_content": {"msgtype": "m.text", "body": new_body},
+            "m.relates_to": {"rel_type": "m.replace", "event_id": event_id},
+        }
+        resp = await self._client.room_send(room_id, "m.room.message", content)
+        return getattr(resp, "event_id", "") or ""
+
+    async def redact_message(self, room_id: str, event_id: str, reason: str = "") -> None:
+        """Redact (delete) a message. Uses nio's room_redact."""
+        if not self._logged_in:
+            raise NotLoggedInError("Must be logged in to redact messages")
+        await self._client.room_redact(room_id, event_id, reason=reason)
+        logger.debug("Redacted %s in %s", event_id, room_id)
+
     async def send_text(self, room_id: str, body: str, reply_to_event_id: str | None = None) -> str:
         """Send a plain-text message to a room. Returns the server-assigned event_id.
 

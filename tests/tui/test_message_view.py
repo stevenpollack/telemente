@@ -570,3 +570,218 @@ async def test_reply_binding_sends_reply() -> None:
 
         # indicator should be hidden after send
         assert indicator.display is False
+
+
+# ---------------------------------------------------------------------------
+# Test 15: G key scrolls to the latest message
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_G_key_scrolls_to_bottom() -> None:
+    """Pressing G in the MessageView scrolls the timeline to the end."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [_msg(f"$e{i}", "!r:s", f"msg {i}") for i in range(20)]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        from textual.containers import VerticalScroll
+
+        timeline = view.query_one("#message-timeline", VerticalScroll)
+        # Scroll to top manually
+        timeline.scroll_home(animate=False)
+        await pilot.pause()
+
+        # Press G while MessageView has focus
+        view.focus()
+        await pilot.pause()
+        await pilot.press("G")
+        await pilot.pause()
+
+        # scroll_y should be at max (timeline scrolled to bottom)
+        assert timeline.scroll_y >= timeline.max_scroll_y - 1
+
+
+# ---------------------------------------------------------------------------
+# Test 16: reply-to indicator shows sender name and body preview, not event_id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reply_to_shows_sender_and_body_not_event_id() -> None:
+    """A reply message's in-row indicator must show 'sender: body', not the raw event_id."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [
+        Message(
+            event_id="$child",
+            room_id="!r:s",
+            sender="@bob:matrix.org",
+            sender_display_name="Bob",
+            body="My reply",
+            timestamp=datetime(2024, 1, 1, 12, 1, 0, tzinfo=UTC),
+            reply_to_event_id="$parent",
+        ),
+        Message(
+            event_id="$parent",
+            room_id="!r:s",
+            sender="@alice:matrix.org",
+            sender_display_name="Alice",
+            body="Original message",
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        ),
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        rendered = _rendered_text(view)
+        # Must show sender name and body excerpt
+        assert "Alice" in rendered
+        assert "Original message" in rendered
+        # Must NOT show raw event_id
+        assert "$parent" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 17: optimistic reaction update — chip appears immediately after send
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_optimistic_reaction_appears_immediately() -> None:
+    """After pressing 'e' + emoji + Enter the reaction chip must be visible before
+    any sync echo — the update is purely local/optimistic."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [_msg("$e1", "!r:s", "hello")]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        row = view.query_one(_MessageRow)
+        row.focus()
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+
+        emoji_input = view.query_one("#emoji-input", Input)
+        emoji_input.value = "🎉"
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # The reaction chip must be visible on the row now
+        rendered = _rendered_text(view)
+        assert "🎉" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 18: shift+E on own message opens edit mode; submit sends edit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_edit_binding_enters_edit_mode_and_sends() -> None:
+    """shift+E on a _MessageRow that belongs to me() pre-fills the composer;
+    submitting sends an edit call and updates the row body."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    # FakeMatrixClient.me() returns "@fake:matrix.org"
+    fake._messages["!r:s"] = [
+        Message(
+            event_id="$mine",
+            room_id="!r:s",
+            sender="@fake:matrix.org",
+            sender_display_name="Me",
+            body="original body",
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        )
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        row = view.query_one(_MessageRow)
+        row.focus()
+        await pilot.pause()
+        await pilot.press("shift+e")
+        await pilot.pause()
+
+        # Composer should be pre-filled with the original body
+        composer = view.query_one("#composer", Input)
+        assert composer.value == "original body"
+
+        # Clear and type new body
+        composer.clear()
+        await pilot.press("n", "e", "w")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # edit_message should have been called
+        assert len(fake.edited_messages) == 1
+        assert fake.edited_messages[0] == ("!r:s", "$mine", "new")
+
+        # Row body should reflect the new text
+        rendered = _rendered_text(view)
+        assert "new" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 19: d key on a row calls redact_message and removes the row
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_binding_removes_row() -> None:
+    """Pressing 'd' on a focused _MessageRow calls redact_message and removes it."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [
+        _msg("$e1", "!r:s", "keep me"),
+        _msg("$e2", "!r:s", "delete me"),
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        # Find and focus the second row
+        rows = list(view.query(_MessageRow))
+        assert len(rows) == 2
+        rows[1].focus()
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+
+        assert len(fake.redacted_messages) == 1
+        assert fake.redacted_messages[0][1] == "$e2"
+
+        # Row must be removed from the DOM
+        remaining = list(view.query(_MessageRow))
+        assert len(remaining) == 1
+        remaining_rendered = _rendered_text(view)
+        assert "keep me" in remaining_rendered
+        assert "delete me" not in remaining_rendered
