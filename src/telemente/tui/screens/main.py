@@ -149,6 +149,7 @@ class MainScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def handle_rooms_changed(self, event: RoomsChanged) -> None:
+        incoming_ids = {r.room_id for r in event.rooms}
         rooms_with_unread = [
             RoomSummary(
                 room_id=r.room_id,
@@ -161,6 +162,10 @@ class MainScreen(Screen[None]):
             for r in event.rooms
         ]
         self.query_one(RoomList).set_rooms(rooms_with_unread)
+        # Close tabs for rooms that are no longer in the list (leave/kick/ban).
+        departed = [rid for rid in list(self._open_tabs) if rid not in incoming_ids]
+        for rid in departed:
+            self.run_worker(self.close_tab(rid), exclusive=False)
 
     def handle_new_message(self, event: NewMessage) -> None:
         msg = event.message

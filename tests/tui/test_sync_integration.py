@@ -435,3 +435,48 @@ async def test_rooms_appear_after_session_restore() -> None:
         room_ids = {r.room_id for r in visible}
         assert "!general:h" in room_ids, f"Expected General room in list, got: {room_ids}"
         assert "!random:h" in room_ids, f"Expected Random room in list, got: {room_ids}"
+
+
+# ---------------------------------------------------------------------------
+# Test 9: leaving a room removes it from the list AND closes its tab
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_leave_room_removes_from_list_and_closes_tab() -> None:
+    """RoomsChanged without room B → B disappears from the list and its tab closes."""
+    app, fake = _make_app()
+    fake._messages["!b:h"] = []
+    fake._members["!b:h"] = []
+
+    rooms_ab = [_room("!a:h", "General"), _room("!b:h", "Random")]
+
+    async with app.run_test() as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms(rooms_ab)
+        # Open room B so it has an active tab
+        room_list.post_message(RoomList.RoomSelected("!b:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        assert screen._message_view_for("!b:h") is not None
+        assert "!b:h" in screen._open_tabs
+
+        # Simulate leave: emit RoomsChanged without room B
+        await fake.emit(RoomsChanged(rooms=[_room("!a:h", "General")]))
+        await pilot.pause()
+        await pilot.pause()
+
+        # Room B gone from list
+        visible_ids = {r.room_id for r in room_list.visible_rooms}
+        assert "!b:h" not in visible_ids
+
+        # Tab for B should be closed
+        assert "!b:h" not in screen._open_tabs
+        assert screen._message_view_for("!b:h") is None
