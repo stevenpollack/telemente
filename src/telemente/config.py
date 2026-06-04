@@ -9,6 +9,7 @@ import contextlib
 import json
 import logging
 import stat
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -194,3 +195,76 @@ class CredentialStore:
         except Exception as exc:
             logger.warning("Failed to read fallback session file %s: %s", fp, exc)
             return None
+
+
+# ---------------------------------------------------------------------------
+# RoomCache
+# ---------------------------------------------------------------------------
+
+
+class RoomCache:
+    """Persists the room list to disk so it can be shown instantly on restart.
+
+    Stored as ``data_dir/rooms_<user_id_safe>.json``.  The cache is a
+    best-effort display aid — stale or missing data is silently ignored.
+    Unread counts are intentionally not cached (they reset on restart anyway).
+    """
+
+    def __init__(self, paths: Paths) -> None:
+        self._dir = paths.data_dir
+
+    def _path(self, user_id: str) -> Path:
+        safe = user_id.replace(":", "_").replace("@", "").replace("/", "_")
+        return self._dir / f"rooms_{safe}.json"
+
+    def save(self, user_id: str, rooms: Sequence[object]) -> None:
+        """Serialise rooms to disk. Silently swallows all errors."""
+        from telemente.matrix.models import RoomSummary
+
+        try:
+            payload: list[dict[str, object]] = []
+            for r in rooms:
+                if not isinstance(r, RoomSummary):
+                    continue
+                payload.append(
+                    {
+                        "room_id": r.room_id,
+                        "display_name": r.display_name,
+                        "encrypted": r.encrypted,
+                        "last_activity": r.last_activity.isoformat() if r.last_activity else None,
+                        "tags": r.tags,
+                    }
+                )
+            self._path(user_id).write_text(json.dumps(payload), encoding="utf-8")
+        except Exception as exc:
+            logger.debug("RoomCache.save failed: %s", exc)
+
+    def load(self, user_id: str) -> list[object]:
+        """Return cached RoomSummary list, or [] on any error."""
+        from datetime import UTC, datetime
+
+        from telemente.matrix.models import RoomSummary
+
+        try:
+            raw = json.loads(self._path(user_id).read_text(encoding="utf-8"))
+            result: list[object] = []
+            for item in raw:
+                last_activity = None
+                if item.get("last_activity"):
+                    with contextlib.suppress(ValueError):
+                        last_activity = datetime.fromisoformat(item["last_activity"]).replace(
+                            tzinfo=UTC
+                        )
+                result.append(
+                    RoomSummary(
+                        room_id=item["room_id"],
+                        display_name=item["display_name"],
+                        encrypted=bool(item.get("encrypted", False)),
+                        last_activity=last_activity,
+                        tags=dict(item.get("tags") or {}),
+                    )
+                )
+            return result
+        except Exception as exc:
+            logger.debug("RoomCache.load failed: %s", exc)
+            return []

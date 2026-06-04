@@ -13,6 +13,7 @@ On exit it awaits client.close() to cancel sync and tear down cleanly.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import ClassVar
@@ -22,7 +23,7 @@ from textual.binding import BindingType
 from textual.message import Message as TextualMessage
 from textual.widgets import Footer, Header, Static  # Static used in compose() placeholder
 
-from telemente.config import CredentialStore, Paths, Session, Settings
+from telemente.config import CredentialStore, Paths, RoomCache, Session, Settings
 from telemente.matrix.client import (
     ClientEvent,
     MatrixClient,
@@ -102,6 +103,7 @@ class TelementeApp(App[None]):
         settings = Settings.load(settings_path)
 
         self._credential_store = credential_store or CredentialStore(paths)
+        self._room_cache = RoomCache(paths)
         self._default_homeserver = default_homeserver or settings.homeserver
 
         # Client may be injected (tests) or lazily created per homeserver.
@@ -113,6 +115,7 @@ class TelementeApp(App[None]):
 
         # Subscription handle; set once we subscribe.
         self._unsubscribe: Callable[[], None] | None = None
+        self._cached_user_id: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -177,8 +180,18 @@ class TelementeApp(App[None]):
             )
 
         await self._client.restore(session)
+        self._cached_user_id = session.user_id
         logger.info("Session restored for %s; pushing main screen", session.user_id)
-        self.push_screen(MainScreen(self._client))
+        main = MainScreen(self._client)
+        self.push_screen(main)
+        # Pre-populate the room list from cache before the first sync returns.
+        cached = self._room_cache.load(session.user_id)
+        if cached:
+            logger.info("Loaded %d rooms from cache", len(cached))
+            from telemente.tui.widgets.room_list import RoomList
+
+            with contextlib.suppress(Exception):
+                main.query_one(RoomList).set_rooms(cached)  # type: ignore[arg-type]
         self._start_sync_and_subscribe()
 
     def on_login_screen_logged_in(self, message: LoginScreen.LoggedIn) -> None:
@@ -191,6 +204,7 @@ class TelementeApp(App[None]):
         session = message.session
         logger.info("Logged in as %s — persisting session", session.user_id)
         self._credential_store.save(session)
+        self._cached_user_id = session.user_id
 
         # Rebuild the client for the (possibly user-entered) homeserver so it
         # is ready for sync and messaging via MainScreen.
@@ -239,6 +253,8 @@ class TelementeApp(App[None]):
         """
         if isinstance(event, RoomsChanged):
             logger.debug("ClientEvent: RoomsChanged with %d rooms", len(event.rooms))
+            if self._cached_user_id:
+                self._room_cache.save(self._cached_user_id, event.rooms)
             self.post_message(_ClientRoomsChanged(event))
         elif isinstance(event, NewMessage):
             logger.debug(
