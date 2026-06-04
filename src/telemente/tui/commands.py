@@ -20,6 +20,7 @@ Commands exposed:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from textual.app import ComposeResult
 from textual.command import DiscoveryHit, Hit, Hits, Provider
@@ -81,43 +82,51 @@ class _ConfirmScreen(ModalScreen[bool]):
 # TelementeCommands
 # ---------------------------------------------------------------------------
 
-_COMMANDS: list[tuple[str, str, str]] = [
-    # (name, attr_name, help_text)
-    ("Search rooms", "_cmd_search_rooms", "Focus the room search bar"),
-    ("Toggle members pane", "_cmd_toggle_members", "Show/hide the members panel"),
-    ("Close tab", "_cmd_close_tab", "Close the active room's tab"),
-    ("Sort: Recent activity", "_cmd_sort_recent", "Sort room list by newest message first"),
-    ("Sort: Alphabetical", "_cmd_sort_alpha", "Sort room list A-Z by name"),
-    ("Toggle favourite ★", "_cmd_toggle_favourite", "Add or remove the m.favourite tag"),
-    ("Toggle low priority ↓", "_cmd_toggle_lowpriority", "Add or remove the m.lowpriority tag"),
-    ("Toggle mute 🔕", "_cmd_toggle_mute", "Add or remove the m.mute tag"),
-    (
-        "Leave room",
-        "_cmd_leave_room",
-        "Leave the currently selected room (asks for confirmation)",
-    ),
-    ("Logout", "_cmd_logout", "Log out and return to the login screen"),
-]
-
 
 class TelementeCommands(Provider):
     """Command palette provider — the source of truth for app features."""
 
+    def _commands(self) -> list[tuple[str, Callable[[], None], str]]:
+        """Return (name, callback, help_text) for every palette command.
+
+        Direct method references instead of string names so that a rename
+        shows as a type error rather than a silent AttributeError at runtime.
+        """
+        return [
+            ("Search rooms", self._cmd_search_rooms, "Focus the room search bar"),
+            ("Toggle members pane", self._cmd_toggle_members, "Show/hide the members panel"),
+            ("Close tab", self._cmd_close_tab, "Close the active room's tab"),
+            (
+                "Sort: Recent activity",
+                self._cmd_sort_recent,
+                "Sort room list by newest message first",
+            ),
+            ("Sort: Alphabetical", self._cmd_sort_alpha, "Sort room list A-Z by name"),
+            ("Toggle favourite ★", self._cmd_toggle_favourite, "Add or remove the m.favourite tag"),
+            (
+                "Toggle low priority ↓",
+                self._cmd_toggle_lowpriority,
+                "Add or remove the m.lowpriority tag",
+            ),
+            ("Toggle mute 🔕", self._cmd_toggle_mute, "Add or remove the m.mute tag"),
+            (
+                "Leave room",
+                self._cmd_leave_room,
+                "Leave the currently selected room (asks for confirmation)",
+            ),
+            ("Logout", self._cmd_logout, "Log out and return to the login screen"),
+        ]
+
     async def discover(self) -> Hits:
-        for name, attr, help_text in _COMMANDS:
-            yield DiscoveryHit(name, getattr(self, attr), help=help_text)
+        for name, callback, help_text in self._commands():
+            yield DiscoveryHit(name, callback, help=help_text)
 
     async def search(self, query: str) -> Hits:
         matcher = self.matcher(query)
-        for name, attr, help_text in _COMMANDS:
+        for name, callback, help_text in self._commands():
             score = matcher.match(name)
             if score > 0:
-                yield Hit(
-                    score,
-                    matcher.highlight(name),
-                    getattr(self, attr),
-                    help=help_text,
-                )
+                yield Hit(score, matcher.highlight(name), callback, help=help_text)
 
     # ------------------------------------------------------------------
     # Navigation / layout

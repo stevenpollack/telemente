@@ -61,9 +61,11 @@ class _RoomItem(ListItem):
             name = f"{name} ↓"
         if "m.mute" in room.tags:
             name = f"{name} 🔕"
-        if room.unread_count > 0:
+        unread = room.unread_count > 0
+        if unread:
             name = f"[bold]{name} ({room.unread_count})[/bold]"
-        yield Label(name, markup=True, classes="room-name")
+        extra = " -unread" if unread else ""
+        yield Label(name, markup=True, classes=f"room-name{extra}")
 
 
 class RoomList(Widget):

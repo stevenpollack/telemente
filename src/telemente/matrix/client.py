@@ -461,8 +461,9 @@ class MatrixClient:
         if isinstance(response, nio.ErrorResponse):
             raise MatrixError(f"leave_room failed for {room_id}: {response}")
         logger.info("Left room %s", room_id)
-        # Emit RoomsChanged so the UI removes the room immediately.
-        await self._emit(RoomsChanged(rooms=self.rooms()))
+        # nio does not remove the room from its in-memory dict until the next
+        # sync response, so filter it out manually for the immediate UI update.
+        await self._emit(RoomsChanged(rooms=[r for r in self.rooms() if r.room_id != room_id]))
 
     async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None:
         """Add or update a room tag (e.g. m.favourite, m.lowpriority).
@@ -728,7 +729,7 @@ class MatrixClient:
             room_id=room.room_id,
             sender=event.sender,
             sender_display_name=_get_display_name(room, event.sender),
-            body="\U0001f512 unable to decrypt",
+            body="\U0001f512 Unable to decrypt",
             timestamp=ts,
         )
         await self._emit(NewMessage(message=placeholder))
@@ -794,7 +795,7 @@ class MatrixClient:
             return
         for room_id, room_info in join.items():
             try:
-                events = list(reversed(room_info.timeline.events))
+                events = reversed(room_info.timeline.events)
             except AttributeError:
                 continue
             for event in events:

@@ -47,9 +47,14 @@ def _room(
     )
 
 
-def _msg(room_id: str, body: str = "hello") -> Message:
+_msg_counter: int = 0
+
+
+def _msg(room_id: str, body: str = "hello", event_id: str | None = None) -> Message:
+    global _msg_counter
+    _msg_counter += 1
     return Message(
-        event_id="$ev1",
+        event_id=event_id if event_id is not None else f"$ev{_msg_counter}",
         room_id=room_id,
         sender="@alice:matrix.org",
         sender_display_name="Alice",

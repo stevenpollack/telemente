@@ -89,7 +89,10 @@ class MainScreen(Screen[None]):
     @property
     def active_room_id(self) -> str | None:
         """The currently active room ID (frontmost tab), or None."""
-        tc = self.query_one(TabbedContent)
+        try:
+            tc = self.query_one(TabbedContent)
+        except Exception:
+            return None
         active = tc.active
         if not active:
             return None
@@ -218,11 +221,11 @@ class MainScreen(Screen[None]):
             self._sync_room_highlight()
             return
 
-        # Evict oldest tab if at cap
+        # Determine eviction before mutating state.
+        evict_tid: str | None = None
         if len(self._open_tabs) >= TAB_CAP:
             oldest_room_id, _ = next(iter(self._open_tabs.items()))
-            oldest_tid = _tab_id(oldest_room_id)
-            self.run_worker(self._remove_tab(tc, oldest_tid), exclusive=False)
+            evict_tid = _tab_id(oldest_room_id)
             del self._open_tabs[oldest_room_id]
 
         # Find display name from room list
@@ -250,10 +253,12 @@ class MainScreen(Screen[None]):
         room_list.set_active_room(room_id)
         room_list.set_rooms(updated)
 
-        # Open the tab and load content
+        # Open the tab (and evict if needed) in one exclusive worker so that
+        # remove_pane always completes before add_pane, and concurrent room
+        # selections are serialised — the last one wins for MemberList.
         self.run_worker(
-            self._open_tab(tc, room_id, tid, display_name),
-            exclusive=False,
+            self._open_tab(tc, room_id, tid, display_name, evict_tid=evict_tid),
+            exclusive=True,
         )
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
@@ -274,20 +279,31 @@ class MainScreen(Screen[None]):
             return
         tid = _tab_id(room_id)
         del self._open_tabs[room_id]
-        await self.query_one(TabbedContent).remove_pane(tid)
+        tc = self.query_one(TabbedContent)
+        await tc.remove_pane(tid)
         self._sync_room_highlight()
 
-    async def _open_tab(self, tc: TabbedContent, room_id: str, tid: str, display_name: str) -> None:
+    async def _open_tab(
+        self,
+        tc: TabbedContent,
+        room_id: str,
+        tid: str,
+        display_name: str,
+        *,
+        evict_tid: str | None = None,
+    ) -> None:
+        # Evict first so we never exceed TAB_CAP.
+        if evict_tid is not None:
+            await tc.remove_pane(evict_tid)
         view = MessageView(self._client, id=f"mv-{tid}")
         pane = TabPane(display_name, view, id=tid)
         await tc.add_pane(pane)
         tc.active = tid
         self._sync_room_highlight()
         await view.load_room(room_id)
-        self.query_one(MemberList).load_room(room_id)
-
-    async def _remove_tab(self, tc: TabbedContent, tid: str) -> None:
-        await tc.remove_pane(tid)
+        # Guard against a tab switch that happened while load_room was awaiting.
+        if self.active_room_id == room_id:
+            self.query_one(MemberList).load_room(room_id)
 
     # ------------------------------------------------------------------
     # Internal helpers

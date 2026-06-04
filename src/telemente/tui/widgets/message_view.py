@@ -386,19 +386,12 @@ class MessageView(Widget):
         composer.focus()
 
     def on__message_row_delete_request(self, event: _MessageRow.DeleteRequest) -> None:
-        """Redact the message and remove its row immediately."""
+        """Redact the message: confirm with server first, then remove the row."""
         msg = event.message
         room_id = self._current_room_id
         if not room_id:
             return
-        # Optimistic local removal
-        for row in list(self.query(_MessageRow)):
-            if row._message.event_id == msg.event_id:
-                row.remove()
-                self._rendered_event_ids.discard(msg.event_id)
-                self._msgs_by_id.pop(msg.event_id, None)
-                break
-        self.run_worker(self._do_redact(room_id, msg.event_id), exclusive=False)
+        self.run_worker(self._do_redact_and_remove(room_id, msg), exclusive=False)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "emoji-input":
@@ -452,14 +445,15 @@ class MessageView(Widget):
         if not text or self._current_room_id is None:
             return
         room_id = self._current_room_id
-        event.area.clear()
 
         if self._editing is not None:
             editing = self._editing
             self._editing = None
+            event.area.clear()
             self.run_worker(self._do_edit(room_id, editing, text), exclusive=False)
             return
 
+        event.area.clear()
         reply_to = self._replying_to.event_id if self._replying_to else None
         if self._replying_to is not None:
             self._replying_to = None
@@ -479,9 +473,21 @@ class MessageView(Widget):
                 row.update_body(new_body)
                 break
 
-    async def _do_redact(self, room_id: str, event_id: str) -> None:
-        logger.debug("Redacting %s in %s", event_id, room_id)
-        await self._client.redact_message(room_id, event_id)
+    async def _do_redact_and_remove(self, room_id: str, msg: Message) -> None:
+        """Send the redact RPC; remove the row only on success."""
+        logger.debug("Redacting %s in %s", msg.event_id, room_id)
+        try:
+            await self._client.redact_message(room_id, msg.event_id)
+        except Exception as exc:
+            logger.warning("redact_message failed for %s: %s", msg.event_id, exc)
+            self.app.notify(f"Could not delete message: {exc}", severity="error")
+            return
+        for row in list(self.query(_MessageRow)):
+            if row._message.event_id == msg.event_id:
+                row.remove()
+                self._rendered_event_ids.discard(msg.event_id)
+                self._msgs_by_id.pop(msg.event_id, None)
+                break
 
     async def _do_send(
         self, room_id: str, body: str, *, reply_to_event_id: str | None = None
