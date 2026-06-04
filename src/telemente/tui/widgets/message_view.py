@@ -100,9 +100,18 @@ class _MessageRow(Widget):
         time_str = local_ts.strftime("%H:%M")
         color = sender_color(msg.sender)
         sender = msg.sender_display_name
+        if msg.reply_to_event_id:
+            yield Static(
+                f"[dim]↩ In reply to {msg.reply_to_event_id[:20]}…[/dim]",
+                markup=True,
+                classes="reply-indicator",
+            )
         body = _linkify(msg.body)
         header_body = f"[bold {color}]{sender}[/bold {color}] [dim]{time_str}[/dim]\n{body}"
         yield Static(header_body, markup=True)
+        if msg.reactions:
+            chips = "  ".join(f"{emoji} {len(senders)}" for emoji, senders in msg.reactions.items())
+            yield Static(chips, classes="reaction-chips")
         if msg.media_url:
             icon = {"image": "🖼", "video": "🎬", "audio": "🎵"}.get(msg.media_type or "", "📎")
             label = f"{icon} {msg.body or msg.media_type or 'attachment'}"

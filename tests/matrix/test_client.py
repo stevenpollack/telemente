@@ -70,6 +70,7 @@ def _make_text_event(
     sender: str = "@alice:example.com",
     body: str = "Hello!",
     server_timestamp: int = 1_700_000_000_000,
+    reply_to_event_id: str | None = None,
 ) -> Any:
     """A minimal fake nio RoomMessageText event."""
     import nio
@@ -79,6 +80,11 @@ def _make_text_event(
     ev.sender = sender
     ev.body = body
     ev.server_timestamp = server_timestamp
+    # Build source dict so reply_to_event_id parsing works
+    content: dict[str, Any] = {}
+    if reply_to_event_id is not None:
+        content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to_event_id}}
+    ev.source = {"content": content}
     return ev
 
 
@@ -468,3 +474,65 @@ async def test_messages_mixed_events_all_included() -> None:
     assert msgs[0].event_id == "$t1"
     assert msgs[1].event_id == "$m1"
     assert msgs[2].event_id == "$e1"
+
+
+# ---------------------------------------------------------------------------
+# Feature 2: reactions
+# ---------------------------------------------------------------------------
+
+
+def _make_reaction_event(
+    event_id: str = "$r1:example.com",
+    sender: str = "@bob:example.com",
+    reacts_to: str = "$ev1:example.com",
+    key: str = "👍",
+    server_timestamp: int = 1_700_000_003_000,
+) -> Any:
+    """A minimal fake nio ReactionEvent."""
+    import nio
+
+    ev = MagicMock(spec=nio.ReactionEvent)
+    ev.event_id = event_id
+    ev.sender = sender
+    ev.reacts_to = reacts_to
+    ev.key = key
+    ev.server_timestamp = server_timestamp
+    return ev
+
+
+async def test_messages_aggregates_reactions_onto_target() -> None:
+    """messages() collects ReactionEvents and populates reactions on target Message."""
+    text_ev = _make_text_event(event_id="$ev1:example.com", body="hi")
+    reaction_ev = _make_reaction_event(
+        reacts_to="$ev1:example.com", key="👍", sender="@bob:example.com"
+    )
+
+    nio_mock = _build_nio_mock()
+    nio_mock.room_messages.return_value = _make_rooms_response([text_ev, reaction_ev])
+    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    msgs = await client.messages("!r:example.com")
+
+    assert len(msgs) == 1
+    assert msgs[0].event_id == "$ev1:example.com"
+    assert "👍" in msgs[0].reactions
+    assert "@bob:example.com" in msgs[0].reactions["👍"]
+
+
+async def test_messages_reaction_unknown_event_id_ignored() -> None:
+    """Reactions targeting unknown event_ids are silently dropped."""
+    text_ev = _make_text_event(event_id="$ev1:example.com", body="hi")
+    reaction_ev = _make_reaction_event(reacts_to="$unknown:example.com", key="❤️")
+
+    nio_mock = _build_nio_mock()
+    nio_mock.room_messages.return_value = _make_rooms_response([text_ev, reaction_ev])
+    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    msgs = await client.messages("!r:example.com")
+
+    assert len(msgs) == 1
+    assert msgs[0].reactions == {}

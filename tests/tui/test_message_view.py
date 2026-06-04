@@ -425,3 +425,46 @@ async def test_media_message_renders_link_widget() -> None:
         link = links.first(Link)
         assert "photo.jpg" in link.text
         assert link.url == "https://example.com/media/photo.jpg"
+
+
+# ---------------------------------------------------------------------------
+# Test 12: message with reactions renders emoji + count chip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_message_with_reactions_renders_chips() -> None:
+    """A Message with reactions shows a Static containing emoji and count."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [
+        Message(
+            event_id="$e1",
+            room_id="!r:s",
+            sender="@alice:matrix.org",
+            sender_display_name="Alice",
+            body="hello",
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+            reactions={"👍": ["@bob:matrix.org", "@carol:matrix.org"], "❤️": ["@dave:matrix.org"]},
+        )
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        rows = list(view.query(_MessageRow))
+        assert len(rows) == 1
+        row = rows[0]
+        statics = list(row.query(Static))
+        # At least 2 statics: body + reactions
+        assert len(statics) >= 2
+        reaction_texts = [str(s.render()) for s in statics]
+        combined = " ".join(reaction_texts)
+        assert "👍" in combined
+        assert "2" in combined
+        assert "❤️" in combined
+        assert "1" in combined

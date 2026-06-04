@@ -36,6 +36,10 @@ class Message:
     media_url: str | None = None
     # Human-readable media type label, e.g. "image", "video", "audio", "file"
     media_type: str | None = None
+    # Aggregated reactions: emoji -> [sender_user_id, ...]
+    reactions: dict[str, list[str]] = field(default_factory=dict)
+    # Set when this message is a reply — the event_id of the parent message.
+    reply_to_event_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

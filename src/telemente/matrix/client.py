@@ -372,13 +372,26 @@ class MatrixClient:
             logger.warning("room_messages failed for %s: %s", room_id, response)
             return []
 
-        result: list[Message] = []
+        # First pass: collect message events and reaction events separately.
+        # reactions_by_event: target_event_id -> emoji -> [sender, ...]
+        reactions_by_event: dict[str, dict[str, list[str]]] = {}
+        raw_messages: list[Message] = []
+
         room = self._client.rooms.get(room_id)
         for event in response.chunk:
-            if isinstance(event, nio.RoomMessageText):
+            if isinstance(event, nio.ReactionEvent):
+                bucket = reactions_by_event.setdefault(event.reacts_to, {})
+                bucket.setdefault(event.key, []).append(event.sender)
+            elif isinstance(event, nio.RoomMessageText):
                 sender_display_name = _get_display_name(room, event.sender)
                 ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
-                result.append(
+                reply_to: str | None = (
+                    event.source.get("content", {})
+                    .get("m.relates_to", {})
+                    .get("m.in_reply_to", {})
+                    .get("event_id")
+                )
+                raw_messages.append(
                     Message(
                         event_id=event.event_id,
                         room_id=room_id,
@@ -386,6 +399,7 @@ class MatrixClient:
                         sender_display_name=sender_display_name,
                         body=event.body,
                         timestamp=ts,
+                        reply_to_event_id=reply_to,
                     )
                 )
             elif isinstance(event, nio.RoomMessageMedia):
@@ -393,7 +407,7 @@ class MatrixClient:
                 ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
                 media_type = _media_type_label(event)
                 http_url = await self._client.mxc_to_http(event.url)
-                result.append(
+                raw_messages.append(
                     Message(
                         event_id=event.event_id,
                         room_id=room_id,
@@ -408,7 +422,7 @@ class MatrixClient:
             elif isinstance(event, nio.MegolmEvent):
                 sender_display_name = _get_display_name(room, event.sender)
                 ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
-                result.append(
+                raw_messages.append(
                     Message(
                         event_id=event.event_id,
                         room_id=room_id,
@@ -418,6 +432,19 @@ class MatrixClient:
                         timestamp=ts,
                     )
                 )
+
+        # Second pass: attach reactions to their target messages.
+        # Reactions targeting unknown event_ids are silently ignored.
+        from dataclasses import replace
+
+        result: list[Message] = []
+        for msg in raw_messages:
+            rxns = reactions_by_event.get(msg.event_id)
+            if rxns:
+                result.append(replace(msg, reactions=rxns))
+            else:
+                result.append(msg)
+
         # Backfill returns newest-first; reverse to chronological order.
         result.reverse()
         return result
