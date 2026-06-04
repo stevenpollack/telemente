@@ -121,6 +121,7 @@ _DateSeparator {
 _MessageRow {
     height: auto;
     color: $text;
+    text-wrap: wrap;
 }
 
 /* -------------------------------------------------------------------------

@@ -317,3 +317,181 @@ async def test_login_forbidden_integration() -> None:
             await client.login(_USER, _PASSWORD)
 
     await real_nio.close()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — messages()
+# ---------------------------------------------------------------------------
+
+
+def _make_rooms_response(chunk: list[Any]) -> Any:
+    """A fake nio.RoomMessagesResponse wrapping a given event list."""
+    import nio
+
+    resp = MagicMock(spec=nio.RoomMessagesResponse)
+    resp.chunk = chunk
+    return resp
+
+
+def _make_media_event(
+    event_id: str = "$m1:example.com",
+    sender: str = "@alice:example.com",
+    body: str = "photo.jpg",
+    url: str = "mxc://example.com/abc123",
+    server_timestamp: int = 1_700_000_001_000,
+    kind: str = "image",
+) -> Any:
+    """A minimal fake nio RoomMessageMedia event."""
+    import nio
+
+    cls = {
+        "image": nio.RoomMessageImage,
+        "video": nio.RoomMessageVideo,
+        "audio": nio.RoomMessageAudio,
+        "file": nio.RoomMessageFile,
+    }[kind]
+    ev = MagicMock(spec=cls)
+    ev.event_id = event_id
+    ev.sender = sender
+    ev.body = body
+    ev.url = url
+    ev.server_timestamp = server_timestamp
+    return ev
+
+
+def _make_megolm_event(
+    event_id: str = "$enc1:example.com",
+    sender: str = "@alice:example.com",
+    server_timestamp: int = 1_700_000_002_000,
+) -> Any:
+    """A minimal fake nio MegolmEvent."""
+    import nio
+
+    ev = MagicMock(spec=nio.MegolmEvent)
+    ev.event_id = event_id
+    ev.sender = sender
+    ev.server_timestamp = server_timestamp
+    ev.session_id = "fake_session"
+    return ev
+
+
+async def test_messages_returns_text_events() -> None:
+    """messages() returns Message objects for RoomMessageText events."""
+
+    text_ev = _make_text_event(body="hello world")
+    nio_mock = _build_nio_mock()
+    nio_mock.room_messages.return_value = _make_rooms_response([text_ev])
+    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    msgs = await client.messages("!r:example.com")
+
+    assert len(msgs) == 1
+    assert msgs[0].body == "hello world"
+    assert msgs[0].media_url is None
+    assert msgs[0].media_type is None
+
+
+async def test_messages_includes_media_events() -> None:
+    """messages() converts RoomMessageMedia to a Message with media_url set."""
+
+    media_ev = _make_media_event(body="photo.jpg", url="mxc://example.com/abc123")
+    nio_mock = _build_nio_mock()
+    nio_mock.room_messages.return_value = _make_rooms_response([media_ev])
+    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+    nio_mock.mxc_to_http.return_value = (
+        "https://example.com/_matrix/media/v3/download/example.com/abc123"
+    )
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    msgs = await client.messages("!r:example.com")
+
+    assert len(msgs) == 1
+    assert msgs[0].body == "photo.jpg"
+    assert msgs[0].media_type == "image"
+    assert msgs[0].media_url == "https://example.com/_matrix/media/v3/download/example.com/abc123"
+
+
+async def test_messages_media_types_labeled_correctly() -> None:
+    """Each media subtype gets the right label: image/video/audio/file."""
+
+    cases = [("image", "image"), ("video", "video"), ("audio", "audio"), ("file", "file")]
+    for kind, expected_label in cases:
+        ev = _make_media_event(kind=kind)
+        nio_mock = _build_nio_mock()
+        nio_mock.room_messages.return_value = _make_rooms_response([ev])
+        nio_mock.rooms = {}
+        nio_mock.mxc_to_http.return_value = "https://example.com/media"
+
+        client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+        client._logged_in = True
+        msgs = await client.messages("!r:example.com")
+        assert msgs[0].media_type == expected_label, f"failed for kind={kind}"
+
+
+async def test_messages_megolm_events_become_placeholders() -> None:
+    """MegolmEvent produces a Message with the 🔒 placeholder body."""
+    enc_ev = _make_megolm_event()
+    nio_mock = _build_nio_mock()
+    nio_mock.room_messages.return_value = _make_rooms_response([enc_ev])
+    nio_mock.rooms = {}
+    nio_mock.request_room_key = AsyncMock()
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    msgs = await client.messages("!r:example.com")
+
+    assert len(msgs) == 1
+    assert "\U0001f512" in msgs[0].body
+    assert msgs[0].media_url is None
+
+
+async def test_messages_mixed_events_all_included() -> None:
+    """Text, media, and encrypted events all appear in chronological order."""
+    text_ev = _make_text_event(event_id="$t1", server_timestamp=1_000)
+    media_ev = _make_media_event(event_id="$m1", server_timestamp=2_000)
+    enc_ev = _make_megolm_event(event_id="$e1", server_timestamp=3_000)
+    # room_messages returns newest-first; client.messages() reverses to chrono
+    nio_mock = _build_nio_mock()
+    nio_mock.room_messages.return_value = _make_rooms_response([enc_ev, media_ev, text_ev])
+    nio_mock.rooms = {}
+    nio_mock.mxc_to_http.return_value = "https://example.com/media"
+    nio_mock.request_room_key = AsyncMock()
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    msgs = await client.messages("!r:example.com")
+
+    assert len(msgs) == 3
+    assert msgs[0].event_id == "$t1"
+    assert msgs[1].event_id == "$m1"
+    assert msgs[2].event_id == "$e1"
+
+
+# ---------------------------------------------------------------------------
+# UI: MessageView renders media URL
+# ---------------------------------------------------------------------------
+
+
+async def test_message_view_renders_media_url() -> None:
+    """_MessageRow includes the media_url in rendered text."""
+    from datetime import UTC, datetime
+
+    from telemente.matrix.models import Message
+    from telemente.tui.widgets.message_view import _MessageRow
+
+    msg = Message(
+        event_id="$m1",
+        room_id="!r:s",
+        sender="@alice:s",
+        sender_display_name="Alice",
+        body="photo.jpg",
+        timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        media_url="https://example.com/media/photo.jpg",
+        media_type="image",
+    )
+    row = _MessageRow(msg)
+    rendered = str(row.render())
+    assert "https://example.com/media/photo.jpg" in rendered

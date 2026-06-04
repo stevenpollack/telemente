@@ -68,6 +68,7 @@ class _MessageRow(Static):
         height: auto;
         padding: 0 1;
         margin-bottom: 1;
+        text-wrap: wrap;
     }
     """
 
@@ -78,6 +79,9 @@ class _MessageRow(Static):
         sender = message.sender_display_name
         body = message.body
         text = f"[bold {color}]{sender}[/bold {color}] [dim]{time_str}[/dim]\n{body}"
+        if message.media_url:
+            icon = {"image": "🖼", "video": "🎬", "audio": "🎵"}.get(message.media_type or "", "📎")
+            text += f"\n{icon} {message.media_url}"
         super().__init__(text, markup=True)
 
 

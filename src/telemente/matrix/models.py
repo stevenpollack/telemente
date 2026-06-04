@@ -32,6 +32,10 @@ class Message:
     sender_display_name: str
     body: str
     timestamp: datetime
+    # Set for media messages (image/video/audio/file) — an HTTPS URL.
+    media_url: str | None = None
+    # Human-readable media type label, e.g. "image", "video", "audio", "file"
+    media_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -375,6 +375,23 @@ class MatrixClient:
                         timestamp=ts,
                     )
                 )
+            elif isinstance(event, nio.RoomMessageMedia):
+                sender_display_name = _get_display_name(room, event.sender)
+                ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+                media_type = _media_type_label(event)
+                http_url = await self._client.mxc_to_http(event.url)
+                result.append(
+                    Message(
+                        event_id=event.event_id,
+                        room_id=room_id,
+                        sender=event.sender,
+                        sender_display_name=sender_display_name,
+                        body=event.body or media_type,
+                        timestamp=ts,
+                        media_url=http_url,
+                        media_type=media_type,
+                    )
+                )
             elif isinstance(event, nio.MegolmEvent):
                 sender_display_name = _get_display_name(room, event.sender)
                 ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
@@ -556,6 +573,7 @@ class MatrixClient:
 
     def _register_callbacks(self) -> None:
         self._client.add_event_callback(self._on_room_message, nio.RoomMessageText)
+        self._client.add_event_callback(self._on_room_media, nio.RoomMessageMedia)
         self._client.add_event_callback(self._on_megolm_event, nio.MegolmEvent)
         self._client.add_response_callback(self._on_sync, nio.SyncResponse)
 
@@ -577,6 +595,24 @@ class MatrixClient:
             sender_display_name=sender_display_name,
             body=event.body,
             timestamp=ts,
+        )
+        await self._emit(NewMessage(message=message))
+
+    async def _on_room_media(self, room: nio.MatrixRoom, event: nio.RoomMessageMedia) -> None:
+        """nio callback: a new media message (image/video/audio/file) arrived."""
+        sender_display_name = _get_display_name(room, event.sender)
+        ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+        media_type = _media_type_label(event)
+        http_url = await self._client.mxc_to_http(event.url)
+        message = Message(
+            event_id=event.event_id,
+            room_id=room.room_id,
+            sender=event.sender,
+            sender_display_name=sender_display_name,
+            body=event.body or media_type,
+            timestamp=ts,
+            media_url=http_url,
+            media_type=media_type,
         )
         await self._emit(NewMessage(message=message))
 
@@ -699,3 +735,14 @@ def _get_display_name(room: nio.MatrixRoom | None, user_id: str) -> str:
     if user is None:
         return user_id
     return str(user.display_name or user.name or user_id)
+
+
+def _media_type_label(event: nio.RoomMessageMedia) -> str:
+    """Return a human-readable label for a media event type."""
+    if isinstance(event, nio.RoomMessageImage):
+        return "image"
+    if isinstance(event, nio.RoomMessageVideo):
+        return "video"
+    if isinstance(event, nio.RoomMessageAudio):
+        return "audio"
+    return "file"
