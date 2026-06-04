@@ -95,3 +95,30 @@ _MessageRow {
     padding: 0 1;
     color: $text;
 }
+
+/* -------------------------------------------------------------------------
+   Member list panel — MemberList widget (plan 0008)
+   ------------------------------------------------------------------------- */
+
+MemberList {
+    height: 1fr;
+    layout: vertical;
+}
+
+MemberList #member-list-header {
+    height: 1;
+    padding: 0 1;
+    text-style: bold;
+    color: $text;
+    dock: top;
+}
+
+MemberList #member-list-scroll {
+    height: 1fr;
+}
+
+MemberList .member-entry {
+    height: auto;
+    padding: 0 1;
+    color: $text;
+}

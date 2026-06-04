@@ -15,9 +15,10 @@ from textual.binding import BindingType
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Static
+from textual.widgets import Footer, Header, Input
 
-from telemente.matrix.models import Message
+from telemente.matrix.models import Member, Message
+from telemente.tui.widgets.member_list import MemberList
 from telemente.tui.widgets.message_view import MessageView
 from telemente.tui.widgets.room_list import RoomList
 
@@ -28,20 +29,15 @@ class _MainClient(Protocol):
     """Structural protocol for the subset of MatrixClient used by MainScreen.
 
     MainScreen delegates data access to child widgets (0006-0008).
-    The methods here match the subset consumed by MessageView so mypy can
-    verify DI without coupling to the real client.
+    The methods here match the subset consumed by MessageView and MemberList
+    so mypy can verify DI without coupling to the real client.
     """
 
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]: ...
 
     async def send_text(self, room_id: str, body: str) -> None: ...
 
-
-class _MembersPanel(Static):
-    """Placeholder for the right member panel (real widget: MemberList, plan 0008)."""
-
-    def __init__(self, widget_id: str) -> None:
-        super().__init__("Members panel", id=widget_id)
+    def members(self, room_id: str) -> list[Member]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +70,7 @@ class MainScreen(Screen[None]):
         with Horizontal(id="main-layout"):
             yield RoomList(id="rooms-panel")
             yield MessageView(self._client, id="message-panel")
-            yield _MembersPanel("members-panel")
+            yield MemberList(self._client, id="members-panel")
         yield Footer()
 
     def on_mount(self) -> None:
