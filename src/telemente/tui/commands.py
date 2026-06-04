@@ -195,8 +195,10 @@ class TelementeCommands(Provider):
 
         try:
             room_list = screen.query_one(RoomList)
-            visible = room_list.visible_rooms
-            display_name = next((r.display_name for r in visible if r.room_id == room_id), room_id)
+            display_name = next(
+                (r.display_name for r in room_list.all_rooms if r.room_id == room_id),
+                room_id,
+            )
         except Exception:
             display_name = room_id
 
@@ -329,8 +331,7 @@ class _RoomActionsScreen(ModalScreen[None]):
         if isinstance(screen, MainScreen):
             try:
                 room_list = screen.query_one(RoomList)
-                visible = room_list.visible_rooms
-                room = next((r for r in visible if r.room_id == room_id), None)
+                room = next((r for r in room_list.all_rooms if r.room_id == room_id), None)
                 if room is not None:
                     is_tagged = tag in room.tags
             except Exception:

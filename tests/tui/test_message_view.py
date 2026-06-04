@@ -256,3 +256,95 @@ async def test_append_message_other_room_ignored() -> None:
         rendered = _rendered_text(view)
         assert "room A body" in rendered
         assert "room B body" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 7: all-encrypted room shows encryption notice
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_all_encrypted_room_shows_notice() -> None:
+    """When every message is undecryptable, an encryption notice appears."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!enc:s"] = [
+        _msg("$e1", "!enc:s", "\U0001f512 Unable to decrypt"),
+        _msg("$e2", "!enc:s", "\U0001f512 Unable to decrypt"),
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!enc:s")
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        notice = view.query_one("#encryption-notice", Static)
+        assert notice.display is True
+        assert "keys" in str(notice.render()).lower()
+
+
+# ---------------------------------------------------------------------------
+# Test 8: mixed room (some decryptable) hides encryption notice
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mixed_room_hides_encryption_notice() -> None:
+    """When some messages are readable, no encryption notice is shown."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!mix:s"] = [
+        _msg("$e1", "!mix:s", "\U0001f512 Unable to decrypt"),
+        _msg("$e2", "!mix:s", "Hello, world!"),
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!mix:s")
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        notice = view.query_one("#encryption-notice", Static)
+        assert notice.display is False
+
+
+# ---------------------------------------------------------------------------
+# Test 9: switching from encrypted to readable room hides notice
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_switching_from_encrypted_to_readable_hides_notice() -> None:
+    """The notice disappears when switching to a room with readable messages."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!enc:s"] = [
+        _msg("$e1", "!enc:s", "\U0001f512 Unable to decrypt"),
+    ]
+    fake._messages["!clear:s"] = [
+        _msg("$e2", "!clear:s", "Readable message"),
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+
+        await view.load_room("!enc:s")
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        notice = view.query_one("#encryption-notice", Static)
+        assert notice.display is True
+
+        await view.load_room("!clear:s")
+        await pilot.pause()
+        assert notice.display is False

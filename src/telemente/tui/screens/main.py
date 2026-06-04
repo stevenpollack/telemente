@@ -158,7 +158,7 @@ class MainScreen(Screen[None]):
             # Update RoomList with the new unread count
             room_list = self.query_one(RoomList)
             updated: list[RoomSummary] = []
-            for room in room_list.visible_rooms:
+            for room in room_list.all_rooms:
                 if room.room_id == msg.room_id:
                     updated.append(
                         RoomSummary(
@@ -202,7 +202,7 @@ class MainScreen(Screen[None]):
                 encrypted=r.encrypted,
                 tags=r.tags,
             )
-            for r in room_list.visible_rooms
+            for r in room_list.all_rooms
         ]
         room_list.set_rooms(updated)
 

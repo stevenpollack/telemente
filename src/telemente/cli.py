@@ -32,6 +32,16 @@ def _configure_logging(level: str, log_file: Path) -> None:
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
     root.addHandler(handler)
 
+    # Quiet noisy third-party loggers unless the user explicitly asks for DEBUG.
+    if level.upper() != "DEBUG":
+        for noisy in ("nio", "peewee", "h11", "h2", "httpcore"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
+    else:
+        # Even at DEBUG, keep peewee and nio.responses at INFO to avoid
+        # multi-MB log files from schema validation and SQL queries.
+        logging.getLogger("peewee").setLevel(logging.INFO)
+        logging.getLogger("nio.responses").setLevel(logging.INFO)
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the top-level argument parser."""

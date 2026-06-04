@@ -48,13 +48,30 @@ RoomList {
     layout: vertical;
 }
 
-RoomList #room-search {
+RoomList #search-bar {
     height: 3;
     dock: top;
 }
 
+RoomList #room-search {
+    width: 1fr;
+}
+
+RoomList #clear-search {
+    width: 3;
+    min-width: 3;
+    border: none;
+    padding: 0;
+}
+
 RoomList #room-list-view {
     height: 1fr;
+}
+
+RoomList .room-loading-state {
+    color: $text-muted;
+    text-align: center;
+    padding: 1;
 }
 
 RoomList .room-empty-state {
@@ -85,14 +102,24 @@ MessageView #message-timeline {
     height: 1fr;
 }
 
+MessageView .encryption-notice {
+    height: auto;
+    padding: 1 2;
+    color: $warning;
+    text-align: center;
+}
+
 MessageView #composer {
     height: 3;
     dock: bottom;
 }
 
+_DateSeparator {
+    color: $text-muted;
+}
+
 _MessageRow {
     height: auto;
-    padding: 0 1;
     color: $text;
 }
 

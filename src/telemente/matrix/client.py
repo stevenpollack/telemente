@@ -109,7 +109,9 @@ class MatrixClient:
         self._store_path = store_path
         self._handlers: list[EventHandler] = []
         self._task: asyncio.Task[None] | None = None
+        self._rooms_poll_task: asyncio.Task[None] | None = None
         self._logged_in: bool = False
+        self._initial_sync_done: bool = False
 
         if nio_client is not None:
             self._client = nio_client
@@ -125,6 +127,11 @@ class MatrixClient:
                 config=config,
                 store_path=store_path or "",
             )
+
+    @property
+    def homeserver(self) -> str:
+        """The homeserver URL this client is configured for."""
+        return self._homeserver
 
     # ------------------------------------------------------------------
     # Auth
@@ -233,15 +240,45 @@ class MatrixClient:
 
         Idempotent — no-op if already running. Raises NotLoggedInError if
         not yet logged in.
+
+        Performs one full-state sync first (populates all rooms), then starts
+        sync_forever for incremental updates. A background poll task emits
+        RoomsChanged progressively while the initial sync is processing.
         """
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in before starting sync")
         if self._task is not None and not self._task.done():
             return
-        self._task = asyncio.create_task(self._client.sync_forever(timeout=30000, full_state=True))
+        logger.info("Starting sync")
+        self._task = asyncio.create_task(self._sync_loop())
+
+    async def _sync_loop(self) -> None:
+        """Run initial full-state sync, then switch to incremental sync_forever."""
+        self._rooms_poll_task = asyncio.create_task(self._poll_rooms_during_sync())
+        try:
+            logger.debug("Initial sync (full_state=True)...")
+            resp = await self._client.sync(timeout=30000, full_state=True)
+            if isinstance(resp, nio.SyncResponse):
+                self._initial_sync_done = True
+                logger.info("Initial sync complete: %d rooms", len(self._client.rooms))
+                await self._emit(RoomsChanged(rooms=self.rooms()))
+            else:
+                logger.warning("Initial sync failed: %s", resp)
+                self._initial_sync_done = True
+        except Exception as exc:
+            logger.error("Initial sync error: %s", exc)
+            self._initial_sync_done = True
+
+        # Now run incremental sync forever.
+        logger.debug("Starting sync_forever (incremental)")
+        await self._client.sync_forever(timeout=30000)
 
     async def close(self) -> None:
         """Cancel the sync task and close the nio client."""
+        if self._rooms_poll_task is not None and not self._rooms_poll_task.done():
+            self._rooms_poll_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._rooms_poll_task
         if self._task is not None and not self._task.done():
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -312,7 +349,8 @@ class MatrixClient:
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]:
         """Fetch recent messages for a room via backfill.
 
-        Returns Message dataclasses; non-text events are ignored.
+        Returns Message dataclasses. Undecryptable encrypted events are
+        returned as placeholder messages so the UI can inform the user.
         """
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in to fetch messages")
@@ -324,20 +362,34 @@ class MatrixClient:
         result: list[Message] = []
         room = self._client.rooms.get(room_id)
         for event in response.chunk:
-            if not isinstance(event, nio.RoomMessageText):
-                continue
-            sender_display_name = _get_display_name(room, event.sender)
-            ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
-            result.append(
-                Message(
-                    event_id=event.event_id,
-                    room_id=room_id,
-                    sender=event.sender,
-                    sender_display_name=sender_display_name,
-                    body=event.body,
-                    timestamp=ts,
+            if isinstance(event, nio.RoomMessageText):
+                sender_display_name = _get_display_name(room, event.sender)
+                ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+                result.append(
+                    Message(
+                        event_id=event.event_id,
+                        room_id=room_id,
+                        sender=event.sender,
+                        sender_display_name=sender_display_name,
+                        body=event.body,
+                        timestamp=ts,
+                    )
                 )
-            )
+            elif isinstance(event, nio.MegolmEvent):
+                sender_display_name = _get_display_name(room, event.sender)
+                ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+                result.append(
+                    Message(
+                        event_id=event.event_id,
+                        room_id=room_id,
+                        sender=event.sender,
+                        sender_display_name=sender_display_name,
+                        body="\U0001f512 Unable to decrypt",
+                        timestamp=ts,
+                    )
+                )
+        # Backfill returns newest-first; reverse to chronological order.
+        result.reverse()
         return result
 
     # ------------------------------------------------------------------
@@ -556,8 +608,62 @@ class MatrixClient:
         )
         await self._emit(NewMessage(message=placeholder))
 
+    async def _poll_rooms_during_sync(self) -> None:
+        """Periodically emit RoomsChanged while the initial sync is processing.
+
+        nio processes events one-by-one during a large initial sync, populating
+        self._client.rooms as it goes. The SyncResponse callback only fires
+        AFTER all events are processed, which can take many seconds for large
+        accounts. This task polls every 0.5s and emits RoomsChanged with
+        whatever rooms have appeared so far, giving the UI progressive updates.
+
+        Uses a lightweight room list (no timeline scanning) to avoid blocking
+        the event loop during the sync.
+        """
+        last_count = 0
+        while not self._initial_sync_done:
+            await asyncio.sleep(0.5)
+            current_count = len(self._client.rooms)
+            if current_count > last_count:
+                logger.debug(
+                    "_poll_rooms_during_sync: %d rooms (was %d)",
+                    current_count,
+                    last_count,
+                )
+                last_count = current_count
+                summaries = self._rooms_fast()
+                await self._emit(RoomsChanged(rooms=summaries))
+
+    def _rooms_fast(self) -> list[RoomSummary]:
+        """Build room summaries without scanning timelines (for progress updates).
+
+        Skips last_activity extraction which requires iterating timeline events.
+        The full rooms() call will populate timestamps once _on_sync fires.
+        """
+        summaries: list[RoomSummary] = []
+        for room_id, room in self._client.rooms.items():
+            tags: dict[str, float | None] = {}
+            if hasattr(room, "tags") and room.tags:
+                for tag_name, tag_data in room.tags.items():
+                    order: float | None = None
+                    if tag_data and isinstance(tag_data, dict):
+                        raw_order = tag_data.get("order")
+                        if isinstance(raw_order, (int, float)):
+                            order = float(raw_order)
+                    tags[str(tag_name)] = order
+            summaries.append(
+                RoomSummary(
+                    room_id=room_id,
+                    display_name=room.display_name or room_id,
+                    encrypted=bool(room.encrypted),
+                    tags=tags,
+                )
+            )
+        return summaries
+
     async def _on_sync(self, response: nio.SyncResponse) -> None:
         """nio callback: a sync response arrived — emit RoomsChanged and handle key ops."""
+        self._initial_sync_done = True
         rooms = self.rooms()
         logger.debug("_on_sync: %d rooms after sync", len(rooms))
 

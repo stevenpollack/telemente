@@ -159,11 +159,25 @@ class TelementeApp(App[None]):
         await self._client.close()
 
     async def _restore_session(self, session: Session) -> None:
+        # Rebuild the client for the session's homeserver (it may differ from
+        # the default in settings.toml if the user typed a different one at login).
+        if session.homeserver != self._client.homeserver:
+            logger.info(
+                "Session homeserver %s differs from default %s — rebuilding client",
+                session.homeserver,
+                self._client.homeserver,
+            )
+            paths = Paths.default().ensure()
+            settings_path = paths.config_dir / "settings.toml"
+            settings = Settings.load(settings_path)
+            self._client = MatrixClient(
+                session.homeserver,
+                store_path=str(paths.store_dir),
+                device_name=settings.default_device_name,
+            )
+
         await self._client.restore(session)
         logger.info("Session restored for %s; pushing main screen", session.user_id)
-        # Push the screen FIRST so it is mounted and ready to receive events,
-        # then start sync. This prevents RoomsChanged from being dropped because
-        # MainScreen had not yet mounted when the first sync fired.
         self.push_screen(MainScreen(self._client))
         self._start_sync_and_subscribe()
 

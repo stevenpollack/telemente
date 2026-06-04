@@ -255,3 +255,91 @@ async def test_unread_badge_rendered() -> None:
         assert badge.display is True
         # The badge should contain "(3)"
         assert "(3)" in str(badge.render())
+
+
+# ---------------------------------------------------------------------------
+# Test 8: loading indicator shown before first set_rooms, hidden after
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_loading_indicator_shown_until_first_rooms() -> None:
+    """'Syncing…' is visible on mount, hidden once set_rooms provides data."""
+    app = HostApp()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+
+        # Before any rooms arrive, loading indicator should be visible.
+        loading = app.query_one("#room-list--loading")
+        assert loading.display is True
+
+        # After setting rooms, loading hides.
+        room_list.set_rooms([_room("!a:h", "General")])
+        await pilot.pause()
+        assert loading.display is False
+
+
+# ---------------------------------------------------------------------------
+# Test 9: loading indicator stays hidden after subsequent set_rooms calls
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_loading_indicator_stays_hidden_after_load() -> None:
+    """Once rooms have loaded, the indicator stays hidden even if rooms change."""
+    app = HostApp()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms([_room("!a:h", "General")])
+        await pilot.pause()
+
+        loading = app.query_one("#room-list--loading")
+        assert loading.display is False
+
+        # Update rooms — loading should stay hidden.
+        room_list.set_rooms([_room("!a:h", "General"), _room("!b:h", "Random")])
+        await pilot.pause()
+        assert loading.display is False
+
+
+# ---------------------------------------------------------------------------
+# Test 10: set_rooms while filtered does not lose unfiltered rooms
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_rooms_while_filtered_preserves_all_rooms() -> None:
+    """Regression: calling set_rooms with all_rooms while a filter is active
+    must not permanently discard filtered-out rooms."""
+    app = HostApp()
+    rooms = [
+        _room("!a:h", "General", last_activity=DT_NEW),
+        _room("!b:h", "Random", last_activity=DT_MID),
+        _room("!c:h", "Dev", last_activity=DT_OLD),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+        assert len(room_list.all_rooms) == 3
+
+        # Apply a filter that hides 2 of 3 rooms.
+        room_list.apply_filter("gen")
+        await pilot.pause()
+        assert len(room_list.visible_rooms) == 1
+
+        # Simulate what MainScreen does: re-set rooms from all_rooms.
+        room_list.set_rooms(room_list.all_rooms)
+        await pilot.pause()
+
+        # Clear filter — all 3 rooms must reappear.
+        room_list.apply_filter("")
+        await pilot.pause()
+        assert len(room_list.visible_rooms) == 3
+        assert len(room_list.all_rooms) == 3

@@ -44,6 +44,7 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.8",
     "textual-dev>=1.5",
+    "pytest-xdist>=3.8.0",
 ]
 
 [build-system]

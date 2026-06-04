@@ -365,6 +365,7 @@ async def test_rooms_appear_after_session_restore() -> None:
     # known to the client after restore_login, as they would be from nio store).
     fake = FakeMatrixClient()
     fake._logged_in = True
+    fake.homeserver = "https://matrix.example.org"
     fake._rooms = [
         RoomSummary(room_id="!general:h", display_name="General"),
         RoomSummary(room_id="!random:h", display_name="Random"),

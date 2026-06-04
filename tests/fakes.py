@@ -121,6 +121,7 @@ class FakeMatrixClient:
         self._flows: LoginFlows = LoginFlows(password=True, sso=False, token=False)
         self.login_with_token_should_fail: bool = False
         self._fake_homeserver: str = "https://matrix.org"
+        self.homeserver: str = "https://matrix.org"
 
         # In-memory data
         self._rooms: list[RoomSummary] = []

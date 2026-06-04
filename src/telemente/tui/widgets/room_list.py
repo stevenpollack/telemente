@@ -12,6 +12,7 @@ from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import BindingType
+from textual.containers import Horizontal
 from textual.events import Key
 from textual.message import Message as TextualMessage
 from textual.widget import Widget
@@ -98,10 +99,17 @@ class RoomList(Widget):
         self._all_rooms: list[RoomSummary] = []
         self._filter: str = ""
         self._visible_rooms: list[RoomSummary] = []
+        self._has_loaded: bool = False
 
     def compose(self) -> ComposeResult:
-        yield Input(id="room-search", placeholder="Search rooms…")
-        yield Button("✕", id="clear-search", classes="clear-search-btn")
+        with Horizontal(id="search-bar"):
+            yield Input(id="room-search", placeholder="Search rooms…")
+            yield Button("✕", id="clear-search")
+        yield Static(
+            "Syncing…",
+            id="room-list--loading",
+            classes="room-loading-state",
+        )
         yield ListView(id="room-list-view")
         yield Static(
             "No rooms match",
@@ -110,6 +118,7 @@ class RoomList(Widget):
         )
 
     def on_mount(self) -> None:
+        self._sync_loading_state()
         self._sync_empty_state()
         self._sync_clear_button()
 
@@ -120,12 +129,19 @@ class RoomList(Widget):
     def set_rooms(self, rooms: list[RoomSummary]) -> None:
         """Replace the full room list and rebuild the visible view."""
         self._all_rooms = list(rooms)
+        if not self._has_loaded and rooms:
+            self._has_loaded = True
         self._rebuild()
 
     def apply_filter(self, query: str) -> None:
         """Apply a case-insensitive substring filter on display_name."""
         self._filter = query
         self._rebuild()
+
+    @property
+    def all_rooms(self) -> list[RoomSummary]:
+        """Full unfiltered room list."""
+        return list(self._all_rooms)
 
     @property
     def visible_rooms(self) -> list[RoomSummary]:
@@ -158,6 +174,7 @@ class RoomList(Widget):
         self._visible_rooms = rooms_with_dt + rooms_without_dt
 
         self._refresh_list()
+        self._sync_loading_state()
         self._sync_clear_button()
 
     def _refresh_list(self) -> None:
@@ -168,11 +185,16 @@ class RoomList(Widget):
             list_view.append(_RoomItem(room))
         self._sync_empty_state()
 
+    def _sync_loading_state(self) -> None:
+        """Show 'Syncing…' until the first batch of rooms arrives."""
+        loading = self.query_one("#room-list--loading", Static)
+        loading.display = not self._has_loaded
+
     def _sync_empty_state(self) -> None:
         """Show or hide the empty-state label."""
         empty = self.query_one("#room-list--empty-state", Static)
         has_items = len(self._visible_rooms) > 0 or len(self._all_rooms) == 0
-        empty.display = not has_items
+        empty.display = not has_items and self._has_loaded
 
     def _sync_clear_button(self) -> None:
         """Show the ✕ button only when the search input is non-empty."""
