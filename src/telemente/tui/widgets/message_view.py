@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import ClassVar, Protocol
 
 from textual.app import ComposeResult
@@ -34,7 +34,9 @@ class _MessageViewClient(Protocol):
 
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]: ...
 
-    async def send_text(self, room_id: str, body: str) -> None: ...
+    async def send_text(self, room_id: str, body: str) -> str: ...
+
+    def me(self) -> tuple[str, str]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +143,7 @@ class MessageView(Widget):
         super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self._client = client
         self._current_room_id: str | None = None
+        self._rendered_event_ids: set[str] = set()
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="message-timeline"):
@@ -176,9 +179,16 @@ class MessageView(Widget):
         self._update_encryption_notice(messages)
 
     def append_message(self, message: Message) -> None:
-        """Append a live message if it belongs to the current room."""
+        """Append a live message if it belongs to the current room.
+
+        Deduplicates by event_id so optimistic local echo and the subsequent
+        sync echo of the same event don't both appear.
+        """
         if message.room_id != self._current_room_id:
             return
+        if message.event_id in self._rendered_event_ids:
+            return
+        self._rendered_event_ids.add(message.event_id)
         timeline = self.query_one("#message-timeline", VerticalScroll)
         timeline.mount(_MessageRow(message))
         self._scroll_to_bottom()
@@ -188,6 +198,7 @@ class MessageView(Widget):
         timeline = self.query_one("#message-timeline", VerticalScroll)
         for widget in list(timeline.query("_MessageRow, _DateSeparator")):
             widget.remove()
+        self._rendered_event_ids.clear()
         self.query_one("#encryption-notice", Static).display = False
 
     # ------------------------------------------------------------------
@@ -210,14 +221,27 @@ class MessageView(Widget):
     # ------------------------------------------------------------------
 
     async def _do_send(self, room_id: str, body: str) -> None:
-        """Coroutine that performs the actual send_text call."""
+        """Send a message and echo it immediately into the local timeline."""
         logger.debug("Sending to %s: %s", room_id, body)
-        await self._client.send_text(room_id, body)
+        user_id, display_name = self._client.me()
+        event_id = await self._client.send_text(room_id, body)
+        if not event_id:
+            event_id = f"$local:{room_id}:{body[:16]}"
+        local_msg = Message(
+            event_id=event_id,
+            room_id=room_id,
+            sender=user_id,
+            sender_display_name=display_name,
+            body=body,
+            timestamp=datetime.now(tz=UTC),
+        )
+        self.append_message(local_msg)
 
     def _render_messages(self, timeline: VerticalScroll, messages: list[Message]) -> None:
         """Render messages with date separators between different days."""
         last_date: date | None = None
         for msg in messages:
+            self._rendered_event_ids.add(msg.event_id)
             msg_date = msg.timestamp.astimezone().date()
             if msg_date != last_date:
                 timeline.mount(_DateSeparator(self._format_date(msg_date)))

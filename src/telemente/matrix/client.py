@@ -502,8 +502,13 @@ class MatrixClient:
             raise MatrixError(f"remove_room_tag request failed: {exc}") from exc
         logger.debug("Removed tag %s from room %s", tag, room_id)
 
-    async def send_text(self, room_id: str, body: str) -> None:
-        """Send a plain-text message to a room.
+    def me(self) -> tuple[str, str]:
+        """Return (user_id, display_name) for the logged-in user."""
+        user_id = self._client.user_id or ""
+        return user_id, user_id
+
+    async def send_text(self, room_id: str, body: str) -> str:
+        """Send a plain-text message to a room. Returns the server-assigned event_id.
 
         For encrypted rooms, TOFU trust is applied first (all devices in the
         room are marked as verified), then the message is sent with
@@ -517,18 +522,19 @@ class MatrixClient:
         room = self._client.rooms.get(room_id)
         if room is not None and room.encrypted:
             self._tofu_trust_room(room_id)
-            await self._client.room_send(
+            resp = await self._client.room_send(
                 room_id,
                 "m.room.message",
                 {"msgtype": "m.text", "body": body},
                 ignore_unverified_devices=True,
             )
         else:
-            await self._client.room_send(
+            resp = await self._client.room_send(
                 room_id,
                 "m.room.message",
                 {"msgtype": "m.text", "body": body},
             )
+        return getattr(resp, "event_id", "") or ""
 
     # ------------------------------------------------------------------
     # Subscriptions

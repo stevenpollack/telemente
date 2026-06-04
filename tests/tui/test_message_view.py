@@ -349,7 +349,49 @@ async def test_switching_from_encrypted_to_readable_hides_notice() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 10: media message renders a Link widget with filename label
+# Test 10: sent message appears immediately in timeline (regression)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sent_message_appears_immediately_in_timeline() -> None:
+    """After pressing Enter, the composed message must appear in the timeline
+    immediately — without switching rooms or waiting for a sync event.
+
+    Regression: previously _do_send() only called send_text() and relied on
+    the next NewMessage event from the sync loop to echo the message back.
+    On a slow/absent server that echo never arrived, leaving the composer
+    apparently broken.
+    """
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [_msg("$e1", "!r:s", "earlier message")]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        composer = view.query_one("#composer", Input)
+        composer.focus()
+        await pilot.pause()
+
+        await pilot.press("h", "e", "l", "l", "o")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        rendered = _rendered_text(view)
+        # The sent message must appear without any room switch
+        assert "hello" in rendered, "sent message not visible in timeline immediately after send"
+        # And it must appear after the pre-existing message
+        assert rendered.index("earlier message") < rendered.index("hello")
+
+
+# ---------------------------------------------------------------------------
+# Test 11: media message renders a Link widget with filename label
 # ---------------------------------------------------------------------------
 
 

@@ -242,10 +242,14 @@ class FakeMatrixClient:
     # Actions
     # ------------------------------------------------------------------
 
-    async def send_text(self, room_id: str, body: str) -> None:
+    def me(self) -> tuple[str, str]:
+        return "@fake:matrix.org", "Fake User"
+
+    async def send_text(self, room_id: str, body: str) -> str:
         if not self._logged_in:
             raise NotLoggedInError("Not logged in")
         self.sent_messages.append((room_id, body))
+        return f"$fake_sent_{len(self.sent_messages)}:matrix.org"
 
     async def leave_room(self, room_id: str) -> None:
         if not self._logged_in:
