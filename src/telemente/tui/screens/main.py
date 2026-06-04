@@ -1,9 +1,8 @@
 """Main screen for telemente (plan 0005).
 
 Three-panel layout: collapsible room list (left), message view (center),
-collapsible member list (right).  The real panel widgets are provided by
-plans 0006/0007/0008; this plan mounts lightweight placeholders behind the
-same widget ids so layout and collapse can be built and tested independently.
+collapsible member list (right).  Plan 0006 replaces the placeholder left
+panel with the real RoomList widget.
 """
 
 from __future__ import annotations
@@ -13,10 +12,12 @@ from typing import ClassVar, Protocol
 
 from textual.app import ComposeResult
 from textual.binding import BindingType
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Static
+
+from telemente.tui.widgets.room_list import RoomList
 
 logger = logging.getLogger(__name__)
 
@@ -27,26 +28,6 @@ class _MainClient(Protocol):
     Currently empty — MainScreen delegates data access to child widgets (0006-0008).
     Keeping this explicit lets mypy verify DI without coupling to the real client.
     """
-
-
-# ---------------------------------------------------------------------------
-# Placeholder panel widgets
-#
-# These use the correct widget ids/classes so that plans 0006/0007/0008 can
-# swap in the real widgets without touching MainScreen's compose().
-# ---------------------------------------------------------------------------
-
-
-class _RoomsPanel(Vertical):
-    """Placeholder for the left rooms panel (real widget: RoomList, plan 0006).
-
-    Contains a room-search Input (id="room-search") so that ctrl+k focus works
-    before the real RoomList is wired in.
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Input(id="room-search", placeholder="Search rooms…")
-        yield Static("Rooms panel")
 
 
 class _MessagePanel(Static):
@@ -91,7 +72,7 @@ class MainScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main-layout"):
-            yield _RoomsPanel(id="rooms-panel")
+            yield RoomList(id="rooms-panel")
             yield _MessagePanel("message-panel")
             yield _MembersPanel("members-panel")
         yield Footer()

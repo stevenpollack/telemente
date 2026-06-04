@@ -38,3 +38,36 @@
 .collapsed {
     display: none;
 }
+
+/* -------------------------------------------------------------------------
+   Room list panel — RoomList widget (plan 0006)
+   ------------------------------------------------------------------------- */
+
+RoomList {
+    height: 1fr;
+    layout: vertical;
+}
+
+RoomList #room-search {
+    height: 3;
+    dock: top;
+}
+
+RoomList #room-list-view {
+    height: 1fr;
+}
+
+RoomList .room-empty-state {
+    color: $text-muted;
+    text-align: center;
+    padding: 1;
+}
+
+RoomList .room-name {
+    width: 1fr;
+}
+
+RoomList .room-unread-badge {
+    color: $accent;
+    text-style: bold;
+}
