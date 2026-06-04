@@ -380,3 +380,36 @@ async def test_set_active_room_highlights_matching_item() -> None:
 
         not_highlighted = [item for item in items if "-highlight" not in item.classes]
         assert len(not_highlighted) == 2
+
+
+# ---------------------------------------------------------------------------
+# Test 12: active highlight survives a set_rooms rebuild
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_active_highlight_survives_set_rooms_rebuild() -> None:
+    """Regression: calling set_rooms() after set_active_room() must re-apply the
+    highlight — previously the rebuild wiped all classes on new _RoomItem instances."""
+    from telemente.tui.widgets.room_list import _RoomItem
+
+    app = HostApp()
+    rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+        room_list.set_active_room("!a:h")
+        await pilot.pause()
+
+        # Simulate a sync that rebuilds the list (e.g. RoomsChanged)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+        await pilot.pause()  # second pause lets call_after_refresh fire
+
+        items = list(app.query(_RoomItem))
+        highlighted = [item for item in items if "-highlight" in item.classes]
+        assert len(highlighted) == 1
+        assert highlighted[0].room.room_id == "!a:h"

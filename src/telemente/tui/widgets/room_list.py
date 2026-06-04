@@ -39,9 +39,14 @@ class _RoomItem(ListItem):
     }
     """
 
-    def __init__(self, room: RoomSummary) -> None:
+    def __init__(self, room: RoomSummary, *, active: bool = False) -> None:
         super().__init__()
         self._room = room
+        self._active = active
+
+    def on_mount(self) -> None:
+        if self._active:
+            self.call_after_refresh(self.add_class, "-highlight")
 
     @property
     def room(self) -> RoomSummary:
@@ -100,6 +105,7 @@ class RoomList(Widget):
         self._filter: str = ""
         self._visible_rooms: list[RoomSummary] = []
         self._has_loaded: bool = False
+        self._active_room_id: str | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="search-bar"):
@@ -134,12 +140,9 @@ class RoomList(Widget):
         self._rebuild()
 
     def set_active_room(self, room_id: str | None) -> None:
-        """Highlight the _RoomItem matching room_id; clear all others."""
-        for item in self.query(_RoomItem):
-            if room_id is not None and item.room.room_id == room_id:
-                item.add_class("-highlight")
-            else:
-                item.remove_class("-highlight")
+        """Highlight the _RoomItem matching room_id; survives list rebuilds."""
+        self._active_room_id = room_id
+        self._apply_active_highlight()
 
     def apply_filter(self, query: str) -> None:
         """Apply a case-insensitive substring filter on display_name."""
@@ -190,8 +193,17 @@ class RoomList(Widget):
         list_view = self.query_one("#room-list-view", ListView)
         list_view.clear()
         for room in self._visible_rooms:
-            list_view.append(_RoomItem(room))
+            active = self._active_room_id is not None and room.room_id == self._active_room_id
+            list_view.append(_RoomItem(room, active=active))
         self._sync_empty_state()
+
+    def _apply_active_highlight(self) -> None:
+        """Re-apply -highlight to the active room (used by set_active_room)."""
+        for item in self.query(_RoomItem):
+            if self._active_room_id is not None and item.room.room_id == self._active_room_id:
+                item.add_class("-highlight")
+            else:
+                item.remove_class("-highlight")
 
     def _sync_loading_state(self) -> None:
         """Show 'Syncing…' until the first batch of rooms arrives."""

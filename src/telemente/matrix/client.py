@@ -465,6 +465,8 @@ class MatrixClient:
         if isinstance(response, nio.ErrorResponse):
             raise MatrixError(f"leave_room failed for {room_id}: {response}")
         logger.info("Left room %s", room_id)
+        # Emit RoomsChanged so the UI removes the room immediately.
+        await self._emit(RoomsChanged(rooms=self.rooms()))
 
     async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None:
         """Add or update a room tag (e.g. m.favourite, m.lowpriority).

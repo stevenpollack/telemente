@@ -723,7 +723,7 @@ async def test_edit_binding_enters_edit_mode_and_sends() -> None:
         row = view.query_one(_MessageRow)
         row.focus()
         await pilot.pause()
-        await pilot.press("shift+e")
+        await pilot.press("E")
         await pilot.pause()
 
         # Composer should be pre-filled with the original body

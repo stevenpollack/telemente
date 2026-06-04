@@ -81,7 +81,7 @@ class _MessageRow(Widget, can_focus=True):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("e", "react", "React"),
         Binding("r", "reply", "Reply"),
-        Binding("shift+e", "edit", "Edit"),
+        Binding("E", "edit", "Edit"),
         Binding("d", "delete", "Delete"),
     ]
 
