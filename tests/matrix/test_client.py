@@ -521,6 +521,41 @@ async def test_messages_aggregates_reactions_onto_target() -> None:
     assert "@bob:example.com" in msgs[0].reactions["👍"]
 
 
+async def test_send_reaction_calls_room_send() -> None:
+    """send_reaction() calls nio room_send with the correct m.reaction content."""
+    import nio
+
+    nio_mock = _build_nio_mock()
+    nio_mock.access_token = _TOKEN
+    nio_mock.user_id = _USER
+    nio_mock.room_send.return_value = MagicMock(spec=nio.RoomSendResponse)
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    await client.send_reaction("!room:example.com", "$target:example.com", "👍")
+
+    nio_mock.room_send.assert_awaited_once_with(
+        "!room:example.com",
+        "m.reaction",
+        {
+            "m.relates_to": {
+                "rel_type": "m.annotation",
+                "event_id": "$target:example.com",
+                "key": "👍",
+            }
+        },
+    )
+
+
+async def test_send_reaction_requires_login() -> None:
+    """send_reaction() raises NotLoggedInError if not logged in."""
+    nio_mock = _build_nio_mock()
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+
+    with pytest.raises(NotLoggedInError):
+        await client.send_reaction("!room:example.com", "$ev:example.com", "👍")
+
+
 async def test_messages_reaction_unknown_event_id_ignored() -> None:
     """Reactions targeting unknown event_ids are silently dropped."""
     text_ev = _make_text_event(event_id="$ev1:example.com", body="hi")

@@ -13,8 +13,9 @@ from datetime import UTC, date, datetime
 from typing import ClassVar, Protocol
 
 from textual.app import ComposeResult
-from textual.binding import BindingType
+from textual.binding import Binding, BindingType
 from textual.containers import VerticalScroll
+from textual.message import Message as TextualMessage
 from textual.widget import Widget
 from textual.widgets import Input, Link, Static
 
@@ -34,7 +35,11 @@ class _MessageViewClient(Protocol):
 
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]: ...
 
-    async def send_text(self, room_id: str, body: str) -> str: ...
+    async def send_text(
+        self, room_id: str, body: str, reply_to_event_id: str | None = None
+    ) -> str: ...
+
+    async def send_reaction(self, room_id: str, event_id: str, emoji: str) -> None: ...
 
     def me(self) -> tuple[str, str]: ...
 
@@ -66,12 +71,17 @@ class _DateSeparator(Static):
     """
 
 
-class _MessageRow(Widget):
+class _MessageRow(Widget, can_focus=True):
     """A single rendered message in the timeline.
 
     Renders header (sender + time) and body as a Static, then appends a
     focusable Link widget when the message has a media attachment.
     """
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("e", "react", "React"),
+        Binding("r", "reply", "Reply"),
+    ]
 
     DEFAULT_CSS = """
     _MessageRow {
@@ -88,7 +98,24 @@ class _MessageRow(Widget):
         padding: 0;
         margin: 0;
     }
+    _MessageRow:focus {
+        border: tall $accent;
+    }
     """
+
+    class ReactRequest(TextualMessage):
+        """Posted when the user requests a reaction on this message."""
+
+        def __init__(self, event_id: str) -> None:
+            super().__init__()
+            self.event_id = event_id
+
+    class ReplyRequest(TextualMessage):
+        """Posted when the user requests to reply to this message."""
+
+        def __init__(self, message: Message) -> None:
+            super().__init__()
+            self.message = message
 
     def __init__(self, message: Message) -> None:
         super().__init__()
@@ -116,6 +143,14 @@ class _MessageRow(Widget):
             icon = {"image": "🖼", "video": "🎬", "audio": "🎵"}.get(msg.media_type or "", "📎")
             label = f"{icon} {msg.body or msg.media_type or 'attachment'}"
             yield Link(label, url=msg.media_url)
+
+    def action_react(self) -> None:
+        """Post ReactRequest so MessageView can show the emoji input."""
+        self.post_message(self.ReactRequest(event_id=self._message.event_id))
+
+    def action_reply(self) -> None:
+        """Post ReplyRequest so MessageView can set up reply state."""
+        self.post_message(self.ReplyRequest(message=self._message))
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +188,8 @@ class MessageView(Widget):
         self._client = client
         self._current_room_id: str | None = None
         self._rendered_event_ids: set[str] = set()
+        self._react_target_event_id: str | None = None
+        self._replying_to: Message | None = None
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="message-timeline"):
@@ -162,7 +199,17 @@ class MessageView(Widget):
             id="encryption-notice",
             classes="encryption-notice",
         )
+        yield Static(
+            "",
+            id="reply-indicator",
+            classes="reply-banner",
+        )
+        yield Input(id="emoji-input", placeholder="React…")
         yield Input(id="composer", placeholder="Message…")
+
+    def on_mount(self) -> None:
+        self.query_one("#reply-indicator", Static).display = False
+        self.query_one("#emoji-input", Input).display = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -214,26 +261,86 @@ class MessageView(Widget):
     # Event handlers
     # ------------------------------------------------------------------
 
+    def on__message_row_react_request(self, event: _MessageRow.ReactRequest) -> None:
+        """Show the emoji input and remember which message to react to."""
+        self._react_target_event_id = event.event_id
+        emoji_input = self.query_one("#emoji-input", Input)
+        emoji_input.clear()
+        emoji_input.display = True
+        emoji_input.focus()
+
+    def on__message_row_reply_request(self, event: _MessageRow.ReplyRequest) -> None:
+        """Show the reply banner and remember which message to reply to."""
+        self._replying_to = event.message
+        indicator = self.query_one("#reply-indicator", Static)
+        msg = event.message
+        preview = msg.body[:40]
+        indicator.update(f"↩ Replying to {msg.sender_display_name}: {preview}")
+        indicator.display = True
+        self.query_one("#composer", Input).focus()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Send message on Enter in #composer (non-empty, room loaded)."""
-        if event.input.id != "composer":
+        """Handle submission from either #emoji-input or #composer."""
+        if event.input.id == "emoji-input":
+            self._handle_emoji_submitted(event)
+        elif event.input.id == "composer":
+            self._handle_composer_submitted(event)
+
+    def on_key(self, event: object) -> None:
+        """ESC dismisses the emoji input or reply indicator."""
+        from textual.events import Key
+
+        if not isinstance(event, Key) or event.key != "escape":
             return
-        text = event.value.strip()
-        if not text or self._current_room_id is None:
+        emoji_input = self.query_one("#emoji-input", Input)
+        if emoji_input.display:
+            emoji_input.display = False
+            self._react_target_event_id = None
             return
-        room_id = self._current_room_id
-        event.input.clear()
-        self.run_worker(self._do_send(room_id, text), exclusive=False)
+        indicator = self.query_one("#reply-indicator", Static)
+        if indicator.display:
+            indicator.display = False
+            self._replying_to = None
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _do_send(self, room_id: str, body: str) -> None:
+    def _handle_emoji_submitted(self, event: Input.Submitted) -> None:
+        emoji = event.value.strip()
+        room_id = self._current_room_id
+        target_event_id = self._react_target_event_id
+        event.input.display = False
+        event.input.clear()
+        self._react_target_event_id = None
+        if emoji and room_id and target_event_id:
+            self.run_worker(self._do_react(room_id, target_event_id, emoji), exclusive=False)
+
+    def _handle_composer_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        if not text or self._current_room_id is None:
+            return
+        room_id = self._current_room_id
+        reply_to = self._replying_to.event_id if self._replying_to else None
+        event.input.clear()
+        # Clear reply state
+        if self._replying_to is not None:
+            self._replying_to = None
+            self.query_one("#reply-indicator", Static).display = False
+        self.run_worker(self._do_send(room_id, text, reply_to_event_id=reply_to), exclusive=False)
+
+    async def _do_react(self, room_id: str, event_id: str, emoji: str) -> None:
+        """Send the reaction."""
+        logger.debug("Reacting to %s in %s with %s", event_id, room_id, emoji)
+        await self._client.send_reaction(room_id, event_id, emoji)
+
+    async def _do_send(
+        self, room_id: str, body: str, *, reply_to_event_id: str | None = None
+    ) -> None:
         """Send a message and echo it immediately into the local timeline."""
         logger.debug("Sending to %s: %s", room_id, body)
         user_id, display_name = self._client.me()
-        event_id = await self._client.send_text(room_id, body)
+        event_id = await self._client.send_text(room_id, body, reply_to_event_id=reply_to_event_id)
         if not event_id:
             event_id = f"$local:{room_id}:{body[:16]}"
         local_msg = Message(
@@ -243,6 +350,7 @@ class MessageView(Widget):
             sender_display_name=display_name,
             body=body,
             timestamp=datetime.now(tz=UTC),
+            reply_to_event_id=reply_to_event_id,
         )
         self.append_message(local_msg)
 

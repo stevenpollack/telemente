@@ -170,7 +170,7 @@ async def test_send_on_enter_calls_send_text_and_clears() -> None:
         await pilot.pause()
 
         assert len(fake.sent_messages) == 1
-        assert fake.sent_messages[0] == ("!r:s", "hello")
+        assert fake.sent_messages[0][:2] == ("!r:s", "hello")
         assert composer.value == ""
 
 
@@ -468,3 +468,54 @@ async def test_message_with_reactions_renders_chips() -> None:
         assert "2" in combined
         assert "❤️" in combined
         assert "1" in combined
+
+
+# ---------------------------------------------------------------------------
+# Test 13: press 'e' on a _MessageRow → emoji-input appears; submit sends reaction
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_react_binding_sends_reaction() -> None:
+    """Focus a _MessageRow, press 'e', type an emoji, press Enter → reaction sent."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [_msg("$e1", "!r:s", "hello")]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        # Focus the message row
+        row = view.query_one(_MessageRow)
+        row.focus()
+        await pilot.pause()
+
+        # Press 'e' to open emoji input
+        await pilot.press("e")
+        await pilot.pause()
+
+        # emoji-input should now be visible
+        emoji_input = view.query_one("#emoji-input", Input)
+        assert emoji_input.display is True
+
+        # Type emoji and submit
+        await pilot.press("up", "down")  # clear any pending
+        emoji_input.clear()
+        await pilot.pause()
+        await pilot.press("thumbs_up")  # or just type characters
+        # Actually type via direct value set and submit
+        emoji_input.value = "👍"
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Reaction should be sent
+        assert len(fake.sent_reactions) == 1
+        assert fake.sent_reactions[0] == ("!r:s", "$e1", "👍")
+
+        # emoji-input should be hidden
+        assert emoji_input.display is False

@@ -534,8 +534,29 @@ class MatrixClient:
         user_id = self._client.user_id or ""
         return user_id, user_id
 
-    async def send_text(self, room_id: str, body: str) -> str:
+    async def send_reaction(self, room_id: str, event_id: str, emoji: str) -> None:
+        """Send an m.reaction to the given event_id in a room.
+
+        Raises NotLoggedInError if not logged in.
+        """
+        if not self._logged_in:
+            raise NotLoggedInError("Must be logged in to send reactions")
+        await self._client.room_send(
+            room_id,
+            "m.reaction",
+            {
+                "m.relates_to": {
+                    "rel_type": "m.annotation",
+                    "event_id": event_id,
+                    "key": emoji,
+                }
+            },
+        )
+
+    async def send_text(self, room_id: str, body: str, reply_to_event_id: str | None = None) -> str:
         """Send a plain-text message to a room. Returns the server-assigned event_id.
+
+        When reply_to_event_id is set, includes m.in_reply_to in the content.
 
         For encrypted rooms, TOFU trust is applied first (all devices in the
         room are marked as verified), then the message is sent with
@@ -546,20 +567,24 @@ class MatrixClient:
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in to send messages")
 
+        content: dict[str, object] = {"msgtype": "m.text", "body": body}
+        if reply_to_event_id is not None:
+            content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to_event_id}}
+
         room = self._client.rooms.get(room_id)
         if room is not None and room.encrypted:
             self._tofu_trust_room(room_id)
             resp = await self._client.room_send(
                 room_id,
                 "m.room.message",
-                {"msgtype": "m.text", "body": body},
+                content,
                 ignore_unverified_devices=True,
             )
         else:
             resp = await self._client.room_send(
                 room_id,
                 "m.room.message",
-                {"msgtype": "m.text", "body": body},
+                content,
             )
         return getattr(resp, "event_id", "") or ""
 
