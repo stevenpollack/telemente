@@ -90,8 +90,9 @@ class _MessageRow(Static):
         text = f"[bold {color}]{sender}[/bold {color}] [dim]{time_str}[/dim]\n{body}"
         if message.media_url:
             icon = {"image": "🖼", "video": "🎬", "audio": "🎵"}.get(message.media_type or "", "📎")
+            label = message.body or message.media_type or "attachment"
             url = message.media_url
-            text += f'\n{icon} [link="{url}"]{url}[/link]'
+            text += f'\n{icon} [link="{url}"]{label}[/link]'
         super().__init__(text, markup=True)
 
 

@@ -475,8 +475,8 @@ async def test_messages_mixed_events_all_included() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_message_view_renders_media_url() -> None:
-    """_MessageRow includes the media_url in rendered text."""
+async def test_message_view_renders_media_label_not_url() -> None:
+    """_MessageRow shows the filename as link text, not the raw URL."""
     from datetime import UTC, datetime
 
     from telemente.matrix.models import Message
@@ -494,4 +494,6 @@ async def test_message_view_renders_media_url() -> None:
     )
     row = _MessageRow(msg)
     rendered = str(row.render())
-    assert "https://example.com/media/photo.jpg" in rendered
+    # Filename is visible; raw URL is hidden inside the OSC 8 escape.
+    assert "photo.jpg" in rendered
+    assert "https://example.com/media/photo.jpg" not in rendered
