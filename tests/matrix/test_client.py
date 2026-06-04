@@ -500,6 +500,50 @@ def _make_reaction_event(
     return ev
 
 
+async def test_send_text_with_reply_includes_in_reply_to() -> None:
+    """send_text with reply_to_event_id includes m.in_reply_to in room_send content."""
+    import nio
+
+    nio_mock = _build_nio_mock()
+    nio_mock.access_token = _TOKEN
+    nio_mock.user_id = _USER
+    nio_mock.room_send.return_value = MagicMock(spec=nio.RoomSendResponse)
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    await client.send_text("!room:example.com", "hi", reply_to_event_id="$parent:example.com")
+
+    nio_mock.room_send.assert_awaited_once_with(
+        "!room:example.com",
+        "m.room.message",
+        {
+            "msgtype": "m.text",
+            "body": "hi",
+            "m.relates_to": {"m.in_reply_to": {"event_id": "$parent:example.com"}},
+        },
+    )
+
+
+async def test_messages_parses_reply_to_event_id() -> None:
+    """messages() sets reply_to_event_id on a RoomMessageText with m.in_reply_to."""
+    text_ev = _make_text_event(
+        event_id="$reply:example.com",
+        body="reply text",
+        reply_to_event_id="$parent:example.com",
+    )
+
+    nio_mock = _build_nio_mock()
+    nio_mock.room_messages.return_value = _make_rooms_response([text_ev])
+    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    msgs = await client.messages("!r:example.com")
+
+    assert len(msgs) == 1
+    assert msgs[0].reply_to_event_id == "$parent:example.com"
+
+
 async def test_messages_aggregates_reactions_onto_target() -> None:
     """messages() collects ReactionEvents and populates reactions on target Message."""
     text_ev = _make_text_event(event_id="$ev1:example.com", body="hi")

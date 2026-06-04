@@ -519,3 +519,54 @@ async def test_react_binding_sends_reaction() -> None:
 
         # emoji-input should be hidden
         assert emoji_input.display is False
+
+
+# ---------------------------------------------------------------------------
+# Test 14: press 'r' on a _MessageRow → reply-indicator shows; submit sends reply
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reply_binding_sends_reply() -> None:
+    """Focus a _MessageRow, press 'r' → reply-indicator visible; submit sends reply."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [_msg("$parent", "!r:s", "original", sender_display_name="Bob")]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        # Focus the message row and press 'r'
+        row = view.query_one(_MessageRow)
+        row.focus()
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+
+        # reply-indicator should be visible
+        indicator = view.query_one("#reply-indicator", Static)
+        assert indicator.display is True
+        assert "Bob" in str(indicator.render())
+
+        # Type reply in composer and submit
+        composer = view.query_one("#composer", Input)
+        composer.focus()
+        await pilot.pause()
+        await pilot.press("r", "e", "p", "l", "y")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # sent_messages should have the reply
+        assert len(fake.sent_messages) == 1
+        room_id, body, reply_to = fake.sent_messages[0]
+        assert room_id == "!r:s"
+        assert body == "reply"
+        assert reply_to == "$parent"
+
+        # indicator should be hidden after send
+        assert indicator.display is False
