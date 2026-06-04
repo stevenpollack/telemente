@@ -82,7 +82,7 @@ class MainScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        logger.debug("MainScreen mounted")
+        logger.info("MainScreen mounted")
 
     # ------------------------------------------------------------------
     # Reactive watchers
@@ -116,6 +116,7 @@ class MainScreen(Screen[None]):
 
     def handle_rooms_changed(self, event: RoomsChanged) -> None:
         """Route a RoomsChanged event to RoomList, preserving unread counts."""
+        logger.info("handle_rooms_changed: %d rooms", len(event.rooms))
         rooms_with_unread = [
             RoomSummary(
                 room_id=r.room_id,
@@ -135,6 +136,12 @@ class MainScreen(Screen[None]):
         - Otherwise bump the unread count in RoomList.
         """
         msg = event.message
+        logger.info(
+            "handle_new_message: room=%s sender=%s active=%s",
+            msg.room_id,
+            msg.sender,
+            msg.room_id == self._active_room_id,
+        )
         if msg.room_id == self._active_room_id:
             self.query_one(MessageView).append_message(msg)
         else:
@@ -160,6 +167,11 @@ class MainScreen(Screen[None]):
 
     def handle_members_changed(self, event: MembersChanged) -> None:
         """Route a MembersChanged event to MemberList (active room only)."""
+        logger.debug(
+            "handle_members_changed: room=%s members=%d",
+            event.room_id,
+            len(event.members),
+        )
         if event.room_id == self._active_room_id:
             self.query_one(MemberList).set_members(event.members)
 
@@ -170,6 +182,7 @@ class MainScreen(Screen[None]):
     def on_room_list_room_selected(self, message: RoomList.RoomSelected) -> None:
         """Load messages + members for the selected room and clear its unread."""
         room_id = message.room_id
+        logger.info("on_room_list_room_selected: room_id=%s", room_id)
         self._active_room_id = room_id
 
         # Clear unread for the selected room

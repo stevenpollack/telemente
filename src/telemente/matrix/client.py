@@ -102,6 +102,12 @@ class MatrixClient:
         device_name: str = "telemente",
         nio_client: nio.AsyncClient | None = None,
     ) -> None:
+        logger.debug(
+            "MatrixClient.__init__: homeserver=%s store_path=%s device_name=%s",
+            homeserver,
+            store_path,
+            device_name,
+        )
         self._homeserver = homeserver
         self._device_name = device_name
         self._store_path = store_path
@@ -133,6 +139,11 @@ class MatrixClient:
 
         Returns a Session on success; raises LoginError on failure.
         """
+        logger.info(
+            "login: attempting password login for user=%s homeserver=%s",
+            user,
+            self._homeserver,
+        )
         response = await self._client.login(password, device_name=self._device_name)
         if isinstance(response, nio.LoginError):
             raise LoginError(str(response))
@@ -143,6 +154,11 @@ class MatrixClient:
             device_id=response.device_id,
             access_token=response.access_token,
         )
+        logger.info(
+            "_finalize_login: session created user_id=%s device_id=%s",
+            session.user_id,
+            session.device_id,
+        )
         self._logged_in = True
         self._load_store()
         self._register_callbacks()
@@ -150,6 +166,11 @@ class MatrixClient:
 
     async def restore(self, session: Session) -> None:
         """Restore a previously saved session without re-authenticating."""
+        logger.info(
+            "restore: restoring session for user_id=%s homeserver=%s",
+            session.user_id,
+            self._homeserver,
+        )
         self._client.restore_login(
             user_id=session.user_id,
             device_id=session.device_id,
@@ -161,6 +182,7 @@ class MatrixClient:
 
     async def logout(self) -> None:
         """Logout from the homeserver and close the client."""
+        logger.info("logout: logging out")
         await self.close()
         self._logged_in = False
 
@@ -177,11 +199,15 @@ class MatrixClient:
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in before starting sync")
         if self._task is not None and not self._task.done():
+            logger.info("start_sync: already running, skipping")
             return
+        logger.info("start_sync: launching sync loop")
+        logger.info("Starting sync_forever (incremental)")
         self._task = asyncio.create_task(self._client.sync_forever(timeout=30000, full_state=True))
 
     async def close(self) -> None:
         """Cancel the sync task and close the nio client."""
+        logger.info("close: cancelling sync task")
         if self._task is not None and not self._task.done():
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -227,6 +253,7 @@ class MatrixClient:
 
         Returns Message dataclasses; non-text events are ignored.
         """
+        logger.info("messages: fetching up to %d messages for room=%s", limit, room_id)
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in to fetch messages")
         response = await self._client.room_messages(room_id, limit=limit)
@@ -251,6 +278,7 @@ class MatrixClient:
                     timestamp=ts,
                 )
             )
+        logger.info("messages: returning %d messages for room=%s", len(result), room_id)
         return result
 
     # ------------------------------------------------------------------
@@ -266,6 +294,8 @@ class MatrixClient:
 
         WARNING — TOFU is NOT MITM-safe (see module docstring).
         """
+        logger.info("send_text: room=%s reply_to=%s", room_id, None)
+        logger.debug("send_text: body preview room=%s body=%.60r", room_id, body)
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in to send messages")
 
@@ -337,7 +367,7 @@ class MatrixClient:
                 try:
                     self._client.verify_device(device)
                 except Exception as exc:
-                    logger.debug("verify_device failed for %s: %s", device, exc)
+                    logger.warning("verify_device failed for %s: %s", device, exc)
 
     def _register_callbacks(self) -> None:
         self._client.add_event_callback(self._on_room_message, nio.RoomMessageText)
@@ -346,6 +376,7 @@ class MatrixClient:
 
     async def _emit(self, event: ClientEvent) -> None:
         """Deliver an event to all subscribed handlers."""
+        logger.debug("_emit: %s to %d handlers", type(event).__name__, len(self._handlers))
         for handler in list(self._handlers):
             result = handler(event)
             if asyncio.iscoroutine(result):
@@ -353,6 +384,12 @@ class MatrixClient:
 
     async def _on_room_message(self, room: nio.MatrixRoom, event: nio.RoomMessageText) -> None:
         """nio callback: a new text message arrived."""
+        logger.debug(
+            "_on_room_message: room=%s sender=%s event_id=%s",
+            room.room_id,
+            event.sender,
+            event.event_id,
+        )
         sender_display_name = _get_display_name(room, event.sender)
         ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
         message = Message(
@@ -371,7 +408,7 @@ class MatrixClient:
         Requests the room key from the sender and surfaces a placeholder
         message so the user knows something arrived.
         """
-        logger.debug(
+        logger.warning(
             "Undecryptable MegolmEvent in %s from %s (session %s) — requesting key",
             room.room_id,
             event.sender,
@@ -395,23 +432,26 @@ class MatrixClient:
 
     async def _on_sync(self, response: nio.SyncResponse) -> None:
         """nio callback: a sync response arrived — emit RoomsChanged and handle key ops."""
+        rooms = self.rooms()
+        logger.debug("_on_sync: %d rooms after sync", len(rooms))
+
         # Upload device keys if needed (first sync after login/account creation).
         if self._client.should_upload_keys:
-            logger.debug("Uploading device keys")
+            logger.info("Uploading device keys")
             try:
                 await self._client.keys_upload()
             except Exception as exc:
-                logger.warning("keys_upload() failed: %s", exc)
+                logger.error("keys_upload() failed: %s", exc)
 
         # Query keys for users whose device lists have changed.
         if self._client.should_query_keys:
-            logger.debug("Querying device keys")
+            logger.info("Querying device keys")
             try:
                 await self._client.keys_query()
             except Exception as exc:
                 logger.warning("keys_query() failed: %s", exc)
 
-        await self._emit(RoomsChanged(rooms=self.rooms()))
+        await self._emit(RoomsChanged(rooms=rooms))
 
 
 # ---------------------------------------------------------------------------
