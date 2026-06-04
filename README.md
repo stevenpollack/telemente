@@ -4,18 +4,26 @@ A terminal-based chat client for the [Matrix](https://matrix.org) protocol,
 built with [Textual](https://textual.textualize.io/) and
 [matrix-nio](https://github.com/matrix-nio/matrix-nio).
 
-> **Status: v0.1.0 — early scaffold.** The repository structure, tooling, CI,
-> and detailed implementation plans (`plans/`) are in place. Feature work is
-> implemented against those plans.
+> **Status: feature-complete MVP.** Core TUI, login, sync, messaging, and
+> room management are implemented and tested. E2EE and SSO are in separate
+> plans. See [`plans/`](plans/) for the full roadmap.
 
-## Features (v0.1.0 target)
+## Features (implemented)
 
-- Three-panel TUI:
-  - **Left (collapsible):** searchable/filterable list of rooms.
-  - **Center:** message timeline for the selected room + composer.
-  - **Right (collapsible):** room member list.
+- **Three-panel TUI** (collapsible panels):
+  - **Left:** searchable/filterable room list — debounced search, unread
+    badges, encryption indicator, tag decorators (favourite/low-priority/mute),
+    sort by recent activity or alphabetically.
+  - **Center:** tabbed message views (up to 8 rooms open simultaneously, LRU
+    eviction), multi-line composer (Enter sends, Shift+Enter newlines), reply /
+    react / edit / redact, unread notifications.
+  - **Right:** live member list for the active room.
 - Interactive login to any Matrix homeserver.
-- End-to-end encryption (E2EE) support via matrix-nio + libolm.
+- Live sync — rooms update in real-time; departed rooms close their tabs
+  automatically.
+- Command palette (`Ctrl+P`) for all features.
+- End-to-end encryption (E2EE) — implemented in plan 0010 (requires libolm).
+- SSO login — implemented in plan 0011.
 
 ## Requirements
 

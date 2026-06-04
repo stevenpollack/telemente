@@ -9,6 +9,10 @@ A terminal (TUI) chat client for the Matrix protocol. Python + Textual for the
 UI; matrix-nio for the protocol. Managed with `uv`. Public GitHub repo,
 distributed via GitHub Releases.
 
+Core MVP is complete: login, sync, three-panel layout, tabbed messaging,
+command palette, E2EE (plan 0010), SSO (plan 0011). Active work is on
+performance (plan 0012: OptionList migration) and polish.
+
 ## Architecture
 
 ```
@@ -90,7 +94,7 @@ Mocking strategy · Done-when · Dependencies.** When implementing a plan:
 4. Run the full fast-feedback loop.
 5. Update the plan's status / check off the Done-when list.
 
-Plan order: `0001 → 0002 → 0003 → 0004 → 0005 → 0006/0007/0008 → 0009 → 0010`.
+Plan order: `0001 → 0002 → 0003 → 0004 → 0005 → 0006/0007/0008 → 0009 → 0010 → 0011 → 0012`.
 
 ## Dependencies
 
@@ -99,6 +103,25 @@ Dev: `pytest(+asyncio,+cov)`, `aioresponses`, `ruff`, `mypy`, `pre-commit`,
 `textual-dev`.
 
 E2EE requires the system library **libolm** (see README for install commands).
+
+## Performance guidelines
+
+Textual re-renders the full widget subtree on any DOM mutation. Keep the UI
+snappy by following these patterns (already in place — don't regress them):
+
+- **Fingerprint `RoomsChanged` at the source.** `MatrixClient._on_sync`
+  compares a `frozenset` of `(room_id, display_name, unread_count)` before
+  emitting; skip if nothing changed.
+- **Debounce search input.** `RoomList.on_input_changed` waits 150 ms via
+  `set_timer` before calling `_rebuild`. Cancel the pending timer on each
+  new keystroke.
+- **Surgical unread patches.** `RoomList.update_unread` mutates a single
+  `_RoomItem` label in place instead of rebuilding the whole `ListView`.
+  `MainScreen.handle_new_message` calls it, not `set_rooms`.
+- **Avoid full rebuilds on tab switches.** Worker exclusivity
+  (`run_worker(..., exclusive=True)`) serialises concurrent room selections.
+- **Next target (plan 0012):** replace `ListView` with `OptionList` to get
+  `replace_option_prompt` for zero-teardown option updates.
 
 ## Commits & PRs
 
