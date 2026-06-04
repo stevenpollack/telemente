@@ -15,9 +15,10 @@ from typing import ClassVar, Protocol
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import VerticalScroll
+from textual.events import Key
 from textual.message import Message as TextualMessage
 from textual.widget import Widget
-from textual.widgets import Input, Link, Static
+from textual.widgets import Input, Link, Static, TextArea
 
 from telemente.matrix.models import Message
 from telemente.tui.colors import sender_color
@@ -216,6 +217,42 @@ class _MessageRow(Widget, can_focus=True):
 
 
 # ---------------------------------------------------------------------------
+# Composer
+# ---------------------------------------------------------------------------
+
+
+class _ComposerArea(TextArea):
+    """Multi-line composer: Enter submits, Shift+Enter inserts a newline."""
+
+    class Submitted(TextualMessage):
+        def __init__(self, area: _ComposerArea, value: str) -> None:
+            super().__init__()
+            self.area = area
+            self.value = value
+
+    DEFAULT_CSS = """
+    _ComposerArea {
+        height: auto;
+        max-height: 10;
+        border: tall $border;
+    }
+    _ComposerArea:focus {
+        border: tall $accent;
+    }
+    """
+
+    async def _on_key(self, event: Key) -> None:
+        if event.key == "enter":
+            event.prevent_default()
+            event.stop()
+            text = self.text.rstrip("\n")
+            if text:
+                self.post_message(self.Submitted(self, text))
+                self.clear()
+        # shift+enter → let TextArea's default newline insertion run
+
+
+# ---------------------------------------------------------------------------
 # MessageView
 # ---------------------------------------------------------------------------
 
@@ -263,7 +300,7 @@ class MessageView(Widget):
         yield Static("", id="encryption-notice", classes="encryption-notice")
         yield Static("", id="reply-indicator", classes="reply-banner")
         yield Input(id="emoji-input", placeholder="React…")
-        yield Input(id="composer", placeholder="Message…")
+        yield _ComposerArea(id="composer", soft_wrap=True)
 
     def on_mount(self) -> None:
         self.query_one("#reply-indicator", Static).display = False
@@ -335,7 +372,7 @@ class MessageView(Widget):
         msg = event.message
         indicator.update(f"↩ Replying to {msg.sender_display_name}: {msg.body[:40]}")
         indicator.display = True
-        self.query_one("#composer", Input).focus()
+        self.query_one("#composer", _ComposerArea).focus()
 
     def on__message_row_edit_request(self, event: _MessageRow.EditRequest) -> None:
         """Pre-fill the composer with the message body for editing."""
@@ -343,8 +380,9 @@ class MessageView(Widget):
         if event.message.sender != my_user_id:
             return
         self._editing = event.message
-        composer = self.query_one("#composer", Input)
-        composer.value = event.message.body
+        composer = self.query_one("#composer", _ComposerArea)
+        composer.clear()
+        composer.insert(event.message.body)
         composer.focus()
 
     def on__message_row_delete_request(self, event: _MessageRow.DeleteRequest) -> None:
@@ -365,8 +403,9 @@ class MessageView(Widget):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "emoji-input":
             self._handle_emoji_submitted(event)
-        elif event.input.id == "composer":
-            self._handle_composer_submitted(event)
+
+    def on__composer_area_submitted(self, event: _ComposerArea.Submitted) -> None:
+        self._handle_composer_submitted(event)
 
     def on_key(self, event: object) -> None:
         """ESC dismisses emoji input, reply indicator, or edit mode."""
@@ -386,7 +425,7 @@ class MessageView(Widget):
             return
         if self._editing is not None:
             self._editing = None
-            self.query_one("#composer", Input).clear()
+            self.query_one("#composer", _ComposerArea).clear()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -408,12 +447,12 @@ class MessageView(Widget):
                     break
             self.run_worker(self._do_react(room_id, target_event_id, emoji), exclusive=False)
 
-    def _handle_composer_submitted(self, event: Input.Submitted) -> None:
+    def _handle_composer_submitted(self, event: _ComposerArea.Submitted) -> None:
         text = event.value.strip()
         if not text or self._current_room_id is None:
             return
         room_id = self._current_room_id
-        event.input.clear()
+        event.area.clear()
 
         if self._editing is not None:
             editing = self._editing

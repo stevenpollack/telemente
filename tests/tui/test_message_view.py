@@ -14,7 +14,7 @@ from textual.widgets import Input, Link, Static
 
 import fakes as fakes_module
 from telemente.matrix.models import Message
-from telemente.tui.widgets.message_view import MessageView, _MessageRow
+from telemente.tui.widgets.message_view import MessageView, _ComposerArea, _MessageRow
 
 FakeMatrixClient = fakes_module.FakeMatrixClient
 
@@ -156,14 +156,14 @@ async def test_send_on_enter_calls_send_text_and_clears() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        composer = view.query_one("#composer", Input)
+        composer = view.query_one("#composer", _ComposerArea)
         composer.focus()
         await pilot.pause()
 
         # Type a message
         await pilot.press("h", "e", "l", "l", "o")
         await pilot.pause()
-        assert composer.value == "hello"
+        assert composer.text == "hello"
 
         # Submit
         await pilot.press("enter")
@@ -171,7 +171,7 @@ async def test_send_on_enter_calls_send_text_and_clears() -> None:
 
         assert len(fake.sent_messages) == 1
         assert fake.sent_messages[0][:2] == ("!r:s", "hello")
-        assert composer.value == ""
+        assert composer.text == ""
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +192,7 @@ async def test_empty_composer_submit_noop() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        composer = view.query_one("#composer", Input)
+        composer = view.query_one("#composer", _ComposerArea)
         composer.focus()
         await pilot.pause()
 
@@ -374,7 +374,7 @@ async def test_sent_message_appears_immediately_in_timeline() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        composer = view.query_one("#composer", Input)
+        composer = view.query_one("#composer", _ComposerArea)
         composer.focus()
         await pilot.pause()
 
@@ -553,7 +553,7 @@ async def test_reply_binding_sends_reply() -> None:
         assert "Bob" in str(indicator.render())
 
         # Type reply in composer and submit
-        composer = view.query_one("#composer", Input)
+        composer = view.query_one("#composer", _ComposerArea)
         composer.focus()
         await pilot.pause()
         await pilot.press("r", "e", "p", "l", "y")
@@ -727,8 +727,8 @@ async def test_edit_binding_enters_edit_mode_and_sends() -> None:
         await pilot.pause()
 
         # Composer should be pre-filled with the original body
-        composer = view.query_one("#composer", Input)
-        assert composer.value == "original body"
+        composer = view.query_one("#composer", _ComposerArea)
+        assert composer.text == "original body"
 
         # Clear and type new body
         composer.clear()
