@@ -16,7 +16,7 @@ from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.containers import VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Input, Static
+from textual.widgets import Input, Link, Static
 
 from telemente.matrix.models import Message
 from telemente.tui.colors import sender_color
@@ -64,12 +64,11 @@ class _DateSeparator(Static):
     """
 
 
-class _MessageRow(Static):
+class _MessageRow(Widget):
     """A single rendered message in the timeline.
 
-    Format:
-        sender name                    HH:MM
-        message body (may wrap)
+    Renders header (sender + time) and body as a Static, then appends a
+    focusable Link widget when the message has a media attachment.
     """
 
     DEFAULT_CSS = """
@@ -77,23 +76,35 @@ class _MessageRow(Static):
         height: auto;
         padding: 0 1;
         margin-bottom: 1;
+    }
+    _MessageRow Static {
+        height: auto;
         text-wrap: wrap;
+    }
+    _MessageRow Link {
+        height: 1;
+        padding: 0;
+        margin: 0;
     }
     """
 
     def __init__(self, message: Message) -> None:
-        local_ts: datetime = message.timestamp.astimezone()
+        super().__init__()
+        self._message = message
+
+    def compose(self) -> ComposeResult:
+        msg = self._message
+        local_ts: datetime = msg.timestamp.astimezone()
         time_str = local_ts.strftime("%H:%M")
-        color = sender_color(message.sender)
-        sender = message.sender_display_name
-        body = _linkify(message.body)
-        text = f"[bold {color}]{sender}[/bold {color}] [dim]{time_str}[/dim]\n{body}"
-        if message.media_url:
-            icon = {"image": "🖼", "video": "🎬", "audio": "🎵"}.get(message.media_type or "", "📎")
-            label = message.body or message.media_type or "attachment"
-            url = message.media_url
-            text += f'\n{icon} [link="{url}"]{label}[/link]'
-        super().__init__(text, markup=True)
+        color = sender_color(msg.sender)
+        sender = msg.sender_display_name
+        body = _linkify(msg.body)
+        header_body = f"[bold {color}]{sender}[/bold {color}] [dim]{time_str}[/dim]\n{body}"
+        yield Static(header_body, markup=True)
+        if msg.media_url:
+            icon = {"image": "🖼", "video": "🎬", "audio": "🎵"}.get(msg.media_type or "", "📎")
+            label = f"{icon} {msg.body or msg.media_type or 'attachment'}"
+            yield Link(label, url=msg.media_url)
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import pytest
 from textual.app import App, ComposeResult
-from textual.widgets import Input
+from textual.widgets import Input, Link, Static
 
 import fakes as fakes_module
 from telemente.matrix.models import Message
@@ -47,9 +47,13 @@ def _msg(
 
 
 def _rendered_text(view: MessageView) -> str:
-    """Return all rendered _MessageRow text joined together."""
+    """Return rendered text from all Static children inside _MessageRow widgets."""
     rows = view.query(_MessageRow)
-    return "\n".join(str(row.render()) for row in rows)
+    parts: list[str] = []
+    for row in rows:
+        for static in row.query(Static):
+            parts.append(str(static.render()))
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -280,8 +284,6 @@ async def test_all_encrypted_room_shows_notice() -> None:
         await view.load_room("!enc:s")
         await pilot.pause()
 
-        from textual.widgets import Static
-
         notice = view.query_one("#encryption-notice", Static)
         assert notice.display is True
         assert "keys" in str(notice.render()).lower()
@@ -308,8 +310,6 @@ async def test_mixed_room_hides_encryption_notice() -> None:
         view = app.query_one(MessageView)
         await view.load_room("!mix:s")
         await pilot.pause()
-
-        from textual.widgets import Static
 
         notice = view.query_one("#encryption-notice", Static)
         assert notice.display is False
@@ -340,11 +340,46 @@ async def test_switching_from_encrypted_to_readable_hides_notice() -> None:
         await view.load_room("!enc:s")
         await pilot.pause()
 
-        from textual.widgets import Static
-
         notice = view.query_one("#encryption-notice", Static)
         assert notice.display is True
 
         await view.load_room("!clear:s")
         await pilot.pause()
         assert notice.display is False
+
+
+# ---------------------------------------------------------------------------
+# Test 10: media message renders a Link widget with filename label
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_media_message_renders_link_widget() -> None:
+    """A message with media_url mounts a Link widget showing the filename."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [
+        Message(
+            event_id="$m1",
+            room_id="!r:s",
+            sender="@alice:matrix.org",
+            sender_display_name="Alice",
+            body="photo.jpg",
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+            media_url="https://example.com/media/photo.jpg",
+            media_type="image",
+        )
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        links = view.query(Link)
+        assert len(links) == 1
+        link = links.first(Link)
+        assert "photo.jpg" in link.text
+        assert link.url == "https://example.com/media/photo.jpg"

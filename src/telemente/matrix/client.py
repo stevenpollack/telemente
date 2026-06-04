@@ -253,11 +253,24 @@ class MatrixClient:
         self._task = asyncio.create_task(self._sync_loop())
 
     async def _sync_loop(self) -> None:
-        """Run initial full-state sync, then switch to incremental sync_forever."""
+        """Run initial sync, then switch to incremental sync_forever.
+
+        If the nio store already has rooms from a previous session, emit them
+        immediately (zero network round-trip) and do an incremental sync.
+        Otherwise do a full-state sync to populate rooms for the first time.
+        """
+        # Emit whatever the store already knows — instant on restart.
+        cached_rooms = self.rooms()
+        if cached_rooms:
+            logger.info("Emitting %d cached rooms from store before sync", len(cached_rooms))
+            self._initial_sync_done = True
+            await self._emit(RoomsChanged(rooms=cached_rooms))
+
         self._rooms_poll_task = asyncio.create_task(self._poll_rooms_during_sync())
         try:
-            logger.debug("Initial sync (full_state=True)...")
-            resp = await self._client.sync(timeout=30000, full_state=True)
+            full_state = not bool(cached_rooms)
+            logger.debug("Initial sync (full_state=%s)...", full_state)
+            resp = await self._client.sync(timeout=30000, full_state=full_state)
             if isinstance(resp, nio.SyncResponse):
                 self._initial_sync_done = True
                 logger.info("Initial sync complete: %d rooms", len(self._client.rooms))

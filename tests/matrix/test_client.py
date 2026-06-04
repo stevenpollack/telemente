@@ -468,32 +468,3 @@ async def test_messages_mixed_events_all_included() -> None:
     assert msgs[0].event_id == "$t1"
     assert msgs[1].event_id == "$m1"
     assert msgs[2].event_id == "$e1"
-
-
-# ---------------------------------------------------------------------------
-# UI: MessageView renders media URL
-# ---------------------------------------------------------------------------
-
-
-async def test_message_view_renders_media_label_not_url() -> None:
-    """_MessageRow shows the filename as link text, not the raw URL."""
-    from datetime import UTC, datetime
-
-    from telemente.matrix.models import Message
-    from telemente.tui.widgets.message_view import _MessageRow
-
-    msg = Message(
-        event_id="$m1",
-        room_id="!r:s",
-        sender="@alice:s",
-        sender_display_name="Alice",
-        body="photo.jpg",
-        timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-        media_url="https://example.com/media/photo.jpg",
-        media_type="image",
-    )
-    row = _MessageRow(msg)
-    rendered = str(row.render())
-    # Filename is visible; raw URL is hidden inside the OSC 8 escape.
-    assert "photo.jpg" in rendered
-    assert "https://example.com/media/photo.jpg" not in rendered
