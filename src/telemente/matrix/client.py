@@ -112,6 +112,8 @@ class MatrixClient:
         self._rooms_poll_task: asyncio.Task[None] | None = None
         self._logged_in: bool = False
         self._initial_sync_done: bool = False
+        # Cache of room_id → last event timestamp, updated on each sync.
+        self._last_activity: dict[str, datetime] = {}
 
         if nio_client is not None:
             self._client = nio_client
@@ -306,14 +308,8 @@ class MatrixClient:
         """Return summaries of all joined rooms (from current sync state)."""
         summaries: list[RoomSummary] = []
         for room_id, room in self._client.rooms.items():
-            # Extract last_activity from the most recent timeline event.
-            last_activity: datetime | None = None
-            if room.timeline:
-                last_event = room.timeline[-1]
-                if hasattr(last_event, "server_timestamp"):
-                    last_activity = datetime.fromtimestamp(
-                        last_event.server_timestamp / 1000, tz=UTC
-                    )
+            # last_activity is populated by _on_sync via _update_last_activity().
+            last_activity: datetime | None = self._last_activity.get(room_id)
 
             # Extract room tags (m.favourite, m.lowpriority, etc.).
             tags: dict[str, float | None] = {}
@@ -790,9 +786,28 @@ class MatrixClient:
             )
         return summaries
 
+    def _update_last_activity(self, response: nio.SyncResponse) -> None:
+        """Scan the sync response's joined-room timelines to update _last_activity."""
+        try:
+            join = response.rooms.join
+        except AttributeError:
+            return
+        for room_id, room_info in join.items():
+            try:
+                events = list(reversed(room_info.timeline.events))
+            except AttributeError:
+                continue
+            for event in events:
+                if hasattr(event, "server_timestamp"):
+                    ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+                    if ts > self._last_activity.get(room_id, datetime.min.replace(tzinfo=UTC)):
+                        self._last_activity[room_id] = ts
+                    break
+
     async def _on_sync(self, response: nio.SyncResponse) -> None:
         """nio callback: a sync response arrived — emit RoomsChanged and handle key ops."""
         self._initial_sync_done = True
+        self._update_last_activity(response)
         rooms = self.rooms()
         logger.debug("_on_sync: %d rooms after sync", len(rooms))
 

@@ -173,3 +173,163 @@ async def test_focus_search_binding() -> None:
 
         assert app.focused is not None
         assert app.focused.id == "room-search"
+
+
+# ---------------------------------------------------------------------------
+# Test 6: selecting a room opens a tab in the message panel
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_selecting_room_opens_tab() -> None:
+    """RoomSelected(A) → a tab for room A appears in the TabbedContent."""
+    from textual.widgets import TabbedContent
+
+    from telemente.matrix.models import RoomSummary
+    from telemente.tui.widgets.room_list import RoomList
+
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!a:h"] = []
+    fake._members["!a:h"] = []
+    app = HostApp(fake)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([RoomSummary(room_id="!a:h", display_name="Alpha")])
+        await pilot.pause()
+
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        tc = screen.query_one(TabbedContent)
+        assert tc.tab_count == 1
+        assert tc.active == "tab-room--a-h"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: selecting same room twice focuses existing tab, doesn't open a second
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_selecting_same_room_reuses_tab() -> None:
+    """RoomSelected(A) twice → still only one tab."""
+    from textual.widgets import TabbedContent
+
+    from telemente.matrix.models import RoomSummary
+    from telemente.tui.widgets.room_list import RoomList
+
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!a:h"] = []
+    fake._members["!a:h"] = []
+    app = HostApp(fake)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([RoomSummary(room_id="!a:h", display_name="Alpha")])
+        await pilot.pause()
+
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        tc = screen.query_one(TabbedContent)
+        assert tc.tab_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 8: cap at 8 tabs — opening a 9th evicts the oldest (LRU)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tab_cap_evicts_oldest() -> None:
+    """Opening 9 rooms → only 8 tabs; the first room's tab was evicted."""
+    from textual.widgets import TabbedContent
+
+    from telemente.matrix.models import RoomSummary
+    from telemente.tui.widgets.room_list import RoomList
+
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    for i in range(9):
+        fake._messages[f"!r{i}:h"] = []
+        fake._members[f"!r{i}:h"] = []
+    app = HostApp(fake)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        room_list = screen.query_one(RoomList)
+        rooms = [RoomSummary(room_id=f"!r{i}:h", display_name=f"Room{i}") for i in range(9)]
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        for i in range(9):
+            room_list.post_message(RoomList.RoomSelected(f"!r{i}:h"))
+            await pilot.pause()
+            await pilot.pause()
+
+        from telemente.tui.screens.main import MainScreen as MS
+
+        assert isinstance(screen, MS)
+        tc = screen.query_one(TabbedContent)
+        assert tc.tab_count == 8
+        # First room's tab should have been evicted — not in open tabs
+        assert "!r0:h" not in screen._open_tabs
+        # Last room's tab should be present and active
+        assert "!r8:h" in screen._open_tabs
+
+
+# ---------------------------------------------------------------------------
+# Test 9: close_tab removes the tab from TabbedContent and _open_tabs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_close_tab_removes_tab() -> None:
+    """MainScreen.close_tab(room_id) removes the tab and its entry in _open_tabs."""
+    from textual.widgets import TabbedContent
+
+    from telemente.matrix.models import RoomSummary
+    from telemente.tui.screens.main import MainScreen as MS
+    from telemente.tui.widgets.room_list import RoomList
+
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!a:h"] = []
+    fake._members["!a:h"] = []
+    app = HostApp(fake)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, MS)
+
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([RoomSummary(room_id="!a:h", display_name="Alpha")])
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        tc = screen.query_one(TabbedContent)
+        assert tc.tab_count == 1
+        assert "!a:h" in screen._open_tabs
+
+        await screen.close_tab("!a:h")
+        await pilot.pause()
+
+        assert tc.tab_count == 0
+        assert "!a:h" not in screen._open_tabs

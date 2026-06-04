@@ -23,7 +23,6 @@ from telemente.matrix.models import Member, Message, RoomSummary
 from telemente.tui.app import TelementeApp
 from telemente.tui.screens.main import MainScreen
 from telemente.tui.widgets.member_list import MemberList
-from telemente.tui.widgets.message_view import MessageView
 from telemente.tui.widgets.room_list import RoomList
 
 FakeMatrixClient = fakes_module.FakeMatrixClient
@@ -145,11 +144,15 @@ async def test_new_message_appends_to_active_room() -> None:
         screen = app.screen
         assert isinstance(screen, MainScreen)
 
-        # Set active room A on the screen
-        screen._active_room_id = "!a:h"
-        msg_view = screen.query_one(MessageView)
-        await msg_view.load_room("!a:h")
+        # Open room A via RoomSelected (opens a tab and loads messages)
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([_room("!a:h", "General")])
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
         await pilot.pause()
+        await pilot.pause()
+
+        msg_view = screen._message_view_for("!a:h")
+        assert msg_view is not None
         assert msg_view.current_room_id == "!a:h"
 
         # Emit a message for room A
@@ -186,26 +189,27 @@ async def test_new_message_other_room_bumps_unread() -> None:
         screen = app.screen
         assert isinstance(screen, MainScreen)
 
-        # Populate room list and make room A active
+        # Open room A via RoomSelected (makes it active)
         room_list = screen.query_one(RoomList)
         room_list.set_rooms(rooms_ab)
-        screen._active_room_id = "!a:h"
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
         await pilot.pause()
 
-        msg_view = screen.query_one(MessageView)
-        await msg_view.load_room("!a:h")
-        await pilot.pause()
+        msg_view = screen._message_view_for("!a:h")
+        assert msg_view is not None
+        assert msg_view.current_room_id == "!a:h"
 
         # Emit a message for room B (not active)
         msg = _msg("!b:h", body="hello from B")
         await fake.emit(NewMessage(message=msg))
         await pilot.pause()
 
-        # MessageView is still on room A with no rows
+        # MessageView for A still has no rows (only initial empty load)
         from telemente.tui.widgets.message_view import _MessageRow
 
         assert msg_view.current_room_id == "!a:h"
-        rows = list(screen.query(_MessageRow))
+        rows = list(msg_view.query(_MessageRow))
         assert len(rows) == 0
 
         # Room B should have unread count bumped in the room list
@@ -224,6 +228,8 @@ async def test_new_message_other_room_bumps_unread() -> None:
 async def test_members_changed_updates_active_room() -> None:
     """Active room A; emit MembersChanged(A, [...]) → MemberList re-renders."""
     app, fake = _make_app()
+    fake._messages["!a:h"] = []
+    fake._members["!a:h"] = []
 
     async with app.run_test() as pilot:
         app.push_screen(MainScreen(fake))
@@ -231,7 +237,12 @@ async def test_members_changed_updates_active_room() -> None:
 
         screen = app.screen
         assert isinstance(screen, MainScreen)
-        screen._active_room_id = "!a:h"
+        # Open room A (makes it the active tab)
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([_room("!a:h", "General")])
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
 
         member_list = screen.query_one(MemberList)
         assert member_list.member_count == 0
@@ -255,6 +266,8 @@ async def test_members_changed_updates_active_room() -> None:
 async def test_members_changed_other_room_ignored() -> None:
     """Active room A; emit MembersChanged(B, ...) → MemberList unchanged."""
     app, fake = _make_app()
+    fake._messages["!a:h"] = []
+    fake._members["!a:h"] = []
 
     async with app.run_test() as pilot:
         app.push_screen(MainScreen(fake))
@@ -262,7 +275,12 @@ async def test_members_changed_other_room_ignored() -> None:
 
         screen = app.screen
         assert isinstance(screen, MainScreen)
-        screen._active_room_id = "!a:h"
+        # Open room A (makes it the active tab)
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([_room("!a:h", "General")])
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
 
         member_list = screen.query_one(MemberList)
         assert member_list.member_count == 0
@@ -306,8 +324,10 @@ async def test_room_selected_loads_messages_and_members() -> None:
         # Post RoomSelected for room B
         room_list.post_message(RoomList.RoomSelected("!b:h"))
         await pilot.pause()
+        await pilot.pause()
 
-        msg_view = screen.query_one(MessageView)
+        msg_view = screen._message_view_for("!b:h")
+        assert msg_view is not None
         assert msg_view.current_room_id == "!b:h"
 
         member_list = screen.query_one(MemberList)

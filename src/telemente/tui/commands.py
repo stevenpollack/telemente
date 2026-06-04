@@ -1,15 +1,20 @@
-"""Command palette provider for telemente (plan jaunty-snacking-micali).
+"""Command palette provider for telemente.
 
-Provides discoverable commands accessible via the command palette (Ctrl+P):
-- Search rooms     — focus the room search bar
-- Toggle members   — show/hide the right-hand members panel
-- Leave room       — confirm + leave the currently selected room
-- Room actions     — favourite / low-priority tag toggles
-- Logout           — clear credentials and return to login
+The command palette (Ctrl+P) is the canonical source of truth for what the app
+can do — every user-facing feature must appear here.  Keybindings are shortcuts
+to palette commands, not replacements.
 
-The provider uses ``self.app`` at runtime (no import from app.py) to avoid
-circular imports; it casts to ``TelementeApp`` only inside callbacks that
-are called after the app is fully constructed.
+Commands exposed:
+  Search rooms            — focus the room search bar
+  Toggle members pane     — show/hide the right-hand members panel
+  Close tab               — close the active room's tab
+  Sort: Recent activity   — sort room list by newest message first (default)
+  Sort: Alphabetical      — sort room list A-Z
+  Toggle favourite        — add/remove m.favourite tag on active room
+  Toggle low priority     — add/remove m.lowpriority tag on active room
+  Toggle mute             — add/remove m.mute tag on active room
+  Leave room              — confirm + leave the currently selected room
+  Logout                  — clear credentials and return to login
 """
 
 from __future__ import annotations
@@ -31,10 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class _ConfirmScreen(ModalScreen[bool]):
-    """A minimal Y / N confirmation modal screen.
-
-    Returns ``True`` when the user confirms, ``False`` when they cancel.
-    """
+    """A minimal Y / N confirmation modal screen."""
 
     DEFAULT_CSS = """
     _ConfirmScreen {
@@ -79,85 +81,49 @@ class _ConfirmScreen(ModalScreen[bool]):
 # TelementeCommands
 # ---------------------------------------------------------------------------
 
+_COMMANDS: list[tuple[str, str, str]] = [
+    # (name, attr_name, help_text)
+    ("Search rooms", "_cmd_search_rooms", "Focus the room search bar"),
+    ("Toggle members pane", "_cmd_toggle_members", "Show/hide the members panel"),
+    ("Close tab", "_cmd_close_tab", "Close the active room's tab"),
+    ("Sort: Recent activity", "_cmd_sort_recent", "Sort room list by newest message first"),
+    ("Sort: Alphabetical", "_cmd_sort_alpha", "Sort room list A-Z by name"),
+    ("Toggle favourite ★", "_cmd_toggle_favourite", "Add or remove the m.favourite tag"),
+    ("Toggle low priority ↓", "_cmd_toggle_lowpriority", "Add or remove the m.lowpriority tag"),
+    ("Toggle mute 🔕", "_cmd_toggle_mute", "Add or remove the m.mute tag"),
+    (
+        "Leave room",
+        "_cmd_leave_room",
+        "Leave the currently selected room (asks for confirmation)",
+    ),
+    ("Logout", "_cmd_logout", "Log out and return to the login screen"),
+]
+
 
 class TelementeCommands(Provider):
-    """Command palette provider for telemente.
-
-    Exposes Search rooms, Toggle members, Leave room, Room actions, Logout.
-    """
-
-    # ------------------------------------------------------------------
-    # Discovery (shown before user types anything)
-    # ------------------------------------------------------------------
+    """Command palette provider — the source of truth for app features."""
 
     async def discover(self) -> Hits:
-        yield DiscoveryHit(
-            "Search rooms",
-            self._cmd_search_rooms,
-            help="Focus the room search bar",
-        )
-        yield DiscoveryHit(
-            "Toggle members pane",
-            self._cmd_toggle_members,
-            help="Show/hide the members panel",
-        )
-        yield DiscoveryHit(
-            "Leave room",
-            self._cmd_leave_room,
-            help="Leave the currently selected room (asks for confirmation)",
-        )
-        yield DiscoveryHit(
-            "Room actions",
-            self._cmd_room_actions,
-            help="Favourite / low-priority toggles for the selected room",
-        )
-        yield DiscoveryHit(
-            "Logout",
-            self._cmd_logout,
-            help="Log out and return to the login screen",
-        )
-
-    # ------------------------------------------------------------------
-    # Search (shown as user types)
-    # ------------------------------------------------------------------
+        for name, attr, help_text in _COMMANDS:
+            yield DiscoveryHit(name, getattr(self, attr), help=help_text)
 
     async def search(self, query: str) -> Hits:
         matcher = self.matcher(query)
-        commands: list[tuple[str, object, str]] = [
-            ("Search rooms", self._cmd_search_rooms, "Focus the room search bar"),
-            (
-                "Toggle members pane",
-                self._cmd_toggle_members,
-                "Show/hide the members panel",
-            ),
-            (
-                "Leave room",
-                self._cmd_leave_room,
-                "Leave the currently selected room (asks for confirmation)",
-            ),
-            (
-                "Room actions",
-                self._cmd_room_actions,
-                "Favourite / low-priority toggles for the selected room",
-            ),
-            ("Logout", self._cmd_logout, "Log out and return to the login screen"),
-        ]
-        for name, callback, help_text in commands:
+        for name, attr, help_text in _COMMANDS:
             score = matcher.match(name)
             if score > 0:
                 yield Hit(
                     score,
                     matcher.highlight(name),
-                    callback,  # type: ignore[arg-type]
+                    getattr(self, attr),
                     help=help_text,
                 )
 
     # ------------------------------------------------------------------
-    # Command implementations
+    # Navigation / layout
     # ------------------------------------------------------------------
 
     def _cmd_search_rooms(self) -> None:
-        """Focus the room-search input."""
         from textual.widgets import Input
 
         from telemente.tui.screens.main import MainScreen
@@ -170,15 +136,121 @@ class TelementeCommands(Provider):
                 logger.debug("_cmd_search_rooms: #room-search not found")
 
     def _cmd_toggle_members(self) -> None:
-        """Toggle the right-hand members panel visibility."""
         from telemente.tui.screens.main import MainScreen
 
         screen = self.app.screen
         if isinstance(screen, MainScreen):
             screen.action_toggle_members()
 
+    def _cmd_close_tab(self) -> None:
+        """Close the currently active room tab."""
+        from telemente.tui.screens.main import MainScreen
+
+        screen = self.app.screen
+        if not isinstance(screen, MainScreen):
+            return
+        room_id = screen.active_room_id
+        if room_id is None:
+            self.app.notify("No tab is open", severity="warning")
+            return
+        self.app.run_worker(screen.close_tab(room_id), exclusive=False, exit_on_error=False)
+
+    # ------------------------------------------------------------------
+    # Sort
+    # ------------------------------------------------------------------
+
+    def _cmd_sort_recent(self) -> None:
+        from telemente.tui.screens.main import MainScreen
+        from telemente.tui.widgets.room_list import RoomList
+
+        screen = self.app.screen
+        if isinstance(screen, MainScreen):
+            screen.query_one(RoomList).set_sort_mode("recent")
+            self.app.notify("Sorted by recent activity", timeout=2)
+
+    def _cmd_sort_alpha(self) -> None:
+        from telemente.tui.screens.main import MainScreen
+        from telemente.tui.widgets.room_list import RoomList
+
+        screen = self.app.screen
+        if isinstance(screen, MainScreen):
+            screen.query_one(RoomList).set_sort_mode("alpha")
+            self.app.notify("Sorted alphabetically", timeout=2)
+
+    # ------------------------------------------------------------------
+    # Tags
+    # ------------------------------------------------------------------
+
+    def _cmd_toggle_favourite(self) -> None:
+        self._toggle_tag("m.favourite")
+
+    def _cmd_toggle_lowpriority(self) -> None:
+        self._toggle_tag("m.lowpriority")
+
+    def _cmd_toggle_mute(self) -> None:
+        self._toggle_tag("m.mute")
+
+    def _toggle_tag(self, tag: str) -> None:
+        from telemente.tui.screens.main import MainScreen
+
+        screen = self.app.screen
+        if not isinstance(screen, MainScreen):
+            self.app.notify("No active room", severity="warning")
+            return
+        room_id = screen.active_room_id
+        if room_id is None:
+            self.app.notify("No room selected", severity="warning")
+            return
+        self.app.run_worker(
+            self._do_toggle_tag(room_id, tag),
+            exclusive=False,
+            exit_on_error=False,
+        )
+
+    async def _do_toggle_tag(self, room_id: str, tag: str) -> None:
+        from telemente.tui.app import TelementeApp
+        from telemente.tui.screens.main import MainScreen
+        from telemente.tui.widgets.room_list import RoomList
+
+        app = self.app
+        if not isinstance(app, TelementeApp):
+            return
+        client = app._client
+
+        is_tagged = False
+        screen = app.screen
+        if isinstance(screen, MainScreen):
+            try:
+                room_list = screen.query_one(RoomList)
+                room = next((r for r in room_list.all_rooms if r.room_id == room_id), None)
+                if room is not None:
+                    is_tagged = tag in room.tags
+            except Exception:
+                pass
+
+        tag_labels = {
+            "m.favourite": "favourite ★",
+            "m.lowpriority": "low priority ↓",
+            "m.mute": "mute 🔕",
+        }
+        label = tag_labels.get(tag, tag)
+
+        try:
+            if is_tagged:
+                await client.remove_room_tag(room_id, tag)
+                app.notify(f"Removed {label}", timeout=3)
+            else:
+                await client.set_room_tag(room_id, tag)
+                app.notify(f"Set {label}", timeout=3)
+        except Exception as exc:
+            logger.warning("tag operation failed for %s %s: %s", tag, room_id, exc)
+            app.notify(f"Tag operation failed: {exc}", severity="error")
+
+    # ------------------------------------------------------------------
+    # Room / session
+    # ------------------------------------------------------------------
+
     def _cmd_leave_room(self) -> None:
-        """Show a Y/N confirmation then leave the active room."""
         from telemente.tui.screens.main import MainScreen
 
         screen = self.app.screen
@@ -190,7 +262,6 @@ class TelementeCommands(Provider):
             self.app.notify("No room selected", severity="warning")
             return
 
-        # Get display name from the room list for a nicer prompt.
         from telemente.tui.widgets.room_list import RoomList
 
         try:
@@ -228,23 +299,7 @@ class TelementeCommands(Provider):
             _on_confirmed,
         )
 
-    def _cmd_room_actions(self) -> None:
-        """Show favourite / low-priority tag toggles for the active room."""
-        from telemente.tui.screens.main import MainScreen
-
-        screen = self.app.screen
-        if not isinstance(screen, MainScreen):
-            self.app.notify("No active room", severity="warning")
-            return
-        room_id = screen.active_room_id
-        if room_id is None:
-            self.app.notify("No room selected", severity="warning")
-            return
-
-        self.app.push_screen(_RoomActionsScreen(room_id))
-
     def _cmd_logout(self) -> None:
-        """Log out and return to login screen."""
         from telemente.tui.app import TelementeApp
 
         app = self.app
@@ -254,96 +309,3 @@ class TelementeCommands(Provider):
                 exclusive=True,
                 exit_on_error=False,
             )
-
-
-# ---------------------------------------------------------------------------
-# Room actions modal
-# ---------------------------------------------------------------------------
-
-
-class _RoomActionsScreen(ModalScreen[None]):
-    """Modal showing favourite / low-priority tag toggle buttons for a room."""
-
-    DEFAULT_CSS = """
-    _RoomActionsScreen {
-        align: center middle;
-    }
-    _RoomActionsScreen > Vertical {
-        width: 40;
-        height: auto;
-        padding: 1 2;
-        background: $surface;
-        border: round $primary;
-    }
-    _RoomActionsScreen Label {
-        width: 1fr;
-        content-align: center middle;
-        margin-bottom: 1;
-    }
-    _RoomActionsScreen Button {
-        width: 1fr;
-        margin: 0 0 1 0;
-    }
-    """
-
-    def __init__(self, room_id: str) -> None:
-        super().__init__()
-        self._room_id = room_id
-
-    def compose(self) -> ComposeResult:
-        with Vertical():
-            yield Label("Room actions")
-            yield Button("★  Toggle favourite", id="btn-favourite")
-            yield Button("↓  Toggle low priority", id="btn-lowpriority")
-            yield Button("Cancel", id="btn-cancel")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        btn_id = event.button.id
-        if btn_id == "btn-cancel":
-            self.dismiss()
-        elif btn_id == "btn-favourite":
-            self.run_worker(
-                self._toggle_tag("m.favourite"),
-                exclusive=False,
-            )
-            self.dismiss()
-        elif btn_id == "btn-lowpriority":
-            self.run_worker(
-                self._toggle_tag("m.lowpriority"),
-                exclusive=False,
-            )
-            self.dismiss()
-
-    async def _toggle_tag(self, tag: str) -> None:
-        from telemente.tui.app import TelementeApp
-        from telemente.tui.screens.main import MainScreen
-        from telemente.tui.widgets.room_list import RoomList
-
-        app = self.app
-        if not isinstance(app, TelementeApp):
-            return
-        client = app._client
-        room_id = self._room_id
-
-        # Determine current tag state from room list.
-        screen = app.screen
-        is_tagged = False
-        if isinstance(screen, MainScreen):
-            try:
-                room_list = screen.query_one(RoomList)
-                room = next((r for r in room_list.all_rooms if r.room_id == room_id), None)
-                if room is not None:
-                    is_tagged = tag in room.tags
-            except Exception:
-                pass
-
-        try:
-            if is_tagged:
-                await client.remove_room_tag(room_id, tag)
-                app.notify(f"Removed tag {tag}")
-            else:
-                await client.set_room_tag(room_id, tag)
-                app.notify(f"Set tag {tag}")
-        except Exception as exc:
-            logger.warning("tag operation failed for %s %s: %s", tag, room_id, exc)
-            app.notify(f"Tag operation failed: {exc}", severity="error")

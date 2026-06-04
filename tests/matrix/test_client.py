@@ -675,3 +675,47 @@ async def test_messages_reaction_unknown_event_id_ignored() -> None:
 
     assert len(msgs) == 1
     assert msgs[0].reactions == {}
+
+
+async def test_rooms_last_activity_comes_from_sync_cache() -> None:
+    """rooms() reads last_activity from _last_activity cache, not room.timeline."""
+    from datetime import UTC, datetime
+
+    nio_mock = _build_nio_mock()
+    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+
+    # Before any sync: last_activity is None (cache is empty).
+    summaries = client.rooms()
+    assert len(summaries) == 1
+    assert summaries[0].last_activity is None
+
+    # Populate the cache directly (simulating what _update_last_activity does).
+    ts = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+    client._last_activity["!r:example.com"] = ts
+
+    summaries = client.rooms()
+    assert summaries[0].last_activity == ts
+
+
+async def test_update_last_activity_populates_cache() -> None:
+    """_update_last_activity() reads the newest event timestamp from each joined room."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    ts_ms = 1_717_243_200_000  # 2024-06-01 12:00:00 UTC in milliseconds
+    expected = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
+
+    fake_event = SimpleNamespace(server_timestamp=ts_ms)
+    fake_timeline = SimpleNamespace(events=[fake_event])
+    fake_room_info = SimpleNamespace(timeline=fake_timeline)
+    fake_response = SimpleNamespace(rooms=SimpleNamespace(join={"!r:example.com": fake_room_info}))
+
+    nio_mock = _build_nio_mock()
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+
+    client._update_last_activity(fake_response)
+
+    assert client._last_activity.get("!r:example.com") == expected

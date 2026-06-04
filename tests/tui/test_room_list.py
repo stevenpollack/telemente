@@ -237,6 +237,9 @@ async def test_selecting_posts_roomselected() -> None:
 
 @pytest.mark.asyncio
 async def test_unread_badge_rendered() -> None:
+    """Unread count is embedded in the room-name label as '(3)'."""
+    from telemente.tui.widgets.room_list import _RoomItem
+
     app = HostApp()
     rooms = [
         _room("!a:h", "Busy Room", unread_count=3),
@@ -248,13 +251,11 @@ async def test_unread_badge_rendered() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        # Query the badge label inside the list item
-        badges = app.query(".room-unread-badge")
-        assert len(badges) == 1
-        badge = badges.first()
-        assert badge.display is True
-        # The badge should contain "(3)"
-        assert "(3)" in str(badge.render())
+        items = list(app.query(_RoomItem))
+        assert len(items) == 1
+        rendered = str(items[0].query_one(".room-name").render())
+        assert "Busy Room" in rendered
+        assert "(3)" in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -413,3 +414,214 @@ async def test_active_highlight_survives_set_rooms_rebuild() -> None:
         highlighted = [item for item in items if "-highlight" in item.classes]
         assert len(highlighted) == 1
         assert highlighted[0].room.room_id == "!a:h"
+
+
+# ---------------------------------------------------------------------------
+# Test 13: switching active room moves highlight (no stale highlight on old room)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_switch_active_room_moves_highlight() -> None:
+    """Regression: selecting room B after room A must remove the highlight from A.
+
+    The bug: set_rooms() was called before set_active_room(), so the rebuild
+    used the old _active_room_id and the new selection had no effect until the
+    next render cycle."""
+    from telemente.tui.widgets.room_list import _RoomItem
+
+    app = HostApp()
+    rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        # Select room A first
+        room_list.set_active_room("!a:h")
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+        await pilot.pause()
+
+        # Now switch to room B (set_active_room before set_rooms, as main.py does)
+        room_list.set_active_room("!b:h")
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+        await pilot.pause()
+
+        items = list(app.query(_RoomItem))
+        highlighted = [item for item in items if "-highlight" in item.classes]
+        assert len(highlighted) == 1
+        assert highlighted[0].room.room_id == "!b:h"
+
+
+# ---------------------------------------------------------------------------
+# Test 14: unread room name is bold and shows count in parens
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unread_room_name_is_bold() -> None:
+    """A room with unread_count>0 renders its name with bold markup and (N) count."""
+    app = HostApp()
+    rooms = [_room("!a:h", "General", unread_count=3)]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        from telemente.tui.widgets.room_list import _RoomItem
+
+        items = list(app.query(_RoomItem))
+        assert len(items) == 1
+        rendered = str(items[0].query_one(".room-name").render())
+        assert "General" in rendered
+        assert "(3)" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 15: room with no unread has plain name (no bold/count)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_read_room_name_is_plain() -> None:
+    """A room with unread_count==0 renders its name without (N) count."""
+    app = HostApp()
+    rooms = [_room("!a:h", "General", unread_count=0)]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        from telemente.tui.widgets.room_list import _RoomItem
+
+        items = list(app.query(_RoomItem))
+        rendered = str(items[0].query_one(".room-name").render())
+        assert "General" in rendered
+        assert "(" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 16: favourite tag shows ★ glyph in room name
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_favourite_tag_shows_star() -> None:
+    """A room tagged m.favourite shows ★ in its rendered name."""
+    app = HostApp()
+    rooms = [
+        RoomSummary(
+            room_id="!a:h",
+            display_name="Starred",
+            tags={"m.favourite": None},
+        )
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        from telemente.tui.widgets.room_list import _RoomItem
+
+        items = list(app.query(_RoomItem))
+        rendered = str(items[0].query_one(".room-name").render())
+        assert "★" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 17: low-priority tag shows ↓ glyph
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lowpriority_tag_shows_arrow() -> None:
+    """A room tagged m.lowpriority shows ↓ in its rendered name."""
+    app = HostApp()
+    rooms = [
+        RoomSummary(
+            room_id="!a:h",
+            display_name="Low",
+            tags={"m.lowpriority": None},
+        )
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        from telemente.tui.widgets.room_list import _RoomItem
+
+        items = list(app.query(_RoomItem))
+        rendered = str(items[0].query_one(".room-name").render())
+        assert "↓" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 18: set_sort_mode("alpha") sorts rooms alphabetically regardless of activity
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_sort_mode_alpha() -> None:
+    """set_sort_mode('alpha') → rooms sorted A-Z by display_name."""
+    app = HostApp()
+    rooms = [
+        _room("!z:h", "Zebra", last_activity=DT_NEW),
+        _room("!a:h", "Alpha", last_activity=DT_OLD),
+        _room("!m:h", "Mango", last_activity=DT_MID),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        room_list.set_sort_mode("alpha")
+        await pilot.pause()
+
+        visible = room_list.visible_rooms
+        assert [r.display_name for r in visible] == ["Alpha", "Mango", "Zebra"]
+
+
+# ---------------------------------------------------------------------------
+# Test 19: set_sort_mode("recent") restores newest-first order
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_sort_mode_recent() -> None:
+    """set_sort_mode('recent') → rooms sorted newest-first."""
+    app = HostApp()
+    rooms = [
+        _room("!z:h", "Zebra", last_activity=DT_NEW),
+        _room("!a:h", "Alpha", last_activity=DT_OLD),
+        _room("!m:h", "Mango", last_activity=DT_MID),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        room_list.set_sort_mode("alpha")
+        await pilot.pause()
+
+        room_list.set_sort_mode("recent")
+        await pilot.pause()
+
+        visible = room_list.visible_rooms
+        assert visible[0].room_id == "!z:h"
+        assert visible[1].room_id == "!m:h"
+        assert visible[2].room_id == "!a:h"

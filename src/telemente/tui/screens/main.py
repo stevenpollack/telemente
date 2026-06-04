@@ -1,17 +1,15 @@
 """Main screen for telemente (plan 0005 / 0009).
 
-Three-panel layout: collapsible room list (left), message view (center),
-collapsible member list (right).  Plan 0006 replaces the placeholder left
-panel with the real RoomList widget.
-
-Plan 0009 adds live event routing: RoomsChanged, NewMessage, MembersChanged
-are dispatched to the appropriate widgets; RoomList.RoomSelected triggers
-message + member loading and clears unread.
+Three-panel layout: collapsible room list (left), tabbed message views (center),
+collapsible member list (right).  Each selected room opens in its own tab (up to
+TAB_CAP=8); the oldest tab is evicted LRU when the cap is exceeded.
 """
 
 from __future__ import annotations
 
 import logging
+import re
+from collections import OrderedDict
 from typing import ClassVar, Protocol
 
 from textual.app import ComposeResult
@@ -19,7 +17,7 @@ from textual.binding import BindingType
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input
+from textual.widgets import Footer, Header, Input, TabbedContent, TabPane
 
 from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged
 from telemente.matrix.models import Member, Message, RoomSummary
@@ -29,14 +27,20 @@ from telemente.tui.widgets.room_list import RoomList
 
 logger = logging.getLogger(__name__)
 
+TAB_CAP = 8
+
+# IDs in Textual must match [a-zA-Z0-9_-]+; convert room_id characters.
+_INVALID_ID_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _tab_id(room_id: str) -> str:
+    """Stable, valid Textual widget ID derived from a Matrix room_id."""
+    safe = _INVALID_ID_CHARS.sub("-", room_id)
+    return f"tab-room-{safe}"
+
 
 class _MainClient(Protocol):
-    """Structural protocol for the subset of MatrixClient used by MainScreen.
-
-    MainScreen delegates data access to child widgets (0006-0008).
-    The methods here match the subset consumed by MessageView and MemberList
-    so mypy can verify DI without coupling to the real client.
-    """
+    """Structural protocol for the subset of MatrixClient used by MainScreen."""
 
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]: ...
 
@@ -63,7 +67,7 @@ class _MainClient(Protocol):
 
 
 class MainScreen(Screen[None]):
-    """Three-panel main screen: room list | message view | member list."""
+    """Three-panel main screen: room list | tabbed message views | member list."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("ctrl+b", "toggle_rooms", "Rooms"),
@@ -77,14 +81,22 @@ class MainScreen(Screen[None]):
     def __init__(self, client: _MainClient) -> None:
         super().__init__()
         self._client = client
-        self._active_room_id: str | None = None
-        # Track unread counts by room_id; keys are rooms with non-zero unread.
+        # LRU-ordered dict: room_id -> display_name; oldest first.
+        self._open_tabs: OrderedDict[str, str] = OrderedDict()
+        # Track unread counts by room_id.
         self._unread: dict[str, int] = {}
 
     @property
     def active_room_id(self) -> str | None:
-        """The currently active room ID, or None if no room is selected."""
-        return self._active_room_id
+        """The currently active room ID (frontmost tab), or None."""
+        tc = self.query_one(TabbedContent)
+        active = tc.active
+        if not active:
+            return None
+        for room_id in self._open_tabs:
+            if _tab_id(room_id) == active:
+                return room_id
+        return None
 
     # ------------------------------------------------------------------
     # Layout
@@ -94,15 +106,13 @@ class MainScreen(Screen[None]):
         yield Header()
         with Horizontal(id="main-layout"):
             yield RoomList(id="rooms-panel")
-            yield MessageView(self._client, id="message-panel")
+            with TabbedContent(id="message-panel"):
+                pass
             yield MemberList(self._client, id="members-panel")
         yield Footer()
 
     def on_mount(self) -> None:
         logger.debug("MainScreen mounted")
-        # Belt-and-suspenders: load whatever rooms the client already knows
-        # about. This handles the case where the first RoomsChanged sync event
-        # fired before this screen was fully mounted and was therefore dropped.
         rooms = self._client.rooms()
         if rooms:
             logger.debug("MainScreen.on_mount: pre-loading %d rooms from client", len(rooms))
@@ -123,15 +133,12 @@ class MainScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def action_toggle_rooms(self) -> None:
-        """Toggle the left rooms panel (ctrl+b)."""
         self.rooms_visible = not self.rooms_visible
 
     def action_toggle_members(self) -> None:
-        """Toggle the right members panel (ctrl+r)."""
         self.members_visible = not self.members_visible
 
     def action_focus_search(self) -> None:
-        """Focus the room-search input (ctrl+k)."""
         self.query_one("#room-search", Input).focus()
 
     # ------------------------------------------------------------------
@@ -139,7 +146,6 @@ class MainScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def handle_rooms_changed(self, event: RoomsChanged) -> None:
-        """Route a RoomsChanged event to RoomList, preserving unread counts."""
         rooms_with_unread = [
             RoomSummary(
                 room_id=r.room_id,
@@ -154,22 +160,22 @@ class MainScreen(Screen[None]):
         self.query_one(RoomList).set_rooms(rooms_with_unread)
 
     def handle_new_message(self, event: NewMessage) -> None:
-        """Route a NewMessage event.
-
-        - If the message is for the active room, append it to MessageView.
-        - Otherwise bump the unread count in RoomList.
-        """
         msg = event.message
-        if msg.room_id == self._active_room_id:
-            self.query_one(MessageView).append_message(msg)
+        active_room = self.active_room_id
+        if msg.room_id == active_room:
+            # Route to the active tab's MessageView
+            view = self._message_view_for(msg.room_id)
+            if view is not None:
+                view.append_message(msg)
         else:
-            # Bump unread for the room
+            # Bump unread and show a toast if the room has an open tab
             self._unread[msg.room_id] = self._unread.get(msg.room_id, 0) + 1
-            # Update RoomList with the new unread count
             room_list = self.query_one(RoomList)
             updated: list[RoomSummary] = []
+            display_name = msg.room_id
             for room in room_list.all_rooms:
                 if room.room_id == msg.room_id:
+                    display_name = room.display_name
                     updated.append(
                         RoomSummary(
                             room_id=room.room_id,
@@ -183,26 +189,53 @@ class MainScreen(Screen[None]):
                 else:
                     updated.append(room)
             room_list.set_rooms(updated)
+            # Toast only when the room is in an open (but non-active) tab
+            if msg.room_id in self._open_tabs:
+                self.app.notify(
+                    f"{msg.sender_display_name}: {msg.body[:60]}",
+                    title=display_name,
+                    severity="information",
+                    timeout=4,
+                )
 
     def handle_members_changed(self, event: MembersChanged) -> None:
-        """Route a MembersChanged event to MemberList (active room only)."""
-        if event.room_id == self._active_room_id:
+        if event.room_id == self.active_room_id:
             self.query_one(MemberList).set_members(event.members)
 
     # ------------------------------------------------------------------
-    # RoomSelected handler (plan 0009)
+    # RoomSelected handler
     # ------------------------------------------------------------------
 
     def on_room_list_room_selected(self, message: RoomList.RoomSelected) -> None:
-        """Load messages + members for the selected room and clear its unread."""
         room_id = message.room_id
-        self._active_room_id = room_id
+        tid = _tab_id(room_id)
+        tc = self.query_one(TabbedContent)
 
-        # Clear unread for the selected room
+        if room_id in self._open_tabs:
+            # Tab exists — just focus it and refresh the highlight
+            self._open_tabs.move_to_end(room_id)
+            tc.active = tid
+            self._sync_room_highlight()
+            return
+
+        # Evict oldest tab if at cap
+        if len(self._open_tabs) >= TAB_CAP:
+            oldest_room_id, _ = next(iter(self._open_tabs.items()))
+            oldest_tid = _tab_id(oldest_room_id)
+            self.run_worker(self._remove_tab(tc, oldest_tid), exclusive=False)
+            del self._open_tabs[oldest_room_id]
+
+        # Find display name from room list
+        room_list = self.query_one(RoomList)
+        display_name = next(
+            (r.display_name for r in room_list.all_rooms if r.room_id == room_id),
+            room_id,
+        )
+        self._open_tabs[room_id] = display_name
+
+        # Clear unread for this room
         if room_id in self._unread:
             del self._unread[room_id]
-        # Update RoomList to reflect cleared unread
-        room_list = self.query_one(RoomList)
         updated = [
             RoomSummary(
                 room_id=r.room_id,
@@ -214,16 +247,59 @@ class MainScreen(Screen[None]):
             )
             for r in room_list.all_rooms
         ]
-        room_list.set_rooms(updated)
         room_list.set_active_room(room_id)
+        room_list.set_rooms(updated)
 
-        # Load messages and members (async work in a worker)
+        # Open the tab and load content
         self.run_worker(
-            self._load_room(room_id),
+            self._open_tab(tc, room_id, tid, display_name),
             exclusive=False,
         )
 
-    async def _load_room(self, room_id: str) -> None:
-        """Fetch messages and members for the given room."""
-        await self.query_one(MessageView).load_room(room_id)
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Sync room highlight when the user switches tabs manually."""
+        self._sync_room_highlight()
+        active = self.active_room_id
+        if active is not None:
+            self.query_one(RoomList).set_active_room(active)
+            self.query_one(MemberList).load_room(active)
+
+    # ------------------------------------------------------------------
+    # Async helpers
+    # ------------------------------------------------------------------
+
+    async def close_tab(self, room_id: str) -> None:
+        """Close the tab for room_id (no-op if not open)."""
+        if room_id not in self._open_tabs:
+            return
+        tid = _tab_id(room_id)
+        del self._open_tabs[room_id]
+        await self.query_one(TabbedContent).remove_pane(tid)
+        self._sync_room_highlight()
+
+    async def _open_tab(self, tc: TabbedContent, room_id: str, tid: str, display_name: str) -> None:
+        view = MessageView(self._client, id=f"mv-{tid}")
+        pane = TabPane(display_name, view, id=tid)
+        await tc.add_pane(pane)
+        tc.active = tid
+        self._sync_room_highlight()
+        await view.load_room(room_id)
         self.query_one(MemberList).load_room(room_id)
+
+    async def _remove_tab(self, tc: TabbedContent, tid: str) -> None:
+        await tc.remove_pane(tid)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _message_view_for(self, room_id: str) -> MessageView | None:
+        tid = _tab_id(room_id)
+        try:
+            return self.query_one(f"#mv-{tid}", MessageView)
+        except Exception:
+            return None
+
+    def _sync_room_highlight(self) -> None:
+        room_list = self.query_one(RoomList)
+        room_list.set_active_room(self.active_room_id)

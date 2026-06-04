@@ -38,6 +38,12 @@ tui/
 4. **Fully typed.** `mypy --strict` must pass. No `Any` leaks; no bare
    `# type: ignore` without a reason.
 5. **No `print`.** Use `logging`. Stdout belongs to Textual.
+6. **Every user-facing feature must be reachable via the command palette.**
+   The command palette (`Ctrl+P`, implemented in `tui/commands.py`) is the
+   canonical source of truth for what the app can do. Keybindings are
+   shortcuts to palette commands, not replacements. When you add a feature,
+   add a corresponding `DiscoveryHit` and `search()` entry in
+   `TelementeCommands` at the same time — the two ship together.
 
 ## Test-driven development (required)
 

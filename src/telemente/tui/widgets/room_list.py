@@ -54,15 +54,16 @@ class _RoomItem(ListItem):
 
     def compose(self) -> ComposeResult:
         room = self._room
-        # Build display name with optional lock glyph and tag markers.
         name = f"\U0001f512 {room.display_name}" if room.encrypted else room.display_name
         if "m.favourite" in room.tags:
             name = f"★ {name}"
         if "m.lowpriority" in room.tags:
             name = f"{name} ↓"
-        yield Label(name, classes="room-name")
+        if "m.mute" in room.tags:
+            name = f"{name} 🔕"
         if room.unread_count > 0:
-            yield Label(f"({room.unread_count})", classes="room-unread-badge", id=None)
+            name = f"[bold]{name} ({room.unread_count})[/bold]"
+        yield Label(name, markup=True, classes="room-name")
 
 
 class RoomList(Widget):
@@ -106,6 +107,7 @@ class RoomList(Widget):
         self._visible_rooms: list[RoomSummary] = []
         self._has_loaded: bool = False
         self._active_room_id: str | None = None
+        self._sort_mode: str = "recent"  # "recent" | "alpha"
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="search-bar"):
@@ -149,6 +151,11 @@ class RoomList(Widget):
         self._filter = query
         self._rebuild()
 
+    def set_sort_mode(self, mode: str) -> None:
+        """Set sort order: 'recent' (newest first) or 'alpha' (A-Z)."""
+        self._sort_mode = mode
+        self._rebuild()
+
     @property
     def all_rooms(self) -> list[RoomSummary]:
         """Full unfiltered room list."""
@@ -171,18 +178,20 @@ class RoomList(Widget):
         else:
             filtered = list(self._all_rooms)
 
-        # Sort: rooms with a last_activity date come first (newest first),
-        # then rooms with last_activity=None sorted alphabetically by name.
-        rooms_with_dt = [r for r in filtered if r.last_activity is not None]
-        rooms_without_dt = [r for r in filtered if r.last_activity is None]
+        if self._sort_mode == "alpha":
+            self._visible_rooms = sorted(filtered, key=lambda r: r.display_name.casefold())
+        else:
+            # "recent": rooms with a timestamp newest-first, then no-timestamp A-Z.
+            rooms_with_dt = [r for r in filtered if r.last_activity is not None]
+            rooms_without_dt = [r for r in filtered if r.last_activity is None]
 
-        def _by_activity(r: RoomSummary) -> datetime:
-            assert r.last_activity is not None  # narrowed above
-            return r.last_activity
+            def _by_activity(r: RoomSummary) -> datetime:
+                assert r.last_activity is not None
+                return r.last_activity
 
-        rooms_with_dt.sort(key=_by_activity, reverse=True)
-        rooms_without_dt.sort(key=lambda r: r.display_name)
-        self._visible_rooms = rooms_with_dt + rooms_without_dt
+            rooms_with_dt.sort(key=_by_activity, reverse=True)
+            rooms_without_dt.sort(key=lambda r: r.display_name)
+            self._visible_rooms = rooms_with_dt + rooms_without_dt
 
         self._refresh_list()
         self._sync_loading_state()

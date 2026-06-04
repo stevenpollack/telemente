@@ -28,6 +28,19 @@
     border-title-color: $text;
 }
 
+#message-panel > TabbedContent {
+    height: 1fr;
+}
+
+#message-panel ContentSwitcher {
+    height: 1fr;
+}
+
+#message-panel TabPane {
+    height: 1fr;
+    padding: 0;
+}
+
 #members-panel {
     width: 24;
     border: solid $primary;
@@ -84,9 +97,8 @@ RoomList .room-name {
     width: 1fr;
 }
 
-RoomList .room-unread-badge {
+RoomList .room-name.-unread {
     color: $accent;
-    text-style: bold;
 }
 
 /* -------------------------------------------------------------------------
