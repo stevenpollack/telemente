@@ -42,11 +42,12 @@ system `libolm` above and reinstall: `uv sync --reinstall-package python-olm`.
 ## Quickstart
 
 ```bash
-# 1. Install libolm (see table above), then:
+# 1. Clone the repo
 git clone https://github.com/telemente/telemente
 cd telemente
 
 # 2. Create the environment and install dependencies
+#    (libolm is bundled in the python-olm wheel on most platforms; see above)
 uv sync
 
 # 3. Run the app

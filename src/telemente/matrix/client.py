@@ -1,9 +1,20 @@
 """MatrixClient: the single async boundary between telemente and matrix-nio.
 
 Plan 0003: matrix client wrapper.
+Plan 0010: end-to-end encryption (E2EE) with TOFU trust.
 
 The UI NEVER imports nio. All protocol access goes through this module.
 Only telemente.matrix.models dataclasses cross the boundary — no nio types.
+
+# TOFU Trust Policy (v0.1.0)
+# ============================
+# telemente uses Trust-On-First-Use (TOFU): all devices encountered in an
+# encrypted room are automatically marked as verified before each send.
+# This is NOT secure against man-in-the-middle (MITM) attacks — a malicious
+# server could inject a new device between participants and this client would
+# silently trust it. Interactive device verification (SAS / QR code) is a
+# future milestone. Users who require MITM protection should not rely on this
+# version for sensitive communications.
 """
 
 from __future__ import annotations
@@ -101,10 +112,16 @@ class MatrixClient:
         if nio_client is not None:
             self._client = nio_client
         else:
-            config = nio.AsyncClientConfig(store_sync_tokens=True)
+            # Enable encryption + store persistence when a store path is given.
+            encryption_enabled = store_path is not None
+            config = nio.AsyncClientConfig(
+                store_sync_tokens=True,
+                encryption_enabled=encryption_enabled,
+            )
             self._client = nio.AsyncClient(
                 homeserver,
                 config=config,
+                store_path=store_path or "",
             )
 
     # ------------------------------------------------------------------
@@ -127,6 +144,7 @@ class MatrixClient:
             access_token=response.access_token,
         )
         self._logged_in = True
+        self._load_store()
         self._register_callbacks()
         return session
 
@@ -138,6 +156,7 @@ class MatrixClient:
             access_token=session.access_token,
         )
         self._logged_in = True
+        self._load_store()
         self._register_callbacks()
 
     async def logout(self) -> None:
@@ -239,14 +258,32 @@ class MatrixClient:
     # ------------------------------------------------------------------
 
     async def send_text(self, room_id: str, body: str) -> None:
-        """Send a plain-text message to a room."""
+        """Send a plain-text message to a room.
+
+        For encrypted rooms, TOFU trust is applied first (all devices in the
+        room are marked as verified), then the message is sent with
+        ``ignore_unverified_devices=True``.
+
+        WARNING — TOFU is NOT MITM-safe (see module docstring).
+        """
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in to send messages")
-        await self._client.room_send(
-            room_id,
-            "m.room.message",
-            {"msgtype": "m.text", "body": body},
-        )
+
+        room = self._client.rooms.get(room_id)
+        if room is not None and room.encrypted:
+            self._tofu_trust_room(room_id)
+            await self._client.room_send(
+                room_id,
+                "m.room.message",
+                {"msgtype": "m.text", "body": body},
+                ignore_unverified_devices=True,
+            )
+        else:
+            await self._client.room_send(
+                room_id,
+                "m.room.message",
+                {"msgtype": "m.text", "body": body},
+            )
 
     # ------------------------------------------------------------------
     # Subscriptions
@@ -266,8 +303,45 @@ class MatrixClient:
     # Internal: nio callbacks
     # ------------------------------------------------------------------
 
+    def _load_store(self) -> None:
+        """Load the nio/olm store if a store path is configured.
+
+        Must be called after the client has a user_id and device_id
+        (i.e. after login or restore_login). Safe to call when encryption
+        is not configured — nio.AsyncClient.load_store() raises LocalProtocolError
+        if the store was not initialised; we suppress that here.
+        """
+        if self._store_path is None:
+            return
+        try:
+            self._client.load_store()
+            logger.debug("Olm store loaded for %s", self._client.user_id)
+        except Exception as exc:
+            logger.warning("load_store() failed (encryption may be unavailable): %s", exc)
+
+    def _tofu_trust_room(self, room_id: str) -> None:
+        """Mark all devices in the room as verified (TOFU policy).
+
+        WARNING: This is Trust-On-First-Use and is NOT secure against
+        man-in-the-middle attacks. A compromised or malicious server can inject
+        new devices. Interactive device verification (SAS/QR) is a future
+        milestone (plan 0011+).
+        """
+        try:
+            devices_by_user = self._client.room_devices(room_id)
+        except Exception as exc:
+            logger.debug("room_devices() unavailable for %s: %s", room_id, exc)
+            return
+        for user_devices in devices_by_user.values():
+            for device in user_devices.values():
+                try:
+                    self._client.verify_device(device)
+                except Exception as exc:
+                    logger.debug("verify_device failed for %s: %s", device, exc)
+
     def _register_callbacks(self) -> None:
         self._client.add_event_callback(self._on_room_message, nio.RoomMessageText)
+        self._client.add_event_callback(self._on_megolm_event, nio.MegolmEvent)
         self._client.add_response_callback(self._on_sync, nio.SyncResponse)
 
     async def _emit(self, event: ClientEvent) -> None:
@@ -291,8 +365,52 @@ class MatrixClient:
         )
         await self._emit(NewMessage(message=message))
 
+    async def _on_megolm_event(self, room: nio.MatrixRoom, event: nio.MegolmEvent) -> None:
+        """nio callback: an encrypted message that could not be decrypted.
+
+        Requests the room key from the sender and surfaces a placeholder
+        message so the user knows something arrived.
+        """
+        logger.debug(
+            "Undecryptable MegolmEvent in %s from %s (session %s) — requesting key",
+            room.room_id,
+            event.sender,
+            event.session_id,
+        )
+        try:
+            await self._client.request_room_key(event)
+        except Exception as exc:
+            logger.warning("request_room_key failed for %s: %s", event.session_id, exc)
+
+        ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+        placeholder = Message(
+            event_id=event.event_id,
+            room_id=room.room_id,
+            sender=event.sender,
+            sender_display_name=_get_display_name(room, event.sender),
+            body="\U0001f512 unable to decrypt",
+            timestamp=ts,
+        )
+        await self._emit(NewMessage(message=placeholder))
+
     async def _on_sync(self, response: nio.SyncResponse) -> None:
-        """nio callback: a sync response arrived — emit RoomsChanged."""
+        """nio callback: a sync response arrived — emit RoomsChanged and handle key ops."""
+        # Upload device keys if needed (first sync after login/account creation).
+        if self._client.should_upload_keys:
+            logger.debug("Uploading device keys")
+            try:
+                await self._client.keys_upload()
+            except Exception as exc:
+                logger.warning("keys_upload() failed: %s", exc)
+
+        # Query keys for users whose device lists have changed.
+        if self._client.should_query_keys:
+            logger.debug("Querying device keys")
+            try:
+                await self._client.keys_query()
+            except Exception as exc:
+                logger.warning("keys_query() failed: %s", exc)
+
         await self._emit(RoomsChanged(rooms=self.rooms()))
 
 
