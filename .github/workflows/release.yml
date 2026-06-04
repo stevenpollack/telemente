@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & attach artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libolm (matrix-nio e2e dependency)
+        run: sudo apt-get update && sudo apt-get install -y libolm-dev
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Create GitHub Release with artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  # ---------------------------------------------------------------------------
+  # Future: publish to PyPI via Trusted Publishing (OIDC, no stored tokens).
+  # When ready, add a job like the following (requires a PyPI project +
+  # a configured trusted publisher) and grant `id-token: write`:
+  #
+  # publish-pypi:
+  #   needs: build-and-release
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     id-token: write
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: sudo apt-get update && sudo apt-get install -y libolm-dev
+  #     - uses: astral-sh/setup-uv@v6
+  #     - run: uv build
+  #     - uses: pypa/gh-action-pypi-publish@release/v1
+  # ---------------------------------------------------------------------------

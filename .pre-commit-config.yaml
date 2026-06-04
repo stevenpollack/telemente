@@ -1,0 +1,56 @@
+# Pre-commit configuration for telemente.
+#
+# Two layers of feedback:
+#   * commit stage  -> fast checks (lint, format, types, file hygiene)
+#   * pre-push stage -> the test suite (the "don't break the build" gate)
+#
+# Install both stages with:
+#   uv run pre-commit install --install-hooks
+#
+# Local hooks shell out to `uv run` so the tool versions always match the
+# versions resolved into the project's environment (uv.lock).
+
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      - id: ruff-lint
+        name: ruff (lint)
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff (format)
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: mypy
+        name: mypy (strict types)
+        entry: uv run mypy
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        require_serial: true
+
+      - id: pytest
+        name: pytest (full suite)
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

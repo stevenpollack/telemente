@@ -1,0 +1,90 @@
+[project]
+name = "telemente"
+dynamic = ["version"]
+description = "A terminal-based chat client for the Matrix protocol, built with Textual."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "telemente contributors" }]
+keywords = ["matrix", "chat", "tui", "textual", "terminal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Chat",
+]
+dependencies = [
+    "textual>=1.0",
+    "matrix-nio[e2e]>=0.25",
+    "keyring>=25",
+    "platformdirs>=4",
+]
+
+[project.urls]
+Homepage = "https://github.com/telemente/telemente"
+Repository = "https://github.com/telemente/telemente"
+Issues = "https://github.com/telemente/telemente/issues"
+
+[project.scripts]
+telemente = "telemente.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5",
+    "aioresponses>=0.7",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pre-commit>=3.8",
+    "textual-dev>=1.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/telemente/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/telemente"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["nio.*", "aioresponses.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q --cov=telemente --cov-report=term-missing"
+markers = [
+    "olm: tests that require libolm (end-to-end encryption)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["telemente"]
