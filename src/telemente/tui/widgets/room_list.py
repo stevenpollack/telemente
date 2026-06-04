@@ -12,9 +12,10 @@ from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import BindingType
+from textual.events import Key
 from textual.message import Message as TextualMessage
 from textual.widget import Widget
-from textual.widgets import Input, Label, ListItem, ListView, Static
+from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from telemente.matrix.models import RoomSummary
 
@@ -47,8 +48,12 @@ class _RoomItem(ListItem):
 
     def compose(self) -> ComposeResult:
         room = self._room
-        # Build display name with optional lock glyph
+        # Build display name with optional lock glyph and tag markers.
         name = f"\U0001f512 {room.display_name}" if room.encrypted else room.display_name
+        if "m.favourite" in room.tags:
+            name = f"★ {name}"
+        if "m.lowpriority" in room.tags:
+            name = f"{name} ↓"
         yield Label(name, classes="room-name")
         if room.unread_count > 0:
             yield Label(f"({room.unread_count})", classes="room-unread-badge", id=None)
@@ -96,6 +101,7 @@ class RoomList(Widget):
 
     def compose(self) -> ComposeResult:
         yield Input(id="room-search", placeholder="Search rooms…")
+        yield Button("✕", id="clear-search", classes="clear-search-btn")
         yield ListView(id="room-list-view")
         yield Static(
             "No rooms match",
@@ -105,6 +111,7 @@ class RoomList(Widget):
 
     def on_mount(self) -> None:
         self._sync_empty_state()
+        self._sync_clear_button()
 
     # ------------------------------------------------------------------
     # Public API
@@ -151,6 +158,7 @@ class RoomList(Widget):
         self._visible_rooms = rooms_with_dt + rooms_without_dt
 
         self._refresh_list()
+        self._sync_clear_button()
 
     def _refresh_list(self) -> None:
         """Rebuild the ListView DOM to match _visible_rooms."""
@@ -166,6 +174,11 @@ class RoomList(Widget):
         has_items = len(self._visible_rooms) > 0 or len(self._all_rooms) == 0
         empty.display = not has_items
 
+    def _sync_clear_button(self) -> None:
+        """Show the ✕ button only when the search input is non-empty."""
+        btn = self.query_one("#clear-search", Button)
+        btn.display = bool(self._filter)
+
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
@@ -174,6 +187,21 @@ class RoomList(Widget):
         """Live-filter rooms as the user types in #room-search."""
         if event.input.id == "room-search":
             self.apply_filter(event.value)
+
+    def on_key(self, event: Key) -> None:
+        """ESC in the search input clears the filter."""
+        if event.key == "escape":
+            search_input = self.query_one("#room-search", Input)
+            if search_input.has_focus and search_input.value:
+                search_input.clear()
+                event.stop()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Clear the search filter when the ✕ button is pressed."""
+        if event.button.id == "clear-search":
+            search_input = self.query_one("#room-search", Input)
+            search_input.clear()
+            search_input.focus()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Translate ListView.Selected into RoomList.RoomSelected."""

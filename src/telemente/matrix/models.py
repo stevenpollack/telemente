@@ -5,7 +5,7 @@ These are the ONLY types that cross the matrix/ boundary — no nio types leak o
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -18,6 +18,8 @@ class RoomSummary:
     unread_count: int = 0
     last_activity: datetime | None = None
     encrypted: bool = False
+    tags: dict[str, float | None] = field(default_factory=dict)
+    # e.g. {"m.favourite": 0.5, "m.lowpriority": None}
 
 
 @dataclass(frozen=True, slots=True)

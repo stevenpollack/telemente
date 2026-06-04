@@ -44,6 +44,8 @@ class _MainClient(Protocol):
 
     def members(self, room_id: str) -> list[Member]: ...
 
+    def rooms(self) -> list[RoomSummary]: ...
+
 
 # ---------------------------------------------------------------------------
 # MainScreen
@@ -69,6 +71,11 @@ class MainScreen(Screen[None]):
         # Track unread counts by room_id; keys are rooms with non-zero unread.
         self._unread: dict[str, int] = {}
 
+    @property
+    def active_room_id(self) -> str | None:
+        """The currently active room ID, or None if no room is selected."""
+        return self._active_room_id
+
     # ------------------------------------------------------------------
     # Layout
     # ------------------------------------------------------------------
@@ -83,6 +90,13 @@ class MainScreen(Screen[None]):
 
     def on_mount(self) -> None:
         logger.debug("MainScreen mounted")
+        # Belt-and-suspenders: load whatever rooms the client already knows
+        # about. This handles the case where the first RoomsChanged sync event
+        # fired before this screen was fully mounted and was therefore dropped.
+        rooms = self._client.rooms()
+        if rooms:
+            logger.debug("MainScreen.on_mount: pre-loading %d rooms from client", len(rooms))
+            self.query_one(RoomList).set_rooms(rooms)
 
     # ------------------------------------------------------------------
     # Reactive watchers
@@ -123,6 +137,7 @@ class MainScreen(Screen[None]):
                 unread_count=self._unread.get(r.room_id, r.unread_count),
                 last_activity=r.last_activity,
                 encrypted=r.encrypted,
+                tags=r.tags,
             )
             for r in event.rooms
         ]
@@ -152,6 +167,7 @@ class MainScreen(Screen[None]):
                             unread_count=self._unread[msg.room_id],
                             last_activity=room.last_activity,
                             encrypted=room.encrypted,
+                            tags=room.tags,
                         )
                     )
                 else:
@@ -184,6 +200,7 @@ class MainScreen(Screen[None]):
                 unread_count=0 if r.room_id == room_id else r.unread_count,
                 last_activity=r.last_activity,
                 encrypted=r.encrypted,
+                tags=r.tags,
             )
             for r in room_list.visible_rooms
         ]

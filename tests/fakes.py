@@ -135,6 +135,9 @@ class FakeMatrixClient:
         self.start_sync_called: bool = False
         self.close_called: bool = False
         self.sent_messages: list[tuple[str, str]] = []
+        self.left_rooms: list[str] = []
+        self.set_tags: list[tuple[str, str, float | None]] = []
+        self.removed_tags: list[tuple[str, str]] = []
         self._logged_in: bool = False
 
         # SSO spies (plan 0011)
@@ -242,6 +245,22 @@ class FakeMatrixClient:
         if not self._logged_in:
             raise NotLoggedInError("Not logged in")
         self.sent_messages.append((room_id, body))
+
+    async def leave_room(self, room_id: str) -> None:
+        if not self._logged_in:
+            raise NotLoggedInError("Not logged in")
+        self.left_rooms.append(room_id)
+        self._rooms = [r for r in self._rooms if r.room_id != room_id]
+
+    async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None:
+        if not self._logged_in:
+            raise NotLoggedInError("Not logged in")
+        self.set_tags.append((room_id, tag, order))
+
+    async def remove_room_tag(self, room_id: str, tag: str) -> None:
+        if not self._logged_in:
+            raise NotLoggedInError("Not logged in")
+        self.removed_tags.append((room_id, tag))
 
     # ------------------------------------------------------------------
     # Subscriptions

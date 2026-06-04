@@ -161,8 +161,11 @@ class TelementeApp(App[None]):
     async def _restore_session(self, session: Session) -> None:
         await self._client.restore(session)
         logger.info("Session restored for %s; pushing main screen", session.user_id)
-        self._start_sync_and_subscribe()
+        # Push the screen FIRST so it is mounted and ready to receive events,
+        # then start sync. This prevents RoomsChanged from being dropped because
+        # MainScreen had not yet mounted when the first sync fired.
         self.push_screen(MainScreen(self._client))
+        self._start_sync_and_subscribe()
 
     def on_login_screen_logged_in(self, message: LoginScreen.LoggedIn) -> None:
         """Persist the session and navigate to the main screen after successful login.
@@ -195,8 +198,9 @@ class TelementeApp(App[None]):
     async def _restore_and_navigate(self, session: Session) -> None:
         """Restore credentials into the app client and push MainScreen."""
         await self._client.restore(session)
-        self._start_sync_and_subscribe()
+        # Push the screen FIRST (same ordering fix as _restore_session).
         self.push_screen(MainScreen(self._client))
+        self._start_sync_and_subscribe()
 
     # ------------------------------------------------------------------
     # Sync lifecycle (plan 0009)
@@ -204,6 +208,7 @@ class TelementeApp(App[None]):
 
     def _start_sync_and_subscribe(self) -> None:
         """Subscribe to client events and start sync as a Textual worker."""
+        logger.info("Starting sync and subscribing to client events")
         # Subscribe before starting sync so no events are missed.
         self._unsubscribe = self._client.subscribe(self._on_client_event)
         self.run_worker(
@@ -219,10 +224,17 @@ class TelementeApp(App[None]):
         post_message is thread-safe and order-preserving.
         """
         if isinstance(event, RoomsChanged):
+            logger.debug("ClientEvent: RoomsChanged with %d rooms", len(event.rooms))
             self.post_message(_ClientRoomsChanged(event))
         elif isinstance(event, NewMessage):
+            logger.debug(
+                "ClientEvent: NewMessage room=%s event_id=%s",
+                event.message.room_id,
+                event.message.event_id,
+            )
             self.post_message(_ClientNewMessage(event))
         elif isinstance(event, MembersChanged):
+            logger.debug("ClientEvent: MembersChanged room=%s", event.room_id)
             self.post_message(_ClientMembersChanged(event))
 
     # ------------------------------------------------------------------
@@ -243,3 +255,50 @@ class TelementeApp(App[None]):
         screen = self.screen
         if isinstance(screen, MainScreen):
             screen.handle_members_changed(message.event)
+
+    # ------------------------------------------------------------------
+    # App-level actions
+    # ------------------------------------------------------------------
+
+    async def action_logout(self) -> None:
+        """Log out: clear credentials, close client, return to login screen."""
+        logger.info("Logging out — clearing credentials and returning to login")
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+        self._credential_store.clear()
+        await self._client.close()
+
+        # Pop all screens until we're at the base, then push LoginScreen.
+        while len(self.screen_stack) > 1:
+            self.pop_screen()
+
+        paths = Paths.default().ensure()
+        settings_path = paths.config_dir / "settings.toml"
+        settings = Settings.load(settings_path)
+        store_path = str(paths.store_dir)
+        device_name = settings.default_device_name
+
+        def _client_factory(homeserver: str) -> MatrixClient:
+            return MatrixClient(
+                homeserver,
+                store_path=store_path,
+                device_name=device_name,
+            )
+
+        self.push_screen(
+            LoginScreen(
+                _client_factory,
+                default_homeserver=self._default_homeserver,
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Register command palette provider (done after class body to avoid circular
+# imports — commands.py imports TelementeApp only inside function bodies).
+# ---------------------------------------------------------------------------
+
+from telemente.tui.commands import TelementeCommands  # noqa: E402
+
+TelementeApp.COMMANDS = TelementeApp.COMMANDS | {TelementeCommands}

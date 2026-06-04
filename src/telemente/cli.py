@@ -3,8 +3,34 @@
 from __future__ import annotations
 
 import argparse
+import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from telemente import __version__
+
+
+def _configure_logging(level: str, log_file: Path) -> None:
+    """Configure root logger with a rotating file handler.
+
+    Parameters
+    ----------
+    level:
+        Log level string (e.g. ``"DEBUG"``, ``"INFO"``).
+    log_file:
+        Destination log file path. Parent directories are created if needed.
+    """
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(log_file, maxBytes=5_000_000, backupCount=3)
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root = logging.getLogger()
+    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+    root.addHandler(handler)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,13 +44,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        metavar="LEVEL",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO.",
+    )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        metavar="PATH",
+        type=Path,
+        help=(
+            "Path to the log file. "
+            "Default: <data-dir>/telemente.log (usually ~/.local/share/telemente/telemente.log)."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and launch the TUI."""
     parser = build_parser()
-    parser.parse_args(argv)
+    args = parser.parse_args(argv)
+
+    # Resolve the default log file path using the XDG data directory.
+    from telemente.config import Paths
+
+    log_file: Path = args.log_file or (Paths.default().data_dir / "telemente.log")
+    _configure_logging(args.log_level, log_file)
 
     # Imported lazily so that ``telemente --version`` stays fast and does not
     # require the full Textual/matrix-nio stack to be importable.

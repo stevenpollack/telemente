@@ -10,11 +10,14 @@ No real homeserver, no nio, no threads.
 from __future__ import annotations
 
 import logging
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
 import fakes as fakes_module
+from telemente.config import CredentialStore, Paths
 from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged
 from telemente.matrix.models import Member, Message, RoomSummary
 from telemente.tui.app import TelementeApp
@@ -64,15 +67,32 @@ def _member(user_id: str, display_name: str, power_level: int = 0) -> Member:
     )
 
 
+def _make_isolated_store(tmp_dir: Path) -> CredentialStore:
+    """Create a CredentialStore backed by a temp directory with a unique service
+    name so the OS keyring never returns a real session during tests."""
+    paths = Paths(
+        config_dir=tmp_dir / "config",
+        data_dir=tmp_dir / "data",
+        store_dir=tmp_dir / "store",
+    )
+    return CredentialStore(paths, service="telemente-test-sync")
+
+
 def _make_app() -> tuple[TelementeApp, FakeMatrixClient]:
     """Create a TelementeApp wired with a FakeMatrixClient.
 
     The fake is pre-marked as logged in and the app's subscription to
     client events is established (mirrors what happens post-login/restore).
+
+    Uses an isolated credential store so the real user session is never
+    loaded, preventing a second _start_sync_and_subscribe() call on mount
+    that would cause duplicate event delivery.
     """
+    tmp_dir = Path(tempfile.mkdtemp())
     fake = FakeMatrixClient()
     fake._logged_in = True
-    app = TelementeApp(client=fake)  # type: ignore[arg-type]
+    store = _make_isolated_store(tmp_dir)
+    app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
     # Set up the client→app event bridge (normally done after login/restore).
     app._start_sync_and_subscribe()
     return app, fake
@@ -317,3 +337,75 @@ async def test_close_cancels_sync() -> None:
 
     # After the context manager exits, app has been stopped / unmounted
     assert fake.close_called
+
+
+# ---------------------------------------------------------------------------
+# Test 8 (regression): rooms appear after session restore
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rooms_appear_after_session_restore() -> None:
+    """Regression test for the 'rooms disappear on restart' bug.
+
+    Reproduces the original ordering bug: _restore_session() used to call
+    _start_sync_and_subscribe() BEFORE push_screen(MainScreen), so the first
+    RoomsChanged event was emitted while MainScreen was not yet mounted and
+    was silently dropped.
+
+    Fix: MainScreen.on_mount() reads the client's current rooms directly
+    (belt-and-suspenders), so rooms appear even if RoomsChanged fired before
+    the screen was ready.  Also, push_screen() must happen before sync starts.
+    """
+    import tempfile as _tempfile
+
+    from telemente.config import CredentialStore, Paths, Session
+
+    # Build a FakeMatrixClient with pre-loaded rooms (simulating rooms already
+    # known to the client after restore_login, as they would be from nio store).
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._rooms = [
+        RoomSummary(room_id="!general:h", display_name="General"),
+        RoomSummary(room_id="!random:h", display_name="Random"),
+    ]
+
+    tmp_dir = Path(_tempfile.mkdtemp())
+    paths = Paths(
+        config_dir=tmp_dir / "config",
+        data_dir=tmp_dir / "data",
+        store_dir=tmp_dir / "store",
+    )
+    store = CredentialStore(paths, service="telemente-test-restore")
+
+    # Save a fake session so on_mount calls _restore_session (not LoginScreen).
+    session = Session(
+        homeserver="https://matrix.example.org",
+        user_id="@alice:matrix.example.org",
+        device_id="TESTDEV",
+        access_token="fake_token",
+    )
+    store.save(session)
+
+    # App uses the fake client and isolated store.
+    app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
+
+    async with app.run_test() as pilot:
+        # Allow on_mount → _restore_session to run (async worker).
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.pause()
+
+        # After restore, the app should have pushed MainScreen.
+        screen = app.screen
+        assert isinstance(screen, MainScreen), (
+            f"Expected MainScreen after restore, got {type(screen).__name__}"
+        )
+
+        # The rooms the FakeMatrixClient already knows about should appear in
+        # the room list — this is what the on_mount belt-and-suspenders provides.
+        room_list = screen.query_one(RoomList)
+        visible = room_list.visible_rooms
+        room_ids = {r.room_id for r in visible}
+        assert "!general:h" in room_ids, f"Expected General room in list, got: {room_ids}"
+        assert "!random:h" in room_ids, f"Expected Random room in list, got: {room_ids}"

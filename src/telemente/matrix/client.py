@@ -256,13 +256,40 @@ class MatrixClient:
         """Return summaries of all joined rooms (from current sync state)."""
         summaries: list[RoomSummary] = []
         for room_id, room in self._client.rooms.items():
+            # Extract last_activity from the most recent timeline event.
+            last_activity: datetime | None = None
+            if room.timeline:
+                last_event = room.timeline[-1]
+                if hasattr(last_event, "server_timestamp"):
+                    last_activity = datetime.fromtimestamp(
+                        last_event.server_timestamp / 1000, tz=UTC
+                    )
+
+            # Extract room tags (m.favourite, m.lowpriority, etc.).
+            tags: dict[str, float | None] = {}
+            if hasattr(room, "tags") and room.tags:
+                for tag_name, tag_data in room.tags.items():
+                    order: float | None = None
+                    if tag_data and isinstance(tag_data, dict):
+                        raw_order = tag_data.get("order")
+                        if isinstance(raw_order, (int, float)):
+                            order = float(raw_order)
+                    tags[str(tag_name)] = order
+
             summaries.append(
                 RoomSummary(
                     room_id=room_id,
                     display_name=room.display_name or room_id,
                     encrypted=bool(room.encrypted),
+                    last_activity=last_activity,
+                    tags=tags,
                 )
             )
+        logger.debug(
+            "rooms(): returning %d rooms (%d with last_activity)",
+            len(summaries),
+            sum(1 for s in summaries if s.last_activity is not None),
+        )
         return summaries
 
     def members(self, room_id: str) -> list[Member]:
@@ -316,6 +343,82 @@ class MatrixClient:
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
+
+    async def leave_room(self, room_id: str) -> None:
+        """Leave a room.
+
+        Calls nio's room_leave(); raises NotLoggedInError if not logged in and
+        MatrixError on failure.
+        """
+        if not self._logged_in:
+            raise NotLoggedInError("Must be logged in to leave a room")
+        response = await self._client.room_leave(room_id)
+        if isinstance(response, nio.ErrorResponse):
+            raise MatrixError(f"leave_room failed for {room_id}: {response}")
+        logger.info("Left room %s", room_id)
+
+    async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None:
+        """Add or update a room tag (e.g. m.favourite, m.lowpriority).
+
+        Calls PUT /_matrix/client/v3/user/{userId}/rooms/{roomId}/tags/{tag}.
+        Raises NotLoggedInError if not logged in; MatrixError on failure.
+        """
+        if not self._logged_in:
+            raise NotLoggedInError("Must be logged in to set a room tag")
+        # nio doesn't have a dedicated room_tag method; use raw HTTP.
+        import aiohttp
+
+        user_id = self._client.user_id or ""
+        url = f"{self._homeserver}/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}"
+        payload: dict[str, float] = {}
+        if order is not None:
+            payload["order"] = order
+        try:
+            async with (
+                aiohttp.ClientSession() as http_session,
+                http_session.put(
+                    url,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self._client.access_token}"},
+                ) as resp,
+            ):
+                if resp.status not in (200, 204):
+                    raise MatrixError(f"set_room_tag HTTP {resp.status} for tag {tag} in {room_id}")
+        except MatrixError:
+            raise
+        except Exception as exc:
+            raise MatrixError(f"set_room_tag request failed: {exc}") from exc
+        logger.debug("Set tag %s on room %s", tag, room_id)
+
+    async def remove_room_tag(self, room_id: str, tag: str) -> None:
+        """Remove a room tag.
+
+        Calls DELETE /_matrix/client/v3/user/{userId}/rooms/{roomId}/tags/{tag}.
+        Raises NotLoggedInError if not logged in; MatrixError on failure.
+        """
+        if not self._logged_in:
+            raise NotLoggedInError("Must be logged in to remove a room tag")
+        user_id = self._client.user_id or ""
+        url = f"{self._homeserver}/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}"
+        import aiohttp
+
+        try:
+            async with (
+                aiohttp.ClientSession() as http_session,
+                http_session.delete(
+                    url,
+                    headers={"Authorization": f"Bearer {self._client.access_token}"},
+                ) as resp,
+            ):
+                if resp.status not in (200, 204):
+                    raise MatrixError(
+                        f"remove_room_tag HTTP {resp.status} for tag {tag} in {room_id}"
+                    )
+        except MatrixError:
+            raise
+        except Exception as exc:
+            raise MatrixError(f"remove_room_tag request failed: {exc}") from exc
+        logger.debug("Removed tag %s from room %s", tag, room_id)
 
     async def send_text(self, room_id: str, body: str) -> None:
         """Send a plain-text message to a room.
@@ -455,6 +558,9 @@ class MatrixClient:
 
     async def _on_sync(self, response: nio.SyncResponse) -> None:
         """nio callback: a sync response arrived — emit RoomsChanged and handle key ops."""
+        rooms = self.rooms()
+        logger.debug("_on_sync: %d rooms after sync", len(rooms))
+
         # Upload device keys if needed (first sync after login/account creation).
         if self._client.should_upload_keys:
             logger.debug("Uploading device keys")
@@ -471,7 +577,7 @@ class MatrixClient:
             except Exception as exc:
                 logger.warning("keys_query() failed: %s", exc)
 
-        await self._emit(RoomsChanged(rooms=self.rooms()))
+        await self._emit(RoomsChanged(rooms=rooms))
 
 
 # ---------------------------------------------------------------------------
