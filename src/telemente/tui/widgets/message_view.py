@@ -18,6 +18,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Static
 
 from telemente.matrix.models import Message
+from telemente.tui.colors import sender_color
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +74,10 @@ class _MessageRow(Static):
     def __init__(self, message: Message) -> None:
         local_ts: datetime = message.timestamp.astimezone()
         time_str = local_ts.strftime("%H:%M")
+        color = sender_color(message.sender)
         sender = message.sender_display_name
         body = message.body
-        text = f"[bold]{sender}[/bold] [dim]{time_str}[/dim]\n{body}"
+        text = f"[bold {color}]{sender}[/bold {color}] [dim]{time_str}[/dim]\n{body}"
         super().__init__(text, markup=True)
 
 

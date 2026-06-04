@@ -18,6 +18,7 @@ from textual.widget import Widget
 from textual.widgets import Label, Static
 
 from telemente.matrix.models import Member
+from telemente.tui.colors import sender_color
 
 logger = logging.getLogger(__name__)
 
@@ -136,4 +137,6 @@ class MemberList(Widget):
         for label in scroll.query(Label):
             label.remove()
         for member in self._members:
-            scroll.mount(Label(_format_member(member), classes="member-entry"))
+            color = sender_color(member.user_id)
+            text = f"[{color}]{_format_member(member)}[/{color}]"
+            scroll.mount(Label(text, classes="member-entry", markup=True))
