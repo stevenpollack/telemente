@@ -1,8 +1,12 @@
-"""Main screen for telemente (plan 0005).
+"""Main screen for telemente (plan 0005 / 0009).
 
 Three-panel layout: collapsible room list (left), message view (center),
 collapsible member list (right).  Plan 0006 replaces the placeholder left
 panel with the real RoomList widget.
+
+Plan 0009 adds live event routing: RoomsChanged, NewMessage, MembersChanged
+are dispatched to the appropriate widgets; RoomList.RoomSelected triggers
+message + member loading and clears unread.
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input
 
-from telemente.matrix.models import Member, Message
+from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged
+from telemente.matrix.models import Member, Message, RoomSummary
 from telemente.tui.widgets.member_list import MemberList
 from telemente.tui.widgets.message_view import MessageView
 from telemente.tui.widgets.room_list import RoomList
@@ -60,6 +65,9 @@ class MainScreen(Screen[None]):
     def __init__(self, client: _MainClient) -> None:
         super().__init__()
         self._client = client
+        self._active_room_id: str | None = None
+        # Track unread counts by room_id; keys are rooms with non-zero unread.
+        self._unread: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Layout
@@ -101,3 +109,93 @@ class MainScreen(Screen[None]):
     def action_focus_search(self) -> None:
         """Focus the room-search input (ctrl+k)."""
         self.query_one("#room-search", Input).focus()
+
+    # ------------------------------------------------------------------
+    # Client event handlers (plan 0009)
+    # ------------------------------------------------------------------
+
+    def handle_rooms_changed(self, event: RoomsChanged) -> None:
+        """Route a RoomsChanged event to RoomList, preserving unread counts."""
+        rooms_with_unread = [
+            RoomSummary(
+                room_id=r.room_id,
+                display_name=r.display_name,
+                unread_count=self._unread.get(r.room_id, r.unread_count),
+                last_activity=r.last_activity,
+                encrypted=r.encrypted,
+            )
+            for r in event.rooms
+        ]
+        self.query_one(RoomList).set_rooms(rooms_with_unread)
+
+    def handle_new_message(self, event: NewMessage) -> None:
+        """Route a NewMessage event.
+
+        - If the message is for the active room, append it to MessageView.
+        - Otherwise bump the unread count in RoomList.
+        """
+        msg = event.message
+        if msg.room_id == self._active_room_id:
+            self.query_one(MessageView).append_message(msg)
+        else:
+            # Bump unread for the room
+            self._unread[msg.room_id] = self._unread.get(msg.room_id, 0) + 1
+            # Update RoomList with the new unread count
+            room_list = self.query_one(RoomList)
+            updated: list[RoomSummary] = []
+            for room in room_list.visible_rooms:
+                if room.room_id == msg.room_id:
+                    updated.append(
+                        RoomSummary(
+                            room_id=room.room_id,
+                            display_name=room.display_name,
+                            unread_count=self._unread[msg.room_id],
+                            last_activity=room.last_activity,
+                            encrypted=room.encrypted,
+                        )
+                    )
+                else:
+                    updated.append(room)
+            room_list.set_rooms(updated)
+
+    def handle_members_changed(self, event: MembersChanged) -> None:
+        """Route a MembersChanged event to MemberList (active room only)."""
+        if event.room_id == self._active_room_id:
+            self.query_one(MemberList).set_members(event.members)
+
+    # ------------------------------------------------------------------
+    # RoomSelected handler (plan 0009)
+    # ------------------------------------------------------------------
+
+    def on_room_list_room_selected(self, message: RoomList.RoomSelected) -> None:
+        """Load messages + members for the selected room and clear its unread."""
+        room_id = message.room_id
+        self._active_room_id = room_id
+
+        # Clear unread for the selected room
+        if room_id in self._unread:
+            del self._unread[room_id]
+        # Update RoomList to reflect cleared unread
+        room_list = self.query_one(RoomList)
+        updated = [
+            RoomSummary(
+                room_id=r.room_id,
+                display_name=r.display_name,
+                unread_count=0 if r.room_id == room_id else r.unread_count,
+                last_activity=r.last_activity,
+                encrypted=r.encrypted,
+            )
+            for r in room_list.visible_rooms
+        ]
+        room_list.set_rooms(updated)
+
+        # Load messages and members (async work in a worker)
+        self.run_worker(
+            self._load_room(room_id),
+            exclusive=False,
+        )
+
+    async def _load_room(self, room_id: str) -> None:
+        """Fetch messages and members for the given room."""
+        await self.query_one(MessageView).load_room(room_id)
+        self.query_one(MemberList).load_room(room_id)
