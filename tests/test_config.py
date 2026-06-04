@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import keyring.errors
 import pytest
 
-from telemente.config import CredentialStore, Paths, Session, Settings
+from telemente.config import CredentialStore, Paths, RoomCache, Session, Settings
+from telemente.matrix.models import RoomSummary
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -188,3 +190,112 @@ def test_credentialstore_no_token_in_repr(tmp_store: Path, monkeypatch: pytest.M
         if f.is_file():
             content = f.read_text()
             assert "super-secret-token" not in content, f"Token found in config_dir file: {f}"
+
+
+# ---------------------------------------------------------------------------
+# RoomCache
+# ---------------------------------------------------------------------------
+
+
+def _room(
+    room_id: str,
+    display_name: str,
+    encrypted: bool = False,
+    last_activity: datetime | None = None,
+    tags: dict[str, float | None] | None = None,
+) -> RoomSummary:
+    return RoomSummary(
+        room_id=room_id,
+        display_name=display_name,
+        encrypted=encrypted,
+        last_activity=last_activity,
+        tags=tags or {},
+    )
+
+
+def test_roomcache_roundtrip(tmp_store: Path) -> None:
+    """save() + load() returns the same rooms."""
+    paths = _make_paths(tmp_store).ensure()
+    cache = RoomCache(paths)
+    user_id = "@alice:matrix.org"
+
+    dt = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+    rooms = [
+        _room("!a:s", "General", encrypted=False, last_activity=dt),
+        _room("!b:s", "Secret", encrypted=True, tags={"m.favourite": 0.5}),
+        _room("!c:s", "No Date"),
+    ]
+    cache.save(user_id, rooms)
+    loaded = cache.load(user_id)
+
+    assert len(loaded) == 3
+    by_id = {r.room_id: r for r in loaded if isinstance(r, RoomSummary)}
+
+    assert by_id["!a:s"].display_name == "General"
+    assert by_id["!a:s"].encrypted is False
+    assert by_id["!a:s"].last_activity == dt
+
+    assert by_id["!b:s"].encrypted is True
+    assert "m.favourite" in by_id["!b:s"].tags
+
+    assert by_id["!c:s"].last_activity is None
+
+
+def test_roomcache_load_missing_returns_empty(tmp_store: Path) -> None:
+    """load() returns [] when no cache file exists."""
+    paths = _make_paths(tmp_store).ensure()
+    cache = RoomCache(paths)
+    assert cache.load("@nobody:matrix.org") == []
+
+
+def test_roomcache_load_corrupt_returns_empty(tmp_store: Path) -> None:
+    """load() returns [] silently on a corrupt cache file."""
+    paths = _make_paths(tmp_store).ensure()
+    cache = RoomCache(paths)
+    user_id = "@alice:matrix.org"
+    cache._path(user_id).write_text("not json {{{{")
+    assert cache.load(user_id) == []
+
+
+def test_roomcache_overwrite(tmp_store: Path) -> None:
+    """A second save() replaces the first."""
+    paths = _make_paths(tmp_store).ensure()
+    cache = RoomCache(paths)
+    user_id = "@alice:matrix.org"
+
+    cache.save(user_id, [_room("!a:s", "Old")])
+    cache.save(user_id, [_room("!b:s", "New")])
+    loaded = cache.load(user_id)
+
+    assert len(loaded) == 1
+    assert isinstance(loaded[0], RoomSummary)
+    assert loaded[0].display_name == "New"
+
+
+def test_roomcache_unread_not_persisted(tmp_store: Path) -> None:
+    """Unread counts are intentionally dropped — they reset on restart."""
+    paths = _make_paths(tmp_store).ensure()
+    cache = RoomCache(paths)
+    user_id = "@alice:matrix.org"
+
+    rooms: list[RoomSummary] = [RoomSummary(room_id="!a:s", display_name="Busy", unread_count=42)]
+    cache.save(user_id, rooms)
+    loaded = cache.load(user_id)
+
+    assert isinstance(loaded[0], RoomSummary)
+    assert loaded[0].unread_count == 0
+
+
+def test_roomcache_separate_per_user(tmp_store: Path) -> None:
+    """Different user IDs get separate cache files."""
+    paths = _make_paths(tmp_store).ensure()
+    cache = RoomCache(paths)
+
+    cache.save("@alice:s", [_room("!a:s", "Alice Room")])
+    cache.save("@bob:s", [_room("!b:s", "Bob Room")])
+
+    alice = cache.load("@alice:s")
+    bob = cache.load("@bob:s")
+
+    assert isinstance(alice[0], RoomSummary) and alice[0].room_id == "!a:s"
+    assert isinstance(bob[0], RoomSummary) and bob[0].room_id == "!b:s"
