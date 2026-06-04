@@ -480,3 +480,101 @@ async def test_leave_room_removes_from_list_and_closes_tab() -> None:
         # Tab for B should be closed
         assert "!b:h" not in screen._open_tabs
         assert screen._message_view_for("!b:h") is None
+
+
+# ---------------------------------------------------------------------------
+# Test 10: action_logout clears credentials, closes client, returns to login
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_action_logout_clears_session_and_shows_login() -> None:
+    """action_logout() clears credentials, calls client.close(), navigates to LoginScreen."""
+    from telemente.tui.screens.login import LoginScreen
+
+    app, fake = _make_app()
+
+    async with app.run_test() as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        # Confirm we're on MainScreen
+        assert isinstance(app.screen, MainScreen)
+
+        await app.action_logout()
+        await pilot.pause()
+
+        # After logout: client was closed and we're on LoginScreen
+        assert fake.close_called
+        assert isinstance(app.screen, LoginScreen)
+
+
+# ---------------------------------------------------------------------------
+# Test 11: _on_client_event caches rooms when user_id is known
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_on_client_event_saves_rooms_to_cache() -> None:
+    """RoomsChanged event triggers room cache save when user_id is known."""
+    app, fake = _make_app()
+    app._cached_user_id = "@alice:matrix.org"
+
+    async with app.run_test() as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        rooms = [_room("!a:h", "General"), _room("!b:h", "Random")]
+        await fake.emit(RoomsChanged(rooms=rooms))
+        await pilot.pause()
+
+        # Room cache should have saved the rooms for this user
+        cached = app._room_cache.load("@alice:matrix.org")
+        assert cached is not None
+        assert len(cached) == 2
+
+
+# ---------------------------------------------------------------------------
+# Test 12: _restore_session rebuilds client when homeserver differs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_restore_session_rebuilds_client_for_different_homeserver() -> None:
+    """_restore_session rebuilds _client when session homeserver != app default."""
+    import tempfile as _tempfile
+
+    from telemente.config import CredentialStore, Paths, Session
+
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    # fake.homeserver is "https://matrix.org" (default in FakeMatrixClient)
+
+    tmp_dir = Path(_tempfile.mkdtemp())
+    paths = Paths(
+        config_dir=tmp_dir / "config",
+        data_dir=tmp_dir / "data",
+        store_dir=tmp_dir / "store",
+    )
+    store = CredentialStore(paths, service="telemente-test-rebuild")
+
+    session = Session(
+        homeserver="https://other.matrix.example.org",  # different from fake's homeserver
+        user_id="@bob:other.matrix.example.org",
+        device_id="TESTDEV2",
+        access_token="fake_token2",
+    )
+    store.save(session)
+
+    app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.pause()
+
+        # The app should have pushed MainScreen after restore
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+        # The client should have been rebuilt for the session's homeserver
+        assert app._client.homeserver == "https://other.matrix.example.org"

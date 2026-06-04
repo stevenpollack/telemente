@@ -714,3 +714,149 @@ async def test_update_unread_patches_label_in_place() -> None:
         # Label updated to reflect new unread count.
         rendered = str(item_a_after.query_one(".room-name").render())
         assert "(5)" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 22: mute tag shows 🔕 glyph
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mute_tag_shows_bell() -> None:
+    """A room tagged m.mute shows 🔕 in its rendered name."""
+    app = HostApp()
+    rooms = [
+        RoomSummary(
+            room_id="!a:h",
+            display_name="Muted",
+            tags={"m.mute": None},
+        )
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        from telemente.tui.widgets.room_list import _RoomItem
+
+        items = list(app.query(_RoomItem))
+        rendered = str(items[0].query_one(".room-name").render())
+        assert "🔕" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 23: ESC key in focused search input clears the filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_esc_key_clears_search_input() -> None:
+    """Pressing ESC while the search input has focus and content clears it."""
+    from textual.widgets import Input
+
+    app = HostApp()
+    rooms = [
+        _room("!a:h", "General"),
+        _room("!b:h", "Random"),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        # Type into the search input
+        search = room_list.query_one("#room-search", Input)
+        search.focus()
+        await pilot.pause()
+        await pilot.press("r", "a", "n")
+        await pilot.pause()
+        # Manually apply the pending filter (debounce shortcut)
+        room_list._apply_pending_filter()
+        assert len(room_list.visible_rooms) == 1
+
+        # ESC should clear the input
+        await pilot.press("escape")
+        await pilot.pause()
+        assert search.value == ""
+
+
+# ---------------------------------------------------------------------------
+# Test 24: ✕ button clears search and focuses the input
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clear_button_clears_search() -> None:
+    """Clicking the ✕ button clears the search input."""
+    from textual.widgets import Input
+
+    app = HostApp()
+    rooms = [
+        _room("!a:h", "General"),
+        _room("!b:h", "Random"),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        # Apply a filter programmatically (bypasses debounce)
+        room_list.apply_filter("rand")
+        await pilot.pause()
+        assert len(room_list.visible_rooms) == 1
+
+        # The clear button becomes visible when filter is active
+        from textual.widgets import Button
+
+        btn = room_list.query_one("#clear-search", Button)
+        assert btn.display is True
+
+        # Press the ✕ button via its Pressed message
+        from textual.widgets import Button
+
+        btn = room_list.query_one("#clear-search", Button)
+        room_list.post_message(Button.Pressed(btn))
+        await pilot.pause()
+
+        search = room_list.query_one("#room-search", Input)
+        assert search.value == ""
+
+
+# ---------------------------------------------------------------------------
+# Test 25: ✕ button hidden when search is empty, visible when non-empty
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clear_button_visibility_tracks_filter() -> None:
+    """The ✕ button is hidden when filter is empty, shown when active."""
+    from textual.widgets import Button
+
+    app = HostApp()
+    rooms = [_room("!a:h", "General")]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        btn = room_list.query_one("#clear-search", Button)
+        # Initially no filter — button hidden
+        assert btn.display is False
+
+        # Apply filter — button appears
+        room_list.apply_filter("gen")
+        await pilot.pause()
+        assert btn.display is True
+
+        # Clear filter — button hides again
+        room_list.apply_filter("")
+        await pilot.pause()
+        assert btn.display is False
