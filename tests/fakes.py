@@ -6,6 +6,12 @@ events to subscribers via ``fake.emit(event)``.
 
 Helper builders (``make_login_response``, ``make_room``, ``make_text_event``)
 are also here so they can be reused across matrix unit tests.
+
+Plan 0011: extended with SSO surface:
+  - ``set_flows(LoginFlows)`` — script what ``login_flows()`` returns.
+  - ``login_flows()`` — returns scripted flows.
+  - ``sso_redirect_url(redirect_url, idp_id)`` — builds URL, records spy data.
+  - ``login_with_token(token)`` — scriptable success/failure, spy.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from telemente.config import Session
+from telemente.matrix.auth import LoginFlows, build_sso_redirect_url
 from telemente.matrix.client import (
     ClientEvent,
     EventHandler,
@@ -110,6 +117,11 @@ class FakeMatrixClient:
         self._login_event: asyncio.Event = asyncio.Event()
         self._login_event.set()  # not blocking by default
 
+        # SSO scripted state (plan 0011)
+        self._flows: LoginFlows = LoginFlows(password=True, sso=False, token=False)
+        self.login_with_token_should_fail: bool = False
+        self._fake_homeserver: str = "https://matrix.org"
+
         # In-memory data
         self._rooms: list[RoomSummary] = []
         self._members: dict[str, list[Member]] = {}
@@ -125,6 +137,12 @@ class FakeMatrixClient:
         self.sent_messages: list[tuple[str, str]] = []
         self._logged_in: bool = False
 
+        # SSO spies (plan 0011)
+        self.login_with_token_called: bool = False
+        self.login_with_token_token: str = ""
+        self.sso_redirect_url_called: bool = False
+        self.sso_redirect_url_idp_id: str | None = None
+
     # ------------------------------------------------------------------
     # Scripting helpers
     # ------------------------------------------------------------------
@@ -133,8 +151,40 @@ class FakeMatrixClient:
         """Release a blocked login() call."""
         self._login_event.set()
 
+    def set_flows(self, flows: LoginFlows) -> None:
+        """Script the LoginFlows returned by login_flows()."""
+        self._flows = flows
+
     # ------------------------------------------------------------------
-    # Auth
+    # Auth — SSO surface (plan 0011)
+    # ------------------------------------------------------------------
+
+    async def login_flows(self) -> LoginFlows:
+        """Return the scripted login flows."""
+        return self._flows
+
+    def sso_redirect_url(self, redirect_url: str, idp_id: str | None = None) -> str:
+        """Build SSO redirect URL and record spy data."""
+        self.sso_redirect_url_called = True
+        self.sso_redirect_url_idp_id = idp_id
+        return build_sso_redirect_url(self._fake_homeserver, redirect_url, idp_id)
+
+    async def login_with_token(self, token: str) -> Session:
+        """Exchange a loginToken for a Session (scriptable)."""
+        self.login_with_token_called = True
+        self.login_with_token_token = token
+        if self.login_with_token_should_fail:
+            raise LoginError("Scripted token login failure")
+        self._logged_in = True
+        return Session(
+            homeserver=self._fake_homeserver,
+            user_id="@sso_user:matrix.org",
+            device_id="SSOFAKEDEV",
+            access_token="fake_sso_access_token",
+        )
+
+    # ------------------------------------------------------------------
+    # Auth — password
     # ------------------------------------------------------------------
 
     async def login(self, user: str, password: str) -> Session:

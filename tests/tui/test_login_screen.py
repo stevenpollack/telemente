@@ -1,7 +1,12 @@
-"""Tests for LoginScreen (plan 0004).
+"""Tests for LoginScreen (plan 0004 / updated plan 0011).
 
 All tests inject FakeMatrixClient — no real network.
 A tiny host App pushes LoginScreen and records LoggedIn messages.
+
+Plan 0011 change: LoginScreen now takes a ``client_factory: Callable[[str],
+_LoginClient]`` instead of a pre-built client. Tests pass a factory that
+always returns the same FakeMatrixClient, keeping existing password-login
+tests working without modification to assertions.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from textual.widgets import Button, Input, Label, LoadingIndicator, Static
 
 import fakes as fakes_module
 from telemente.config import Session
+from telemente.matrix.auth import LoginFlows
 from telemente.tui.screens.login import LoginScreen
 
 FakeMatrixClient = fakes_module.FakeMatrixClient
@@ -31,7 +37,12 @@ class HostApp(App[None]):
         self.logged_in_sessions: list[Session] = []
 
     def on_mount(self) -> None:
-        self.push_screen(LoginScreen(self._client, default_homeserver=self._default_homeserver))
+        # Plan 0011: LoginScreen takes a factory, not a pre-built client.
+        # Wrap the fake in a factory that ignores the homeserver argument.
+        def factory(_homeserver: str) -> FakeMatrixClient:
+            return self._client
+
+        self.push_screen(LoginScreen(factory, default_homeserver=self._default_homeserver))
 
     def on_login_screen_logged_in(self, message: LoginScreen.LoggedIn) -> None:
         self.logged_in_sessions.append(message.session)
@@ -45,6 +56,8 @@ def _make_host_app(
     default_homeserver: str = "https://matrix.org",
 ) -> HostApp:
     """Return a HostApp wired to push LoginScreen with the given fake client."""
+    # Give the fake password-only flows so the password form is shown
+    fake.set_flows(LoginFlows(password=True, sso=False, token=False))
     return HostApp(fake, default_homeserver=default_homeserver)
 
 

@@ -131,7 +131,25 @@ class TelementeApp(App[None]):
                 exit_on_error=False,
             )
         else:
-            self.push_screen(LoginScreen(self._client, default_homeserver=self._default_homeserver))
+            paths = Paths.default().ensure()
+            settings_path = paths.config_dir / "settings.toml"
+            settings = Settings.load(settings_path)
+            store_path = str(paths.store_dir)
+            device_name = settings.default_device_name
+
+            def _client_factory(homeserver: str) -> MatrixClient:
+                return MatrixClient(
+                    homeserver,
+                    store_path=store_path,
+                    device_name=device_name,
+                )
+
+            self.push_screen(
+                LoginScreen(
+                    _client_factory,
+                    default_homeserver=self._default_homeserver,
+                )
+            )
 
     async def on_unmount(self) -> None:
         """Teardown: unsubscribe from client events and close the client."""
@@ -147,10 +165,36 @@ class TelementeApp(App[None]):
         self.push_screen(MainScreen(self._client))
 
     def on_login_screen_logged_in(self, message: LoginScreen.LoggedIn) -> None:
-        """Persist the session and navigate to the main screen after successful login."""
+        """Persist the session and navigate to the main screen after successful login.
+
+        Rebuilds the app-level client for the session's homeserver so that
+        subsequent sync/messaging uses the correct server, then restores the
+        session credentials into it.
+        """
         session = message.session
         logger.info("Logged in as %s — persisting session", session.user_id)
         self._credential_store.save(session)
+
+        # Rebuild the client for the (possibly user-entered) homeserver so it
+        # is ready for sync and messaging via MainScreen.
+        paths = Paths.default().ensure()
+        settings_path = paths.config_dir / "settings.toml"
+        settings = Settings.load(settings_path)
+        self._client = MatrixClient(
+            session.homeserver,
+            store_path=str(paths.store_dir),
+            device_name=settings.default_device_name,
+        )
+        # Restore credentials without re-authenticating (login already done)
+        self.run_worker(
+            self._restore_and_navigate(session),
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _restore_and_navigate(self, session: Session) -> None:
+        """Restore credentials into the app client and push MainScreen."""
+        await self._client.restore(session)
         self._start_sync_and_subscribe()
         self.push_screen(MainScreen(self._client))
 

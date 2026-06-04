@@ -2,6 +2,7 @@
 
 Plan 0003: matrix client wrapper.
 Plan 0010: end-to-end encryption (E2EE) with TOFU trust.
+Plan 0011: SSO login (login_flows, sso_redirect_url, login_with_token).
 
 The UI NEVER imports nio. All protocol access goes through this module.
 Only telemente.matrix.models dataclasses cross the boundary — no nio types.
@@ -31,6 +32,7 @@ import nio
 import nio.responses
 
 from telemente.config import Session
+from telemente.matrix.auth import LoginFlows, build_sso_redirect_url, parse_login_flows
 from telemente.matrix.models import Member, Message, RoomSummary
 
 logger = logging.getLogger(__name__)
@@ -128,20 +130,78 @@ class MatrixClient:
     # Auth
     # ------------------------------------------------------------------
 
+    async def login_flows(self) -> LoginFlows:
+        """Fetch and parse the login flows advertised by the homeserver.
+
+        Issues ``GET /_matrix/client/v3/login`` and returns a ``LoginFlows``
+        dataclass. Raises ``LoginError`` on transport or HTTP error.
+        """
+        import aiohttp
+
+        url = f"{self._homeserver}/_matrix/client/v3/login"
+        try:
+            async with (
+                aiohttp.ClientSession() as http_session,
+                http_session.get(url) as resp,
+            ):
+                if resp.status != 200:
+                    raise LoginError(f"login_flows HTTP {resp.status} from {url}")
+                payload: dict[str, object] = await resp.json()
+        except LoginError:
+            raise
+        except Exception as exc:
+            raise LoginError(f"login_flows request failed: {exc}") from exc
+
+        return parse_login_flows(payload)
+
+    def sso_redirect_url(self, redirect_url: str, idp_id: str | None = None) -> str:
+        """Build the SSO redirect URL for this homeserver.
+
+        Delegates to ``build_sso_redirect_url`` from ``matrix.auth``.
+        The ``redirect_url`` should be the loopback callback URL returned
+        by ``SsoCallbackServer.start()``.
+        """
+        return build_sso_redirect_url(self._homeserver, redirect_url, idp_id)
+
+    async def login_with_token(self, token: str) -> Session:
+        """Exchange a single-use ``loginToken`` (from SSO) for a Session.
+
+        SECURITY: the token is NEVER logged.
+
+        Raises ``LoginError`` on failure.
+        """
+        response = await self._client.login(token=token, device_name=self._device_name)
+        if isinstance(response, nio.LoginError):
+            raise LoginError(str(response))
+        return self._finalize_login(response)
+
     async def login(self, user: str, password: str) -> Session:
         """Login to the homeserver with user/password credentials.
 
         Returns a Session on success; raises LoginError on failure.
+
+        Bug fix (plan 0011): sets ``self._client.user = user`` before the nio
+        ``login()`` call so nio knows which user to authenticate.  Previously
+        this was silently omitted, causing real password logins to fail.
         """
+        # Fix: set the user on the nio client BEFORE calling login()
+        self._client.user = user
         response = await self._client.login(password, device_name=self._device_name)
         if isinstance(response, nio.LoginError):
             raise LoginError(str(response))
+        return self._finalize_login(response)
 
+    def _finalize_login(self, response: object) -> Session:
+        """Shared post-login bookkeeping: build Session, set state, load store.
+
+        Called by both ``login()`` and ``login_with_token()``.
+        """
+        # response is expected to have user_id / device_id / access_token attrs
         session = Session(
             homeserver=self._homeserver,
-            user_id=response.user_id,
-            device_id=response.device_id,
-            access_token=response.access_token,
+            user_id=getattr(response, "user_id", ""),
+            device_id=getattr(response, "device_id", ""),
+            access_token=getattr(response, "access_token", ""),
         )
         self._logged_in = True
         self._load_store()
