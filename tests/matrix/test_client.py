@@ -700,6 +700,42 @@ async def test_rooms_last_activity_comes_from_sync_cache() -> None:
     assert summaries[0].last_activity == ts
 
 
+async def test_leave_room_hides_room_immediately_and_after_stale_sync() -> None:
+    """leave_room() removes the room from rooms() at once; stale sync doesn't resurrect it."""
+    import nio
+
+    room_id = "!leaveroom:example.com"
+    nio_mock = _build_nio_mock(
+        rooms={room_id: _make_nio_room(room_id=room_id, display_name="Leaving")}
+    )
+    nio_mock.access_token = _TOKEN
+    nio_mock.user_id = _USER
+    nio_mock.room_leave.return_value = MagicMock(spec=nio.RoomLeaveResponse)
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+
+    emitted: list[object] = []
+    client.subscribe(lambda e: emitted.append(e))
+
+    assert any(r.room_id == room_id for r in client.rooms())
+
+    await client.leave_room(room_id)
+
+    # Immediately hidden
+    assert not any(r.room_id == room_id for r in client.rooms())
+    # RoomsChanged was emitted without the departed room
+    from telemente.matrix.client import RoomsChanged
+
+    assert len(emitted) == 1
+    assert isinstance(emitted[0], RoomsChanged)
+    assert not any(r.room_id == room_id for r in emitted[0].rooms)
+
+    # Simulate stale sync: nio still has the room in its dict (hasn't pruned yet).
+    # rooms() must still hide it.
+    assert not any(r.room_id == room_id for r in client.rooms())
+
+
 async def test_update_last_activity_populates_cache() -> None:
     """_update_last_activity() reads the newest event timestamp from each joined room."""
     from datetime import UTC, datetime

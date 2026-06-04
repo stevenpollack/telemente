@@ -114,6 +114,8 @@ class MatrixClient:
         self._initial_sync_done: bool = False
         # Cache of room_id → last event timestamp, updated on each sync.
         self._last_activity: dict[str, datetime] = {}
+        # Rooms we have locally left but nio hasn't pruned from its dict yet.
+        self._left_rooms: set[str] = set()
 
         if nio_client is not None:
             self._client = nio_client
@@ -308,6 +310,8 @@ class MatrixClient:
         """Return summaries of all joined rooms (from current sync state)."""
         summaries: list[RoomSummary] = []
         for room_id, room in self._client.rooms.items():
+            if room_id in self._left_rooms:
+                continue
             # last_activity is populated by _on_sync via _update_last_activity().
             last_activity: datetime | None = self._last_activity.get(room_id)
 
@@ -461,9 +465,11 @@ class MatrixClient:
         if isinstance(response, nio.ErrorResponse):
             raise MatrixError(f"leave_room failed for {room_id}: {response}")
         logger.info("Left room %s", room_id)
-        # nio does not remove the room from its in-memory dict until the next
-        # sync response, so filter it out manually for the immediate UI update.
-        await self._emit(RoomsChanged(rooms=[r for r in self.rooms() if r.room_id != room_id]))
+        # nio doesn't prune its in-memory rooms dict until the next sync
+        # response. Record the departure so rooms() hides it immediately and
+        # _on_sync continues to hide it until nio catches up.
+        self._left_rooms.add(room_id)
+        await self._emit(RoomsChanged(rooms=self.rooms()))
 
     async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None:
         """Add or update a room tag (e.g. m.favourite, m.lowpriority).
@@ -809,6 +815,8 @@ class MatrixClient:
         """nio callback: a sync response arrived — emit RoomsChanged and handle key ops."""
         self._initial_sync_done = True
         self._update_last_activity(response)
+        # Discard _left_rooms entries that nio has now removed from its dict.
+        self._left_rooms &= set(self._client.rooms)
         rooms = self.rooms()
         logger.debug("_on_sync: %d rooms after sync", len(rooms))
 
