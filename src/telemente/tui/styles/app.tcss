@@ -71,3 +71,27 @@ RoomList .room-unread-badge {
     color: $accent;
     text-style: bold;
 }
+
+/* -------------------------------------------------------------------------
+   Message view panel — MessageView widget (plan 0007)
+   ------------------------------------------------------------------------- */
+
+MessageView {
+    height: 1fr;
+    layout: vertical;
+}
+
+MessageView #message-timeline {
+    height: 1fr;
+}
+
+MessageView #composer {
+    height: 3;
+    dock: bottom;
+}
+
+_MessageRow {
+    height: auto;
+    padding: 0 1;
+    color: $text;
+}

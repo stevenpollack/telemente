@@ -17,6 +17,8 @@ from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Static
 
+from telemente.matrix.models import Message
+from telemente.tui.widgets.message_view import MessageView
 from telemente.tui.widgets.room_list import RoomList
 
 logger = logging.getLogger(__name__)
@@ -25,16 +27,14 @@ logger = logging.getLogger(__name__)
 class _MainClient(Protocol):
     """Structural protocol for the subset of MatrixClient used by MainScreen.
 
-    Currently empty — MainScreen delegates data access to child widgets (0006-0008).
-    Keeping this explicit lets mypy verify DI without coupling to the real client.
+    MainScreen delegates data access to child widgets (0006-0008).
+    The methods here match the subset consumed by MessageView so mypy can
+    verify DI without coupling to the real client.
     """
 
+    async def messages(self, room_id: str, limit: int = 50) -> list[Message]: ...
 
-class _MessagePanel(Static):
-    """Placeholder for the center message panel (real widget: MessageView, plan 0007)."""
-
-    def __init__(self, widget_id: str) -> None:
-        super().__init__("Message panel", id=widget_id)
+    async def send_text(self, room_id: str, body: str) -> None: ...
 
 
 class _MembersPanel(Static):
@@ -73,7 +73,7 @@ class MainScreen(Screen[None]):
         yield Header()
         with Horizontal(id="main-layout"):
             yield RoomList(id="rooms-panel")
-            yield _MessagePanel("message-panel")
+            yield MessageView(self._client, id="message-panel")
             yield _MembersPanel("members-panel")
         yield Footer()
 
