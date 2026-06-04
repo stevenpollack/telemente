@@ -53,3 +53,4 @@ Every plan document uses these sections:
 | 0008 | [member-list-panel](0008-member-list-panel.md) | Room member list |
 | 0009 | [sync-state-integration](0009-sync-state-integration.md) | Wire nio sync into Textual |
 | 0010 | [e2ee-setup](0010-e2ee-setup.md) | End-to-end encryption (libolm/olm store) |
+| 0011 | [sso-login](0011-sso-login.md) | SSO login with dynamic flow detection (+ manual fallback) |
