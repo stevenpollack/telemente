@@ -343,3 +343,40 @@ async def test_set_rooms_while_filtered_preserves_all_rooms() -> None:
         await pilot.pause()
         assert len(room_list.visible_rooms) == 3
         assert len(room_list.all_rooms) == 3
+
+
+# ---------------------------------------------------------------------------
+# Test 11: set_active_room highlights the matching _RoomItem
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_active_room_highlights_matching_item() -> None:
+    """set_active_room('!a:h') — matching _RoomItem has -highlight, others don't."""
+    from telemente.tui.widgets.room_list import _RoomItem
+
+    app = HostApp()
+    rooms = [
+        _room("!a:h", "Alpha"),
+        _room("!b:h", "Beta"),
+        _room("!c:h", "Gamma"),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        room_list.set_active_room("!a:h")
+        await pilot.pause()
+
+        items = list(app.query(_RoomItem))
+        assert len(items) == 3
+
+        highlighted = [item for item in items if "-highlight" in item.classes]
+        assert len(highlighted) == 1
+        assert highlighted[0].room.room_id == "!a:h"
+
+        not_highlighted = [item for item in items if "-highlight" not in item.classes]
+        assert len(not_highlighted) == 2

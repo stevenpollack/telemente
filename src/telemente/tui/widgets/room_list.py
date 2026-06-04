@@ -133,6 +133,14 @@ class RoomList(Widget):
             self._has_loaded = True
         self._rebuild()
 
+    def set_active_room(self, room_id: str | None) -> None:
+        """Highlight the _RoomItem matching room_id; clear all others."""
+        for item in self.query(_RoomItem):
+            if room_id is not None and item.room.room_id == room_id:
+                item.add_class("-highlight")
+            else:
+                item.remove_class("-highlight")
+
     def apply_filter(self, query: str) -> None:
         """Apply a case-insensitive substring filter on display_name."""
         self._filter = query

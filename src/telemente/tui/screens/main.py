@@ -207,6 +207,7 @@ class MainScreen(Screen[None]):
             for r in room_list.all_rooms
         ]
         room_list.set_rooms(updated)
+        room_list.set_active_room(room_id)
 
         # Load messages and members (async work in a worker)
         self.run_worker(
