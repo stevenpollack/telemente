@@ -38,3 +38,4 @@ coverage.xml
 .vscode/
 *.swp
 2026-*.txt
+.claude/
