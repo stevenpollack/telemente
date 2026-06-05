@@ -50,6 +50,10 @@ class Paths:
         self.store_dir.mkdir(parents=True, exist_ok=True)
         return self
 
+    def cache_db_path(self) -> str:
+        """Return the absolute path for the message cache SQLite database."""
+        return str(self.data_dir / "message_cache.db")
+
 
 # ---------------------------------------------------------------------------
 # Settings
