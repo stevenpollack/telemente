@@ -182,6 +182,7 @@ class RoomList(Widget):
 
     def set_sort_mode(self, mode: str) -> None:
         """Set sort order: 'recent' (newest first) or 'alpha' (A-Z)."""
+        logger.info("set_sort_mode: %r (was %r)", mode, self._sort_mode)
         self._sort_mode = mode
         self._rebuild()
 

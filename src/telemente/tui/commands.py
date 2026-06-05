@@ -182,18 +182,24 @@ class TelementeCommands(Provider):
         from telemente.tui.widgets.room_list import RoomList
 
         screen = self.app.screen
+        logger.info("_cmd_sort_recent: screen=%s", type(screen).__name__)
         if isinstance(screen, MainScreen):
             screen.query_one(RoomList).set_sort_mode("recent")
             self.app.notify("Sorted by recent activity", timeout=2)
+        else:
+            logger.warning("_cmd_sort_recent: screen is not MainScreen, sort skipped")
 
     def _cmd_sort_alpha(self) -> None:
         from telemente.tui.screens.main import MainScreen
         from telemente.tui.widgets.room_list import RoomList
 
         screen = self.app.screen
+        logger.info("_cmd_sort_alpha: screen=%s", type(screen).__name__)
         if isinstance(screen, MainScreen):
             screen.query_one(RoomList).set_sort_mode("alpha")
             self.app.notify("Sorted alphabetically", timeout=2)
+        else:
+            logger.warning("_cmd_sort_alpha: screen is not MainScreen, sort skipped")
 
     # ------------------------------------------------------------------
     # Tags

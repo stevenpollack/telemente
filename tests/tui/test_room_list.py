@@ -896,3 +896,93 @@ async def test_set_sort_mode_updates_dom_order() -> None:
         dom_items = list(list_view.query(_RoomItem))
         dom_names = [item.room.display_name for item in dom_items]
         assert dom_names == ["Alpha", "Mango", "Zebra"]
+
+
+# ---------------------------------------------------------------------------
+# Test 27: rooms without timestamps sort alphabetically after those with timestamps
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rooms_without_timestamps_sort_alpha_after_timestamped() -> None:
+    """Rooms lacking last_activity always appear after timestamped rooms, A-Z."""
+    app = HostApp()
+    rooms = [
+        _room("!z:h", "Zebra"),  # no timestamp
+        _room("!a:h", "Alpha"),  # no timestamp
+        _room("!new:h", "NewRoom", last_activity=DT_NEW),
+        _room("!old:h", "OldRoom", last_activity=DT_OLD),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        visible = room_list.visible_rooms
+        assert len(visible) == 4
+        # Timestamped rooms first (newest-first)
+        assert visible[0].room_id == "!new:h"
+        assert visible[1].room_id == "!old:h"
+        # No-timestamp rooms last, alphabetically
+        assert visible[2].display_name == "Alpha"
+        assert visible[3].display_name == "Zebra"
+
+
+# ---------------------------------------------------------------------------
+# Test 28: set_sort_mode alpha then back to recent re-sorts correctly
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sort_mode_roundtrip_alpha_then_recent() -> None:
+    """Switching alpha→recent restores newest-first order."""
+    app = HostApp()
+    rooms = [
+        _room("!z:h", "Zebra", last_activity=DT_NEW),
+        _room("!a:h", "Alpha", last_activity=DT_OLD),
+        _room("!m:h", "Mango", last_activity=DT_MID),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        room_list.set_sort_mode("alpha")
+        await pilot.pause()
+        alpha_names = [r.display_name for r in room_list.visible_rooms]
+        assert alpha_names == ["Alpha", "Mango", "Zebra"]
+
+        room_list.set_sort_mode("recent")
+        await pilot.pause()
+        recent_ids = [r.room_id for r in room_list.visible_rooms]
+        assert recent_ids == ["!z:h", "!m:h", "!a:h"]
+
+
+# ---------------------------------------------------------------------------
+# Test 29: all-None timestamps still produces a stable alphabetical list
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_all_none_timestamps_sort_alphabetically() -> None:
+    """When every room lacks last_activity, the entire list is sorted A-Z."""
+    app = HostApp()
+    rooms = [
+        _room("!z:h", "Zebra"),
+        _room("!a:h", "Alpha"),
+        _room("!m:h", "Mango"),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        visible = room_list.visible_rooms
+        names = [r.display_name for r in visible]
+        assert names == ["Alpha", "Mango", "Zebra"]
