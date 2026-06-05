@@ -52,6 +52,7 @@ from telemente.matrix.client import (
     MatrixClient,
     NewMessage,
     NotLoggedInError,
+    TypingChanged,
 )
 from telemente.matrix.models import RoomSummary
 from telemente.matrix.sort import sort_rooms_by_recency
@@ -1785,3 +1786,23 @@ async def test_messages_redacted_event_from_cassette(real_nio_client: Any) -> No
     # Pin the observed behaviour: nio parses redacted m.room.message as
     # RoomMessageText with an empty body string.
     assert isinstance(msgs, list)
+
+
+async def test_typing_event_emits_typing_changed(real_nio_client: Any) -> None:
+    """Sync with m.typing ephemeral emits TypingChanged with correct user_ids."""
+    received: list[Any] = []
+    with aioresponses() as m:
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        await client.restore(make_session())
+        client.subscribe(lambda e: received.append(e))
+        await start_sync_with_stubs(
+            client,
+            m,
+            initial_sync=load_fixture("sync_with_typing.json"),
+            min_rooms=0,
+        )
+
+    typing_events = [e for e in received if isinstance(e, TypingChanged)]
+    assert len(typing_events) == 1
+    assert typing_events[0].room_id == "!room_a:example.com"
+    assert "@bob:example.com" in typing_events[0].user_ids

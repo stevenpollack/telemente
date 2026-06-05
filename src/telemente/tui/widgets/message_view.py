@@ -309,6 +309,7 @@ class MessageView(Widget):
         with VerticalScroll(id="message-timeline"):
             pass
         yield Static("", id="encryption-notice", classes="encryption-notice")
+        yield Static("", id="typing-indicator", classes="typing-indicator")
         yield Static("", id="reply-indicator", classes="reply-banner")
         yield Input(id="emoji-input", placeholder="React…")
         yield ComposerArea(id="composer", soft_wrap=True)
@@ -316,6 +317,7 @@ class MessageView(Widget):
     def on_mount(self) -> None:
         self.query_one("#reply-indicator", Static).display = False
         self.query_one("#emoji-input", Input).display = False
+        self.query_one("#typing-indicator", Static).display = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -360,6 +362,21 @@ class MessageView(Widget):
         self._rendered_event_ids.clear()
         self._msgs_by_id.clear()
         self.query_one("#encryption-notice", Static).display = False
+
+    def set_typing(self, room_id: str, user_ids: list[str]) -> None:
+        """Update the typing indicator for *room_id*.
+
+        Only shown when *room_id* matches the active room and *user_ids* is non-empty.
+        """
+        if room_id != self._current_room_id:
+            return
+        indicator = self.query_one("#typing-indicator", Static)
+        if not user_ids:
+            indicator.display = False
+            return
+        names = ", ".join(user_ids)
+        indicator.update(f"Typing: {names}…")
+        indicator.display = True
 
     # ------------------------------------------------------------------
     # Actions

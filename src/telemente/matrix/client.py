@@ -81,7 +81,15 @@ class MembersChanged:
     members: list[Member]
 
 
-ClientEvent = RoomsChanged | NewMessage | MembersChanged
+@dataclass(frozen=True, slots=True)
+class TypingChanged:
+    """Someone in a room started or stopped typing."""
+
+    room_id: str
+    user_ids: list[str]
+
+
+ClientEvent = RoomsChanged | NewMessage | MembersChanged | TypingChanged
 EventHandler = Callable[[ClientEvent], "Awaitable[None] | None"]
 
 # ---------------------------------------------------------------------------
@@ -747,6 +755,7 @@ class MatrixClient:
         self._client.add_event_callback(self._on_room_media, nio.RoomMessageMedia)
         self._client.add_event_callback(self._on_megolm_event, nio.MegolmEvent)
         self._client.add_response_callback(self._on_sync, nio.SyncResponse)
+        self._client.add_ephemeral_callback(self._on_typing, nio.TypingNoticeEvent)
 
     def _rooms_fingerprint(self, rooms: list[RoomSummary]) -> frozenset[tuple[str, str, int]]:
         """Cheap identity check: (room_id, display_name, unread_count) for each room."""
@@ -828,6 +837,11 @@ class MatrixClient:
             timestamp=ts,
         )
         await self._emit(NewMessage(message=placeholder))
+
+    async def _on_typing(self, room: nio.MatrixRoom, event: nio.TypingNoticeEvent) -> None:
+        """nio ephemeral callback: someone in a room is typing."""
+        logger.debug("_on_typing: room=%s users=%s", room.room_id, event.users)
+        await self._emit(TypingChanged(room_id=room.room_id, user_ids=list(event.users)))
 
     async def _poll_rooms_during_sync(self) -> None:
         """Periodically emit RoomsChanged while the initial sync is processing.

@@ -8,6 +8,7 @@ from typing import Any, TypeVar
 
 _E = TypeVar("_E", bound="Event")
 _R = TypeVar("_R", bound="Response")
+_Ep = TypeVar("_Ep", bound="EphemeralEvent")
 
 # ---------------------------------------------------------------------------
 # Config & client
@@ -113,6 +114,11 @@ class AsyncClient:
         callback: Callable[[_R], Awaitable[None] | None],
         cb_filter: type[_R] | None = ...,
     ) -> None: ...
+    def add_ephemeral_callback(
+        self,
+        callback: Callable[[MatrixRoom, _Ep], Awaitable[None] | None],
+        cb_filter: type[_Ep] | tuple[type[_Ep], ...] = ...,
+    ) -> None: ...
 
 # ---------------------------------------------------------------------------
 # Rooms & users
@@ -194,6 +200,15 @@ class MegolmEvent(Event):
     session_id: str
 
 class UnknownEncryptedEvent(Event): ...
+
+# ---------------------------------------------------------------------------
+# Ephemeral events
+# ---------------------------------------------------------------------------
+
+class EphemeralEvent: ...
+
+class TypingNoticeEvent(EphemeralEvent):
+    users: list[str]
 
 # ---------------------------------------------------------------------------
 # Responses

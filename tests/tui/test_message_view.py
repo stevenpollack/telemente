@@ -817,3 +817,78 @@ async def test_G_key_focuses_composer() -> None:
         await pilot.pause()
 
         assert isinstance(app.focused, ComposerArea)
+
+
+# ---------------------------------------------------------------------------
+# Typing indicator tests
+# ---------------------------------------------------------------------------
+
+
+from telemente.matrix.client import TypingChanged  # noqa: E402
+
+
+class TypingHostApp(App[None]):
+    """Host app that subscribes the fake client and routes TypingChanged to MessageView."""
+
+    def __init__(self, client: FakeMatrixClient, room_id: str) -> None:
+        super().__init__()
+        self._client = client
+        self._room_id = room_id
+
+    def compose(self) -> ComposeResult:
+        yield MessageView(self._client, id="message-panel")
+
+    def on_mount(self) -> None:
+        self._client.subscribe(self._handle_event)
+        view = self.query_one(MessageView)
+        view._current_room_id = self._room_id  # set active room without fetching messages
+
+    def _handle_event(self, event: object) -> None:
+        if isinstance(event, TypingChanged):
+            self.query_one(MessageView).set_typing(event.room_id, event.user_ids)
+
+
+@pytest.mark.asyncio
+async def test_typing_indicator_shows_while_typing() -> None:
+    """When TypingChanged fires with user_ids non-empty, the indicator label is visible."""
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    room_id = "!r:s"
+
+    app = TypingHostApp(fake, room_id)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await fake.emit(TypingChanged(room_id=room_id, user_ids=["@bob:example.com"]))
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        indicator = app.query_one("#typing-indicator", Static)
+        assert indicator.display is True
+        assert "Bob" in str(indicator.render()) or "bob" in str(indicator.render()).lower()
+
+
+@pytest.mark.asyncio
+async def test_typing_indicator_hides_when_not_typing() -> None:
+    """When TypingChanged fires with user_ids=[], the indicator is hidden."""
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    room_id = "!r:s"
+
+    app = TypingHostApp(fake, room_id)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # First show it
+        await fake.emit(TypingChanged(room_id=room_id, user_ids=["@bob:example.com"]))
+        await pilot.pause()
+
+        # Then clear it
+        await fake.emit(TypingChanged(room_id=room_id, user_ids=[]))
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        indicator = app.query_one("#typing-indicator", Static)
+        assert indicator.display is False

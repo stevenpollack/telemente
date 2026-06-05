@@ -30,6 +30,7 @@ from telemente.matrix.client import (
     MembersChanged,
     NewMessage,
     RoomsChanged,
+    TypingChanged,
 )
 from telemente.tui.screens.login import LoginScreen
 from telemente.tui.screens.main import MainScreen
@@ -62,6 +63,14 @@ class _ClientMembersChanged(TextualMessage):
     """Wraps a MembersChanged client event for Textual message routing."""
 
     def __init__(self, event: MembersChanged) -> None:
+        super().__init__()
+        self.event = event
+
+
+class _ClientTypingChanged(TextualMessage):
+    """Wraps a TypingChanged client event for Textual message routing."""
+
+    def __init__(self, event: TypingChanged) -> None:
         super().__init__()
         self.event = event
 
@@ -284,6 +293,11 @@ class TelementeApp(App[None]):
                 event.message.event_id,
             )
             self.post_message(_ClientNewMessage(event))
+        elif isinstance(event, TypingChanged):
+            logger.debug(
+                "ClientEvent: TypingChanged room=%s users=%s", event.room_id, event.user_ids
+            )
+            self.post_message(_ClientTypingChanged(event))
         else:
             logger.debug("ClientEvent: MembersChanged room=%s", event.room_id)
             self.post_message(_ClientMembersChanged(event))
@@ -312,6 +326,13 @@ class TelementeApp(App[None]):
             logger.debug("on__client_members_changed: no MainScreen active, discarding")
             return
         screen.handle_members_changed(message.event)
+
+    def on__client_typing_changed(self, message: _ClientTypingChanged) -> None:
+        screen = self.screen
+        if not isinstance(screen, MainScreen):
+            logger.debug("on__client_typing_changed: no MainScreen active, discarding")
+            return
+        screen.handle_typing_changed(message.event)
 
     # ------------------------------------------------------------------
     # App-level actions

@@ -27,7 +27,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, TabbedContent, TabPane
 
 from telemente.config import Paths
-from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged
+from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged, TypingChanged
 from telemente.matrix.models import Member, Message, RoomSummary
 from telemente.tui.widgets.log_panel import LogPanel
 from telemente.tui.widgets.member_list import MemberList
@@ -245,6 +245,12 @@ class MainScreen(Screen[None]):
         )
         if event.room_id == self.active_room_id:
             self.query_one(MemberList).set_members(event.members)
+
+    def handle_typing_changed(self, event: TypingChanged) -> None:
+        logger.debug("handle_typing_changed: room=%s users=%s", event.room_id, event.user_ids)
+        view = self.message_view_for(event.room_id)
+        if view is not None:
+            view.set_typing(event.room_id, event.user_ids)
 
     # ------------------------------------------------------------------
     # RoomSelected handler
