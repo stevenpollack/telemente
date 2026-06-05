@@ -168,6 +168,32 @@ MemberList .member-entry {
 }
 
 /* -------------------------------------------------------------------------
+   Redacted message tombstone — plan 0022
+   ------------------------------------------------------------------------- */
+
+MessageRow.-redacted {
+    color: $text-disabled;
+    text-style: italic;
+}
+
+/* -------------------------------------------------------------------------
+   In-room message search — search bar and match highlights (plan 0024)
+   ------------------------------------------------------------------------- */
+
+MessageView #search-bar {
+    display: none;
+    height: 1;
+}
+
+MessageRow.-search-match {
+    border: tall $accent;
+}
+
+MessageRow.-search-current {
+    background: $accent;
+}
+
+/* -------------------------------------------------------------------------
    Context menu — floating widget (plan 0020)
    ------------------------------------------------------------------------- */
 

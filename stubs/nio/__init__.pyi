@@ -196,6 +196,15 @@ class ReactionEvent(Event):
     reacts_to: str
     key: str
 
+class RedactionEvent(Event):
+    redacts: str
+    reason: str | None
+
+class RedactedEvent(Event):
+    type: str  # original event type, e.g. "m.room.message"
+    redacter: str  # user_id who performed the redaction
+    reason: str | None
+
 class MegolmEvent(Event):
     session_id: str
 

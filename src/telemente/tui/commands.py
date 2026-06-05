@@ -70,6 +70,11 @@ class TelementeCommands(Provider):
                 self.cmd_react_to_message,
                 "Open emoji picker to react to the focused message",
             ),
+            (
+                "Search in room",
+                self.cmd_search_in_room,
+                "Search message history of the active room (Ctrl+F)",
+            ),
             ("Logout", self.cmd_logout, "Log out and return to the login screen"),
         ]
 
@@ -223,6 +228,22 @@ class TelementeCommands(Provider):
         if not rows:
             return
         view._open_emoji_picker_for(rows[-1].message.event_id)  # pyright: ignore[reportPrivateUsage]
+
+    def cmd_search_in_room(self) -> None:
+        """Open the in-room search bar for the active room's MessageView."""
+        from telemente.tui.screens.main import MainScreen
+
+        screen = self.app.screen
+        if not isinstance(screen, MainScreen):
+            return
+        active_room = screen.active_room_id
+        if active_room is None:
+            self.app.notify("No room selected", severity="warning")
+            return
+        view = screen.message_view_for(active_room)
+        if view is None:
+            return
+        view.action_open_search()  # type: ignore[attr-defined]  # action_open_search added by debug agent
 
     def cmd_logout(self) -> None:
         from telemente.tui.app import TelementeApp

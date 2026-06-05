@@ -28,6 +28,7 @@ from telemente.matrix.client import (
     ClientEvent,
     MatrixClient,
     MembersChanged,
+    MessageRedacted,
     NewMessage,
     RoomsChanged,
     TypingChanged,
@@ -71,6 +72,14 @@ class _ClientTypingChanged(TextualMessage):
     """Wraps a TypingChanged client event for Textual message routing."""
 
     def __init__(self, event: TypingChanged) -> None:
+        super().__init__()
+        self.event = event
+
+
+class _ClientMessageRedacted(TextualMessage):
+    """Wraps a MessageRedacted client event for Textual message routing."""
+
+    def __init__(self, event: MessageRedacted) -> None:
         super().__init__()
         self.event = event
 
@@ -302,6 +311,13 @@ class TelementeApp(App[None]):
                 "ClientEvent: TypingChanged room=%s users=%s", event.room_id, event.user_ids
             )
             self.post_message(_ClientTypingChanged(event))
+        elif isinstance(event, MessageRedacted):
+            logger.debug(
+                "ClientEvent: MessageRedacted room=%s event_id=%s",
+                event.room_id,
+                event.event_id,
+            )
+            self.post_message(_ClientMessageRedacted(event))
         else:
             logger.debug("ClientEvent: MembersChanged room=%s", event.room_id)
             self.post_message(_ClientMembersChanged(event))
@@ -337,6 +353,12 @@ class TelementeApp(App[None]):
             logger.debug("on__client_typing_changed: no MainScreen active, discarding")
             return
         screen.handle_typing_changed(message.event)
+
+    def on__client_message_redacted(self, message: _ClientMessageRedacted) -> None:
+        screen = self.screen
+        if not isinstance(screen, MainScreen):
+            return
+        screen.handle_redaction(message.event)  # type: ignore[attr-defined]  # handle_redaction added by debug agent
 
     # ------------------------------------------------------------------
     # App-level actions

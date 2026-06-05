@@ -91,7 +91,16 @@ class TypingChanged:
     user_ids: list[str]
 
 
-ClientEvent = RoomsChanged | NewMessage | MembersChanged | TypingChanged
+@dataclass(frozen=True, slots=True)
+class MessageRedacted:
+    """A previously-sent message was redacted (deleted) in a room."""
+
+    room_id: str
+    event_id: str  # the event that was redacted
+    redacted_by: str  # event_id of the redaction event (empty for backfill)
+
+
+ClientEvent = RoomsChanged | NewMessage | MembersChanged | TypingChanged | MessageRedacted
 EventHandler = Callable[[ClientEvent], "Awaitable[None] | None"]
 
 # ---------------------------------------------------------------------------
@@ -516,6 +525,21 @@ class MatrixClient:
             if isinstance(event, nio.ReactionEvent):
                 bucket = reactions_by_event.setdefault(event.reacts_to, {})
                 bucket.setdefault(event.key, []).append(event.sender)
+            elif isinstance(event, nio.RedactedEvent):
+                # Server-side pre-redacted message: surface as a tombstone row.
+                sender_display_name = _get_display_name(room, event.sender)
+                ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+                raw_messages.append(
+                    Message(
+                        event_id=event.event_id,
+                        room_id=room_id,
+                        sender=event.sender,
+                        sender_display_name=sender_display_name,
+                        body="\U0001f5d1️ Message deleted",
+                        timestamp=ts,
+                        redacted=True,
+                    )
+                )
             elif isinstance(event, nio.RoomMessageText):
                 rel_type = event.source.get("content", {}).get("m.relates_to", {}).get("rel_type")
                 if rel_type == "m.replace":
@@ -763,6 +787,19 @@ class MatrixClient:
         await self._client.room_redact(room_id, event_id, reason=reason)
         logger.debug("Redacted %s in %s", event_id, room_id)
 
+    async def search_messages(self, room_id: str, query: str) -> list[str]:
+        """Search cached message bodies for query in room_id.
+
+        Returns event_ids of matching messages, chronological order.
+        Returns [] if cache is unavailable or query is empty.
+        """
+        if not query:
+            return []
+        if self._cache is None:
+            logger.warning("search_messages: cache is None, cannot search room=%s", room_id)
+            return []
+        return await self._cache.search_room(room_id, query)
+
     async def send_text(self, room_id: str, body: str, reply_to_event_id: str | None = None) -> str:
         """Send a plain-text message to a room. Returns the server-assigned event_id.
 
@@ -872,6 +909,7 @@ class MatrixClient:
         self._client.add_event_callback(self._on_room_message, nio.RoomMessageText)
         self._client.add_event_callback(self._on_room_media, nio.RoomMessageMedia)
         self._client.add_event_callback(self._on_megolm_event, nio.MegolmEvent)
+        self._client.add_event_callback(self._on_redaction, nio.RedactionEvent)
         self._client.add_response_callback(self._on_sync, nio.SyncResponse)
         self._client.add_ephemeral_callback(self._on_typing, nio.TypingNoticeEvent)
 
@@ -966,6 +1004,24 @@ class MatrixClient:
         """nio ephemeral callback: someone in a room is typing."""
         logger.debug("_on_typing: room=%s users=%s", room.room_id, event.users)
         await self._emit(TypingChanged(room_id=room.room_id, user_ids=list(event.users)))
+
+    async def _on_redaction(self, room: nio.MatrixRoom, event: nio.RedactionEvent) -> None:
+        """nio callback: an m.room.redaction event arrived."""
+        logger.debug(
+            "_on_redaction: room=%s redacts=%s redacted_by=%s",
+            room.room_id,
+            event.redacts,
+            event.event_id,
+        )
+        if self._cache is not None:
+            await self._cache.mark_redacted(room.room_id, event.redacts)
+        await self._emit(
+            MessageRedacted(
+                room_id=room.room_id,
+                event_id=event.redacts,
+                redacted_by=event.event_id,
+            )
+        )
 
     async def _poll_rooms_during_sync(self) -> None:
         """Periodically emit RoomsChanged while the initial sync is processing.

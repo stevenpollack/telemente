@@ -184,6 +184,37 @@ class MessageCache:
             row = await cursor.fetchone()
         return row is None
 
+    async def mark_redacted(self, room_id: str, event_id: str) -> None:
+        """Overwrite the body of a cached message with the tombstone string."""
+        assert self._db is not None
+        await self._db.execute(
+            "UPDATE messages SET body = ? WHERE room_id = ? AND event_id = ?",
+            ("\U0001f5d1️ Message deleted", room_id, event_id),
+        )
+        await self._db.commit()
+
+    async def search_room(self, room_id: str, query: str) -> list[str]:
+        """Return event_ids of messages whose body matches query (case-insensitive).
+
+        # FTS5 is a known upgrade path; LIKE is fast enough at ≤500 rows/room.
+        Returns event_ids in chronological order (timestamp_ms ASC).
+        Returns [] immediately if query is empty.
+        """
+        if not query:
+            return []
+        assert self._db is not None
+        pattern = f"%{query}%"
+        async with self._db.execute(
+            """
+            SELECT event_id FROM messages
+            WHERE room_id = ? AND LOWER(body) LIKE LOWER(?)
+            ORDER BY timestamp_ms ASC
+            """,
+            (room_id, pattern),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows]
+
 
 # ---------------------------------------------------------------------------
 # Row conversion helpers

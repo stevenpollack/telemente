@@ -217,3 +217,16 @@ async def test_open_recreates_on_schema_mismatch() -> None:
     result = await fresh.get_room("!r:s")
     assert len(result) == 1
     assert result[0].event_id == msg.event_id
+
+
+# ---------------------------------------------------------------------------
+# Test 12: mark_redacted overwrites body with tombstone string
+# ---------------------------------------------------------------------------
+
+
+async def test_mark_redacted_updates_body(cache: MessageCache) -> None:
+    msg = make_message(body="original")
+    await cache.put(msg)
+    await cache.mark_redacted(msg.room_id, msg.event_id)
+    rows = await cache.get_room(msg.room_id)
+    assert rows[0].body == "\U0001f5d1️ Message deleted"
