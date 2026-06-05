@@ -505,3 +505,74 @@ async def test_unread_clears_on_tab_bar_switch() -> None:
 
         # Unread must be cleared
         assert screen.unread.get("!a:h", 0) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 12: rooms_changed reloads active room when members were empty
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rooms_changed_reloads_active_room_after_sync() -> None:
+    """handle_rooms_changed reloads messages+members for the active room when
+    the member list is empty — simulating the race where the user opens a room
+    before the initial sync populates nio's rooms dict."""
+    from datetime import UTC, datetime
+
+    from telemente.matrix.client import RoomsChanged
+    from telemente.matrix.models import Member, Message, RoomSummary
+    from telemente.tui.screens.main import MainScreen as MS
+    from telemente.tui.widgets.member_list import MemberList
+    from telemente.tui.widgets.room_list import RoomList
+
+    tapp, fake = _make_sync_app()
+
+    alice = Member(user_id="@alice:h", display_name="Alice", power_level=0)
+    msg = Message(
+        event_id="$ev1",
+        room_id="!r:h",
+        sender="@alice:h",
+        sender_display_name="Alice",
+        body="hi",
+        timestamp=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+    )
+    call_count = 0
+
+    def patched_members(room_id: str) -> list[Member]:
+        nonlocal call_count
+        call_count += 1
+        return []  # always empty until after RoomsChanged
+
+    async def patched_messages(room_id: str, limit: int = 50) -> list[Message]:
+        return [msg]
+
+    fake.members = patched_members  # type: ignore[method-assign]
+    fake.messages = patched_messages  # type: ignore[method-assign]
+
+    async with tapp.run_test() as pilot:
+        tapp.push_screen(MS(fake))
+        await pilot.pause()
+        screen = tapp.screen
+        assert isinstance(screen, MS)
+
+        rooms = [RoomSummary(room_id="!r:h", display_name="Room")]
+        screen.query_one(RoomList).set_rooms(rooms)
+        await pilot.pause()
+
+        screen.query_one(RoomList).post_message(RoomList.RoomSelected("!r:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        # After initial load: member list is empty (pre-sync race)
+        member_list = screen.query_one(MemberList)
+        assert member_list.member_count == 0
+
+        # Now the sync arrives and populates room state — swap in real members
+        fake.members = lambda room_id: [alice]  # type: ignore[method-assign]
+
+        await fake.emit(RoomsChanged(rooms=rooms))
+        await pilot.pause()
+        await pilot.pause()
+
+        # Members should now be populated
+        assert member_list.member_count == 1

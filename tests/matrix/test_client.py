@@ -1899,6 +1899,88 @@ async def test_on_room_message_writes_to_cache() -> None:
         os.unlink(cache_path)
 
 
+async def test_messages_warm_room_resolves_stale_display_name() -> None:
+    """Cache-hit path re-resolves MXID to display name when room state is populated."""
+    import os
+    import tempfile
+    from unittest.mock import MagicMock
+
+    USER_ID = "@alice:example.com"
+    text_ev = make_text_event(body="hi", sender=USER_ID)
+    nio_mock = build_nio_mock()
+    # First call: room has no users yet → display name stored as raw MXID
+    room_no_users = make_nio_room("!r:example.com")
+    room_no_users.users = {}
+    nio_mock.rooms = {"!r:example.com": room_no_users}
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        cache_path = f.name
+
+    try:
+        client = MatrixClient(HOMESERVER, nio_client=nio_mock, cache_path=cache_path)
+        await client.restore(make_session())
+        msgs1 = await client.messages("!r:example.com")
+        assert msgs1[0].sender_display_name == USER_ID  # stored as MXID
+
+        # Now populate room with a real display name
+        user_mock = MagicMock()
+        user_mock.display_name = "Alice"
+        user_mock.name = USER_ID
+        room_with_users = make_nio_room("!r:example.com")
+        room_with_users.users = {USER_ID: user_mock}
+        nio_mock.rooms = {"!r:example.com": room_with_users}
+
+        # Second call — warm, should resolve to "Alice"
+        msgs2 = await client.messages("!r:example.com")
+        assert msgs2[0].sender_display_name == "Alice"
+
+        await client.close()
+    finally:
+        os.unlink(cache_path)
+
+
+async def test_messages_warm_room_writes_back_resolved_display_name() -> None:
+    """Cache is updated with the resolved display name so future reads are correct."""
+    import os
+    import tempfile
+    from unittest.mock import MagicMock
+
+    USER_ID = "@bob:example.com"
+    text_ev = make_text_event(body="hey", sender=USER_ID)
+    nio_mock = build_nio_mock()
+    room_no_users = make_nio_room("!r:example.com")
+    room_no_users.users = {}
+    nio_mock.rooms = {"!r:example.com": room_no_users}
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        cache_path = f.name
+
+    try:
+        client = MatrixClient(HOMESERVER, nio_client=nio_mock, cache_path=cache_path)
+        await client.restore(make_session())
+        await client.messages("!r:example.com")  # cold fill, stores MXID
+
+        user_mock = MagicMock()
+        user_mock.display_name = "Bob"
+        user_mock.name = USER_ID
+        room_with_users = make_nio_room("!r:example.com")
+        room_with_users.users = {USER_ID: user_mock}
+        nio_mock.rooms = {"!r:example.com": room_with_users}
+
+        await client.messages("!r:example.com")  # triggers write-back
+
+        # Read directly from cache to confirm the write-back happened
+        assert client._cache is not None
+        cached = await client._cache.get_room("!r:example.com")
+        assert cached[0].sender_display_name == "Bob"
+
+        await client.close()
+    finally:
+        os.unlink(cache_path)
+
+
 async def test_close_closes_cache() -> None:
     """close() closes the cache connection."""
     import tempfile

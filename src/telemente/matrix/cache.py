@@ -163,6 +163,17 @@ class MessageCache:
         )
         await self._db.commit()
 
+    async def update_display_names(self, messages: list[Message]) -> None:
+        """Bulk-update sender_display_name for the given messages."""
+        if not messages:
+            return
+        assert self._db is not None
+        await self._db.executemany(
+            "UPDATE messages SET sender_display_name = ? WHERE room_id = ? AND event_id = ?",
+            [(m.sender_display_name, m.room_id, m.event_id) for m in messages],
+        )
+        await self._db.commit()
+
     async def is_cold(self, room_id: str) -> bool:
         """Return True if the room has no cached rows."""
         assert self._db is not None

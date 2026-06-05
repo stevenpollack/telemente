@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -442,7 +443,49 @@ class MatrixClient:
         # Cache-first: serve warm rooms from SQLite without a network call.
         if self._cache is not None and not await self._cache.is_cold(room_id):
             logger.debug("messages: cache hit for room=%s", room_id)
-            return await self._cache.get_room(room_id, limit)
+            cached = await self._cache.get_room(room_id, limit)
+            room = self._client.rooms.get(room_id)
+            if room is None:
+                logger.warning(
+                    "messages: room=%s not in nio rooms dict — cannot resolve display names",
+                    room_id,
+                )
+            else:
+                logger.debug(
+                    "messages: room=%s has %d known users: %s",
+                    room_id,
+                    len(room.users),
+                    list(room.users.keys()),
+                )
+            updated: list[Message] = []
+            result_messages: list[Message] = []
+            for msg in cached:
+                resolved = _get_display_name(room, msg.sender)
+                if resolved != msg.sender_display_name:
+                    logger.debug(
+                        "messages: display name updated sender=%s %r -> %r",
+                        msg.sender,
+                        msg.sender_display_name,
+                        resolved,
+                    )
+                    msg = dataclasses.replace(msg, sender_display_name=resolved)
+                    updated.append(msg)
+                else:
+                    logger.debug(
+                        "messages: display name unchanged sender=%s cached=%r resolved=%r",
+                        msg.sender,
+                        msg.sender_display_name,
+                        resolved,
+                    )
+                result_messages.append(msg)
+            if updated:
+                logger.debug(
+                    "messages: writing back %d refreshed display names for room=%s",
+                    len(updated),
+                    room_id,
+                )
+                await self._cache.update_display_names(updated)
+            return result_messages
 
         response = await self._client.room_messages(room_id, limit=limit)
         if not isinstance(response, nio.RoomMessagesResponse):

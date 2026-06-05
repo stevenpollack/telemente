@@ -202,6 +202,20 @@ class MainScreen(Screen[None]):
         departed = [rid for rid in list(self.open_tabs) if rid not in incoming_ids]
         for rid in departed:
             self.run_worker(self.close_tab(rid), exclusive=False)
+        # If the active room's member list is empty, the initial load raced ahead
+        # of the first sync. Reload both members and messages now that room state
+        # is populated. Skip if the active room is itself being departed.
+        active = self.active_room_id
+        member_list = self.query_one(MemberList)
+        if active is not None and active not in departed and member_list.member_count == 0:
+            logger.debug(
+                "handle_rooms_changed: reloading active room=%s after sync populated room state",
+                active,
+            )
+            member_list.load_room(active)
+            view = self.message_view_for(active)
+            if view is not None:
+                self.run_worker(view.load_room(active), exclusive=True)
 
     def handle_new_message(self, event: NewMessage) -> None:
         msg = event.message
