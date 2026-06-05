@@ -75,7 +75,8 @@ ruff + mypy clean.** Each `plans/*.md` document lists its test cases first.
 uv run ruff check .      # lint  (also runs on commit via pre-commit)
 uv run ruff format .     # format
 uv run mypy              # strict types (runs on commit)
-uv run pytest            # tests  (runs on push via pre-commit pre-push stage)
+uv run pytest            # tests, parallel workers auto-detected (-n auto is the default)
+uv run pytest --cov=telemente --cov-report=term-missing  # coverage (opt-in, slow)
 ```
 
 Install hooks once: `uv run pre-commit install --install-hooks`.

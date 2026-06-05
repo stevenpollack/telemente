@@ -81,7 +81,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-q --cov=telemente --cov-report=term-missing"
+addopts = "-q -n auto"
 markers = [
     "olm: tests that require libolm (end-to-end encryption)",
 ]
