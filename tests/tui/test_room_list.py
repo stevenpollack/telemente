@@ -986,3 +986,77 @@ async def test_all_none_timestamps_sort_alphabetically() -> None:
         visible = room_list.visible_rooms
         names = [r.display_name for r in visible]
         assert names == ["Alpha", "Mango", "Zebra"]
+
+
+# ---------------------------------------------------------------------------
+# Tests for _refresh_list fast-path (same order → patch in-place, no remount)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_rooms_same_order_patches_items_in_place() -> None:
+    """set_rooms with same room_ids in same order reuses existing RoomItem
+    instances — no teardown and remount, so scroll position is preserved."""
+    from telemente.tui.widgets.room_list import RoomItem
+
+    app = HostApp()
+    rooms_v1 = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
+    rooms_v2 = [_room("!a:h", "Alpha (updated)"), _room("!b:h", "Beta")]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms_v1)
+        await pilot.pause()
+
+        items_before = list(app.query(RoomItem))
+        assert len(items_before) == 2
+        ids_before = [id(item) for item in items_before]
+
+        room_list.set_rooms(rooms_v2)
+        await pilot.pause()
+
+        items_after = list(app.query(RoomItem))
+        assert len(items_after) == 2
+        # Same Python objects — fast path ran, no remount.
+        assert [id(item) for item in items_after] == ids_before
+        # Data updated in-place.
+        assert items_after[0].room.display_name == "Alpha (updated)"
+
+
+@pytest.mark.asyncio
+async def test_set_rooms_order_change_rebuilds_correctly() -> None:
+    """set_rooms with a different room order (slow path) still produces
+    a correct DOM — and replaces the old RoomItem instances."""
+    from datetime import UTC, datetime
+
+    from telemente.tui.widgets.room_list import RoomItem
+
+    app = HostApp()
+    rooms_v1 = [
+        _room("!a:h", "Alpha", last_activity=datetime(2024, 1, 1, tzinfo=UTC)),
+        _room("!b:h", "Beta", last_activity=datetime(2024, 6, 1, tzinfo=UTC)),
+    ]
+    # v2: Beta becomes older, Alpha becomes newest — order flips
+    rooms_v2 = [
+        _room("!b:h", "Beta", last_activity=datetime(2024, 1, 1, tzinfo=UTC)),
+        _room("!a:h", "Alpha", last_activity=datetime(2024, 6, 1, tzinfo=UTC)),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms_v1)
+        await pilot.pause()
+
+        items_before = list(app.query(RoomItem))
+        assert [i.room.room_id for i in items_before] == ["!b:h", "!a:h"]
+
+        room_list.set_rooms(rooms_v2)
+        await pilot.pause()
+
+        items_after = list(app.query(RoomItem))
+        # Slow path ran — instances replaced.
+        assert items_after is not items_before
+        # DOM order updated correctly.
+        assert [i.room.room_id for i in items_after] == ["!a:h", "!b:h"]
