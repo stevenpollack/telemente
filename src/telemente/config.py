@@ -166,6 +166,11 @@ class CredentialStore:
             return self._from_json(raw)
         except keyring.errors.NoKeyringError:
             return self._read_fallback()
+        except Exception:
+            # Broken keyring backends (e.g. missing secret collection) raise
+            # non-keyring exceptions; treat as no saved session.
+            logger.warning("keyring.get_password failed; falling back to file", exc_info=True)
+            return self._read_fallback()
 
     def clear(self) -> None:
         """Remove the session from both keyring and fallback file."""
