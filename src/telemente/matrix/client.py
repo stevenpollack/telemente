@@ -504,6 +504,12 @@ class MatrixClient:
 
         # Backfill returns newest-first; reverse to chronological order.
         result.reverse()
+        # Seed _last_activity from backfill so rooms() can sort by recency
+        # even before an incremental sync delivers a new timeline event.
+        if result:
+            newest_ts = result[-1].timestamp
+            if newest_ts > self._last_activity.get(room_id, datetime.min.replace(tzinfo=UTC)):
+                self._last_activity[room_id] = newest_ts
         logger.info("messages: returning %d messages for room=%s", len(result), room_id)
         return result
 

@@ -161,6 +161,10 @@ class TelementeApp(App[None]):
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        if self._cached_user_id is not None:
+            rooms = self._client.rooms()
+            if rooms:
+                self._room_cache.save(self._cached_user_id, rooms)
         await self._client.close()
 
     async def _restore_session(self, session: Session) -> None:
