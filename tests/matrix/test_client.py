@@ -6,13 +6,31 @@ Unit tests inject mock nio clients; integration tests use aioresponses.
 from __future__ import annotations
 
 import asyncio
-import contextlib
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aioresponses import aioresponses
 
+from matrix.helpers import (
+    DEVICE_ID,
+    HOMESERVER,
+    PASSWORD,
+    TOKEN,
+    USER,
+    build_nio_mock,
+    event_callback_for,
+    make_login_response,
+    make_media_event,
+    make_megolm_event,
+    make_nio_room,
+    make_reaction_event,
+    make_rooms_response,
+    make_text_event,
+    response_callback_for,
+    restore_client,
+)
 from telemente.matrix.client import (
     LoginError,
     MatrixClient,
@@ -22,91 +40,6 @@ from telemente.matrix.client import (
 from telemente.matrix.models import RoomSummary
 
 # ---------------------------------------------------------------------------
-# Helpers / fakes
-# ---------------------------------------------------------------------------
-
-_HOMESERVER = "https://matrix.example.com"
-_USER = "@alice:example.com"
-_PASSWORD = "s3cret"
-_DEVICE_ID = "TESTDEVICE"
-_TOKEN = "access_token_xyz"
-
-
-def _make_login_response() -> Any:
-    """A minimal fake nio LoginResponse."""
-    obj = MagicMock()
-    obj.user_id = _USER
-    obj.device_id = _DEVICE_ID
-    obj.access_token = _TOKEN
-    # Make isinstance checks pass for LoginResponse
-    return obj
-
-
-def _make_login_error() -> Any:
-    """A minimal fake nio LoginError."""
-    import nio
-
-    err = MagicMock(spec=nio.LoginError)
-    return err
-
-
-def _make_nio_room(
-    room_id: str = "!room1:example.com",
-    display_name: str = "Test Room",
-    encrypted: bool = False,
-) -> Any:
-    """A minimal fake nio MatrixRoom."""
-    room = MagicMock()
-    room.room_id = room_id
-    room.display_name = display_name
-    room.encrypted = encrypted
-    room.users = {}
-    room.power_levels = MagicMock()
-    room.power_levels.users = {}
-    return room
-
-
-def _make_text_event(
-    event_id: str = "$ev1:example.com",
-    sender: str = "@alice:example.com",
-    body: str = "Hello!",
-    server_timestamp: int = 1_700_000_000_000,
-    reply_to_event_id: str | None = None,
-) -> Any:
-    """A minimal fake nio RoomMessageText event."""
-    import nio
-
-    ev = MagicMock(spec=nio.RoomMessageText)
-    ev.event_id = event_id
-    ev.sender = sender
-    ev.body = body
-    ev.server_timestamp = server_timestamp
-    # Build source dict so reply_to_event_id parsing works
-    content: dict[str, Any] = {}
-    if reply_to_event_id is not None:
-        content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to_event_id}}
-    ev.source = {"content": content}
-    return ev
-
-
-def _build_nio_mock(
-    login_return: Any = None,
-    rooms: dict[str, Any] | None = None,
-) -> AsyncMock:
-    """Build a fully-mocked AsyncMock nio client."""
-    import nio
-
-    mock = AsyncMock(spec=nio.AsyncClient)
-    mock.access_token = None
-    mock.user_id = None
-    mock.device_id = None
-    mock.rooms = rooms or {}
-    if login_return is not None:
-        mock.login.return_value = login_return
-    return mock
-
-
-# ---------------------------------------------------------------------------
 # Unit tests
 # ---------------------------------------------------------------------------
 
@@ -114,19 +47,19 @@ def _build_nio_mock(
 async def test_login_success() -> None:
     """login() with a valid response returns a Session with correct fields."""
 
-    nio_mock = _build_nio_mock(login_return=_make_login_response())
+    nio_mock = build_nio_mock(login_return=make_login_response())
     # The login response has user_id/device_id/access_token
-    login_resp = _make_login_response()
+    login_resp = make_login_response()
     # Make it NOT an instance of LoginError
     nio_mock.login.return_value = login_resp
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    session = await client.login(_USER, _PASSWORD)
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
+    session = await client.login(USER, PASSWORD)
 
-    assert session.user_id == _USER
-    assert session.device_id == _DEVICE_ID
-    assert session.access_token == _TOKEN
-    assert session.homeserver == _HOMESERVER
+    assert session.user_id == USER
+    assert session.device_id == DEVICE_ID
+    assert session.access_token == TOKEN
+    assert session.homeserver == HOMESERVER
     nio_mock.login.assert_awaited_once()
 
 
@@ -134,25 +67,24 @@ async def test_login_failure_raises() -> None:
     """login() when nio returns a LoginError raises telemente's LoginError."""
     import nio
 
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.login.return_value = MagicMock(spec=nio.LoginError)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
     with pytest.raises(LoginError):
-        await client.login(_USER, _PASSWORD)
+        await client.login(USER, PASSWORD)
 
 
 async def test_send_text_calls_room_send() -> None:
     """send_text() calls nio room_send with the correct msgtype and body."""
     import nio
 
-    nio_mock = _build_nio_mock()
-    nio_mock.access_token = _TOKEN  # simulate logged in
-    nio_mock.user_id = _USER
+    nio_mock = build_nio_mock()
+    nio_mock.access_token = TOKEN  # simulate logged in
+    nio_mock.user_id = USER
     nio_mock.room_send.return_value = MagicMock(spec=nio.RoomSendResponse)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True  # mark as logged in
+    client = await restore_client(nio_mock)
     await client.send_text("!room:example.com", "hi")
 
     nio_mock.room_send.assert_awaited_once_with(
@@ -164,8 +96,8 @@ async def test_send_text_calls_room_send() -> None:
 
 async def test_send_text_requires_login() -> None:
     """send_text() raises NotLoggedInError if the client is not logged in."""
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.send_text("!room:example.com", "hi")
@@ -173,15 +105,12 @@ async def test_send_text_requires_login() -> None:
 
 async def test_rooms_maps_state() -> None:
     """rooms() maps nio MatrixRoom to RoomSummary with correct fields."""
-    enc_room = _make_nio_room(
-        room_id="!enc:example.com", display_name="Secret Room", encrypted=True
-    )
-    nio_mock = _build_nio_mock(rooms={"!enc:example.com": enc_room})
-    nio_mock.access_token = _TOKEN
-    nio_mock.user_id = _USER
+    enc_room = make_nio_room(room_id="!enc:example.com", display_name="Secret Room", encrypted=True)
+    nio_mock = build_nio_mock(rooms={"!enc:example.com": enc_room})
+    nio_mock.access_token = TOKEN
+    nio_mock.user_id = USER
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     summaries = client.rooms()
     assert len(summaries) == 1
@@ -193,14 +122,12 @@ async def test_rooms_maps_state() -> None:
 
 
 async def test_subscribe_receives_new_message() -> None:
-    """Subscribed handlers receive NewMessage events from _on_room_message."""
+    """Subscribed handlers receive NewMessage events from the text callback."""
 
-    nio_mock = _build_nio_mock()
-    nio_mock.access_token = _TOKEN
-    nio_mock.user_id = _USER
+    import nio
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    nio_mock = build_nio_mock()
+    client = await restore_client(nio_mock)
 
     received: list[Any] = []
 
@@ -209,12 +136,12 @@ async def test_subscribe_receives_new_message() -> None:
 
     client.subscribe(handler)
 
-    room = _make_nio_room()
+    room = make_nio_room()
     room.users = {
-        _USER: MagicMock(display_name="Alice", name="Alice"),
+        USER: MagicMock(display_name="Alice", name="Alice"),
     }
-    event = _make_text_event(body="Hello!")
-    await client._on_room_message(room, event)
+    event = make_text_event(body="Hello!")
+    await event_callback_for(nio_mock, nio.RoomMessageText)(room, event)
 
     assert len(received) == 1
     assert isinstance(received[0], NewMessage)
@@ -224,9 +151,10 @@ async def test_subscribe_receives_new_message() -> None:
 async def test_unsubscribe() -> None:
     """Unsubscribing prevents further delivery of events to that handler."""
 
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    import nio
+
+    nio_mock = build_nio_mock()
+    client = await restore_client(nio_mock)
 
     received: list[Any] = []
 
@@ -236,9 +164,9 @@ async def test_unsubscribe() -> None:
     unsub = client.subscribe(handler)
     unsub()
 
-    room = _make_nio_room()
-    event = _make_text_event()
-    await client._on_room_message(room, event)
+    room = make_nio_room()
+    event = make_text_event()
+    await event_callback_for(nio_mock, nio.RoomMessageText)(room, event)
 
     assert len(received) == 0
 
@@ -246,36 +174,38 @@ async def test_unsubscribe() -> None:
 async def test_start_sync_requires_login() -> None:
     """start_sync() raises NotLoggedInError before login."""
 
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.start_sync()
 
 
 async def test_start_sync_and_close() -> None:
-    """After a fake login, start_sync() creates a task; close() cancels it."""
+    """After restore, start_sync() runs the sync loop; close() cancels sync_forever."""
 
-    nio_mock = _build_nio_mock()
-    nio_mock.access_token = _TOKEN
-    nio_mock.user_id = _USER
-    nio_mock.device_id = _DEVICE_ID
+    import nio
 
-    # sync_forever runs forever — make it block
+    cancelled = False
+
     async def _sync_forever(**kwargs: Any) -> None:
-        await asyncio.sleep(9999)
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(9999)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
 
+    nio_mock = build_nio_mock()
+    nio_mock.sync = AsyncMock(return_value=MagicMock(spec=nio.SyncResponse))
     nio_mock.sync_forever = _sync_forever
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     await client.start_sync()
-    assert client._task is not None
-    assert not client._task.done()
-
+    await asyncio.sleep(0)
     await client.close()
-    assert client._task.done()
+    assert cancelled
 
 
 # ---------------------------------------------------------------------------
@@ -293,12 +223,12 @@ async def test_login_integration_aioresponses() -> None:
         "user_id": "@intuser:example.com",
         "home_server": "example.com",
     }
-    login_url = f"{_HOMESERVER}/_matrix/client/v3/login"
+    login_url = f"{HOMESERVER}/_matrix/client/v3/login"
 
     with aioresponses() as m:
         m.post(login_url, payload=login_json)
-        real_nio = nio.AsyncClient(_HOMESERVER, "@intuser:example.com")
-        client = MatrixClient(_HOMESERVER, nio_client=real_nio)
+        real_nio = nio.AsyncClient(HOMESERVER, "@intuser:example.com")
+        client = MatrixClient(HOMESERVER, nio_client=real_nio)
         session = await client.login("@intuser:example.com", "password")
 
     assert session.access_token == "integration_token"
@@ -313,15 +243,15 @@ async def test_login_forbidden_integration() -> None:
     import nio
 
     error_json = {"errcode": "M_FORBIDDEN", "error": "Invalid password"}
-    login_url = f"{_HOMESERVER}/_matrix/client/v3/login"
+    login_url = f"{HOMESERVER}/_matrix/client/v3/login"
 
     with aioresponses() as m:
         m.post(login_url, payload=error_json, status=403)
-        real_nio = nio.AsyncClient(_HOMESERVER, _USER)
-        client = MatrixClient(_HOMESERVER, nio_client=real_nio)
+        real_nio = nio.AsyncClient(HOMESERVER, USER)
+        client = MatrixClient(HOMESERVER, nio_client=real_nio)
 
         with pytest.raises(LoginError):
-            await client.login(_USER, _PASSWORD)
+            await client.login(USER, PASSWORD)
 
     await real_nio.close()
 
@@ -331,67 +261,15 @@ async def test_login_forbidden_integration() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_rooms_response(chunk: list[Any]) -> Any:
-    """A fake nio.RoomMessagesResponse wrapping a given event list."""
-    import nio
-
-    resp = MagicMock(spec=nio.RoomMessagesResponse)
-    resp.chunk = chunk
-    return resp
-
-
-def _make_media_event(
-    event_id: str = "$m1:example.com",
-    sender: str = "@alice:example.com",
-    body: str = "photo.jpg",
-    url: str = "mxc://example.com/abc123",
-    server_timestamp: int = 1_700_000_001_000,
-    kind: str = "image",
-) -> Any:
-    """A minimal fake nio RoomMessageMedia event."""
-    import nio
-
-    cls = {
-        "image": nio.RoomMessageImage,
-        "video": nio.RoomMessageVideo,
-        "audio": nio.RoomMessageAudio,
-        "file": nio.RoomMessageFile,
-    }[kind]
-    ev = MagicMock(spec=cls)
-    ev.event_id = event_id
-    ev.sender = sender
-    ev.body = body
-    ev.url = url
-    ev.server_timestamp = server_timestamp
-    return ev
-
-
-def _make_megolm_event(
-    event_id: str = "$enc1:example.com",
-    sender: str = "@alice:example.com",
-    server_timestamp: int = 1_700_000_002_000,
-) -> Any:
-    """A minimal fake nio MegolmEvent."""
-    import nio
-
-    ev = MagicMock(spec=nio.MegolmEvent)
-    ev.event_id = event_id
-    ev.sender = sender
-    ev.server_timestamp = server_timestamp
-    ev.session_id = "fake_session"
-    return ev
-
-
 async def test_messages_returns_text_events() -> None:
     """messages() returns Message objects for RoomMessageText events."""
 
-    text_ev = _make_text_event(body="hello world")
-    nio_mock = _build_nio_mock()
-    nio_mock.room_messages.return_value = _make_rooms_response([text_ev])
-    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+    text_ev = make_text_event(body="hello world")
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     msgs = await client.messages("!r:example.com")
 
     assert len(msgs) == 1
@@ -403,16 +281,15 @@ async def test_messages_returns_text_events() -> None:
 async def test_messages_includes_media_events() -> None:
     """messages() converts RoomMessageMedia to a Message with media_url set."""
 
-    media_ev = _make_media_event(body="photo.jpg", url="mxc://example.com/abc123")
-    nio_mock = _build_nio_mock()
-    nio_mock.room_messages.return_value = _make_rooms_response([media_ev])
-    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+    media_ev = make_media_event(body="photo.jpg", url="mxc://example.com/abc123")
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([media_ev])
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
     nio_mock.mxc_to_http.return_value = (
         "https://example.com/_matrix/media/v3/download/example.com/abc123"
     )
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     msgs = await client.messages("!r:example.com")
 
     assert len(msgs) == 1
@@ -426,28 +303,26 @@ async def test_messages_media_types_labeled_correctly() -> None:
 
     cases = [("image", "image"), ("video", "video"), ("audio", "audio"), ("file", "file")]
     for kind, expected_label in cases:
-        ev = _make_media_event(kind=kind)
-        nio_mock = _build_nio_mock()
-        nio_mock.room_messages.return_value = _make_rooms_response([ev])
+        ev = make_media_event(kind=kind)
+        nio_mock = build_nio_mock()
+        nio_mock.room_messages.return_value = make_rooms_response([ev])
         nio_mock.rooms = {}
         nio_mock.mxc_to_http.return_value = "https://example.com/media"
 
-        client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-        client._logged_in = True
+        client = await restore_client(nio_mock)
         msgs = await client.messages("!r:example.com")
         assert msgs[0].media_type == expected_label, f"failed for kind={kind}"
 
 
 async def test_messages_megolm_events_become_placeholders() -> None:
     """MegolmEvent produces a Message with the 🔒 placeholder body."""
-    enc_ev = _make_megolm_event()
-    nio_mock = _build_nio_mock()
-    nio_mock.room_messages.return_value = _make_rooms_response([enc_ev])
+    enc_ev = make_megolm_event()
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([enc_ev])
     nio_mock.rooms = {}
     nio_mock.request_room_key = AsyncMock()
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     msgs = await client.messages("!r:example.com")
 
     assert len(msgs) == 1
@@ -457,18 +332,17 @@ async def test_messages_megolm_events_become_placeholders() -> None:
 
 async def test_messages_mixed_events_all_included() -> None:
     """Text, media, and encrypted events all appear in chronological order."""
-    text_ev = _make_text_event(event_id="$t1", server_timestamp=1_000)
-    media_ev = _make_media_event(event_id="$m1", server_timestamp=2_000)
-    enc_ev = _make_megolm_event(event_id="$e1", server_timestamp=3_000)
+    text_ev = make_text_event(event_id="$t1", server_timestamp=1_000)
+    media_ev = make_media_event(event_id="$m1", server_timestamp=2_000)
+    enc_ev = make_megolm_event(event_id="$e1", server_timestamp=3_000)
     # room_messages returns newest-first; client.messages() reverses to chrono
-    nio_mock = _build_nio_mock()
-    nio_mock.room_messages.return_value = _make_rooms_response([enc_ev, media_ev, text_ev])
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([enc_ev, media_ev, text_ev])
     nio_mock.rooms = {}
     nio_mock.mxc_to_http.return_value = "https://example.com/media"
     nio_mock.request_room_key = AsyncMock()
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     msgs = await client.messages("!r:example.com")
 
     assert len(msgs) == 3
@@ -482,20 +356,20 @@ async def test_messages_resolves_media_urls_concurrently() -> None:
     media_url. Correctness of all resolved URLs is the observable invariant
     (concurrency itself is not directly assertable in unit tests)."""
 
-    media_ev1 = _make_media_event(
+    media_ev1 = make_media_event(
         event_id="$m1", url="mxc://example.com/img1", server_timestamp=1_000, kind="image"
     )
-    media_ev2 = _make_media_event(
+    media_ev2 = make_media_event(
         event_id="$m2",
         url="mxc://example.com/vid1",
         server_timestamp=2_000,
         kind="video",
         body="clip.mp4",
     )
-    text_ev = _make_text_event(event_id="$t1", server_timestamp=3_000, body="hello")
+    text_ev = make_text_event(event_id="$t1", server_timestamp=3_000, body="hello")
     # room_messages returns newest-first
-    nio_mock = _build_nio_mock()
-    nio_mock.room_messages.return_value = _make_rooms_response([text_ev, media_ev2, media_ev1])
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev, media_ev2, media_ev1])
     nio_mock.rooms = {}
 
     # mxc_to_http returns different URLs per call.
@@ -506,8 +380,7 @@ async def test_messages_resolves_media_urls_concurrently() -> None:
         "https://example.com/download/img1",
     ]
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     msgs = await client.messages("!r:example.com")
 
     # All three messages must be returned in chronological order
@@ -532,36 +405,16 @@ async def test_messages_resolves_media_urls_concurrently() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_reaction_event(
-    event_id: str = "$r1:example.com",
-    sender: str = "@bob:example.com",
-    reacts_to: str = "$ev1:example.com",
-    key: str = "👍",
-    server_timestamp: int = 1_700_000_003_000,
-) -> Any:
-    """A minimal fake nio ReactionEvent."""
-    import nio
-
-    ev = MagicMock(spec=nio.ReactionEvent)
-    ev.event_id = event_id
-    ev.sender = sender
-    ev.reacts_to = reacts_to
-    ev.key = key
-    ev.server_timestamp = server_timestamp
-    return ev
-
-
 async def test_send_text_with_reply_includes_in_reply_to() -> None:
     """send_text with reply_to_event_id includes m.in_reply_to in room_send content."""
     import nio
 
-    nio_mock = _build_nio_mock()
-    nio_mock.access_token = _TOKEN
-    nio_mock.user_id = _USER
+    nio_mock = build_nio_mock()
+    nio_mock.access_token = TOKEN
+    nio_mock.user_id = USER
     nio_mock.room_send.return_value = MagicMock(spec=nio.RoomSendResponse)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     await client.send_text("!room:example.com", "hi", reply_to_event_id="$parent:example.com")
 
     nio_mock.room_send.assert_awaited_once_with(
@@ -577,18 +430,17 @@ async def test_send_text_with_reply_includes_in_reply_to() -> None:
 
 async def test_messages_parses_reply_to_event_id() -> None:
     """messages() sets reply_to_event_id on a RoomMessageText with m.in_reply_to."""
-    text_ev = _make_text_event(
+    text_ev = make_text_event(
         event_id="$reply:example.com",
         body="reply text",
         reply_to_event_id="$parent:example.com",
     )
 
-    nio_mock = _build_nio_mock()
-    nio_mock.room_messages.return_value = _make_rooms_response([text_ev])
-    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     msgs = await client.messages("!r:example.com")
 
     assert len(msgs) == 1
@@ -597,17 +449,16 @@ async def test_messages_parses_reply_to_event_id() -> None:
 
 async def test_messages_aggregates_reactions_onto_target() -> None:
     """messages() collects ReactionEvents and populates reactions on target Message."""
-    text_ev = _make_text_event(event_id="$ev1:example.com", body="hi")
-    reaction_ev = _make_reaction_event(
+    text_ev = make_text_event(event_id="$ev1:example.com", body="hi")
+    reaction_ev = make_reaction_event(
         reacts_to="$ev1:example.com", key="👍", sender="@bob:example.com"
     )
 
-    nio_mock = _build_nio_mock()
-    nio_mock.room_messages.return_value = _make_rooms_response([text_ev, reaction_ev])
-    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev, reaction_ev])
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     msgs = await client.messages("!r:example.com")
 
     assert len(msgs) == 1
@@ -620,13 +471,12 @@ async def test_send_reaction_calls_room_send() -> None:
     """send_reaction() calls nio room_send with the correct m.reaction content."""
     import nio
 
-    nio_mock = _build_nio_mock()
-    nio_mock.access_token = _TOKEN
-    nio_mock.user_id = _USER
+    nio_mock = build_nio_mock()
+    nio_mock.access_token = TOKEN
+    nio_mock.user_id = USER
     nio_mock.room_send.return_value = MagicMock(spec=nio.RoomSendResponse)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     await client.send_reaction("!room:example.com", "$target:example.com", "👍")
 
     nio_mock.room_send.assert_awaited_once_with(
@@ -644,8 +494,8 @@ async def test_send_reaction_calls_room_send() -> None:
 
 async def test_send_reaction_requires_login() -> None:
     """send_reaction() raises NotLoggedInError if not logged in."""
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.send_reaction("!room:example.com", "$ev:example.com", "👍")
@@ -655,14 +505,13 @@ async def test_edit_message_sends_m_replace() -> None:
     """edit_message() calls room_send with m.replace content."""
     import nio
 
-    nio_mock = _build_nio_mock()
-    nio_mock.access_token = _TOKEN
-    nio_mock.user_id = _USER
+    nio_mock = build_nio_mock()
+    nio_mock.access_token = TOKEN
+    nio_mock.user_id = USER
     nio_mock.room_send.return_value = MagicMock(spec=nio.RoomSendResponse)
     nio_mock.rooms = {}
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     await client.edit_message("!room:example.com", "$orig:example.com", "new body")
 
     nio_mock.room_send.assert_awaited_once_with(
@@ -679,8 +528,8 @@ async def test_edit_message_sends_m_replace() -> None:
 
 async def test_edit_message_requires_login() -> None:
     """edit_message() raises NotLoggedInError if not logged in."""
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.edit_message("!room:example.com", "$ev", "new")
@@ -690,13 +539,12 @@ async def test_redact_message_calls_room_redact() -> None:
     """redact_message() calls nio room_redact with the correct args."""
     import nio
 
-    nio_mock = _build_nio_mock()
-    nio_mock.access_token = _TOKEN
-    nio_mock.user_id = _USER
+    nio_mock = build_nio_mock()
+    nio_mock.access_token = TOKEN
+    nio_mock.user_id = USER
     nio_mock.room_redact.return_value = MagicMock(spec=nio.RoomRedactResponse)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     await client.redact_message("!room:example.com", "$ev:example.com")
 
     nio_mock.room_redact.assert_awaited_once_with("!room:example.com", "$ev:example.com", reason="")
@@ -704,8 +552,8 @@ async def test_redact_message_calls_room_redact() -> None:
 
 async def test_redact_message_requires_login() -> None:
     """redact_message() raises NotLoggedInError if not logged in."""
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.redact_message("!room:example.com", "$ev")
@@ -713,15 +561,14 @@ async def test_redact_message_requires_login() -> None:
 
 async def test_messages_reaction_unknown_event_id_ignored() -> None:
     """Reactions targeting unknown event_ids are silently dropped."""
-    text_ev = _make_text_event(event_id="$ev1:example.com", body="hi")
-    reaction_ev = _make_reaction_event(reacts_to="$unknown:example.com", key="❤️")
+    text_ev = make_text_event(event_id="$ev1:example.com", body="hi")
+    reaction_ev = make_reaction_event(reacts_to="$unknown:example.com", key="❤️")
 
-    nio_mock = _build_nio_mock()
-    nio_mock.room_messages.return_value = _make_rooms_response([text_ev, reaction_ev])
-    nio_mock.rooms = {"!r:example.com": _make_nio_room("!r:example.com")}
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev, reaction_ev])
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     msgs = await client.messages("!r:example.com")
 
     assert len(msgs) == 1
@@ -729,38 +576,47 @@ async def test_messages_reaction_unknown_event_id_ignored() -> None:
 
 
 async def test_seed_last_activity_pre_seeds_missing_entries() -> None:
-    """seed_last_activity() fills _last_activity for rooms not yet seen by sync."""
+    """seed_last_activity() surfaces last_activity on rooms() before sync arrives."""
     from datetime import UTC, datetime
 
     ts_a = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     ts_b = datetime(2024, 5, 1, 8, 0, 0, tzinfo=UTC)
 
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock(
+        rooms={
+            "!a:example.com": make_nio_room("!a:example.com"),
+            "!b:example.com": make_nio_room("!b:example.com"),
+        }
+    )
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     client.seed_last_activity({"!a:example.com": ts_a, "!b:example.com": ts_b})
 
-    assert client._last_activity["!a:example.com"] == ts_a
-    assert client._last_activity["!b:example.com"] == ts_b
+    by_id = {s.room_id: s for s in client.rooms()}
+    assert by_id["!a:example.com"].last_activity == ts_a
+    assert by_id["!b:example.com"].last_activity == ts_b
 
 
 async def test_seed_last_activity_does_not_overwrite_existing() -> None:
-    """seed_last_activity() must not overwrite entries already set by a real sync."""
+    """seed_last_activity() must not overwrite last_activity set by messages() backfill."""
     from datetime import UTC, datetime
 
     ts_sync = datetime(2024, 7, 1, 0, 0, 0, tzinfo=UTC)
     ts_seed = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+    ts_sync_ms = int(ts_sync.timestamp() * 1000)
 
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    text_ev = make_text_event(server_timestamp=ts_sync_ms)
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
 
-    # Simulate a real sync having already populated the entry.
-    client._last_activity["!r:example.com"] = ts_sync
+    client = await restore_client(nio_mock)
+    await client.messages("!r:example.com")
 
     client.seed_last_activity({"!r:example.com": ts_seed})
 
-    # The sync value must be preserved.
-    assert client._last_activity["!r:example.com"] == ts_sync
+    summary = next(s for s in client.rooms() if s.room_id == "!r:example.com")
+    assert summary.last_activity == ts_sync
 
 
 async def test_leave_room_hides_room_immediately_and_after_stale_sync() -> None:
@@ -768,15 +624,14 @@ async def test_leave_room_hides_room_immediately_and_after_stale_sync() -> None:
     import nio
 
     room_id = "!leaveroom:example.com"
-    nio_mock = _build_nio_mock(
-        rooms={room_id: _make_nio_room(room_id=room_id, display_name="Leaving")}
+    nio_mock = build_nio_mock(
+        rooms={room_id: make_nio_room(room_id=room_id, display_name="Leaving")}
     )
-    nio_mock.access_token = _TOKEN
-    nio_mock.user_id = _USER
+    nio_mock.access_token = TOKEN
+    nio_mock.user_id = USER
     nio_mock.room_leave.return_value = MagicMock(spec=nio.RoomLeaveResponse)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     emitted: list[object] = []
     client.subscribe(lambda e: emitted.append(e))
@@ -800,10 +655,8 @@ async def test_leave_room_hides_room_immediately_and_after_stale_sync() -> None:
 
 
 async def test_update_last_activity_populates_cache() -> None:
-    """_update_last_activity() reads the newest event timestamp from each joined room."""
+    """Sync response updates last_activity exposed by rooms()."""
     from datetime import UTC, datetime
-    from types import SimpleNamespace
-    from typing import cast
 
     import nio
 
@@ -818,30 +671,28 @@ async def test_update_last_activity_populates_cache() -> None:
         SimpleNamespace(rooms=SimpleNamespace(join={"!r:example.com": fake_room_info})),
     )
 
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock(rooms={"!r:example.com": make_nio_room("!r:example.com")})
+    client = await restore_client(nio_mock)
 
-    client._update_last_activity(fake_response)
+    on_sync = response_callback_for(nio_mock, nio.SyncResponse)
+    await on_sync(fake_response)
 
-    assert client._last_activity.get("!r:example.com") == expected
+    summary = next(s for s in client.rooms() if s.room_id == "!r:example.com")
+    assert summary.last_activity == expected
 
 
 async def test_on_sync_skips_rooms_changed_when_nothing_changed() -> None:
-    """_on_sync must NOT emit RoomsChanged when room list is identical to last emit."""
-    from types import SimpleNamespace
-    from typing import cast
-
+    """Sync callback must NOT emit RoomsChanged when room list is unchanged."""
     import nio
 
     room_id = "!stable:example.com"
-    nio_mock = _build_nio_mock(
-        rooms={room_id: _make_nio_room(room_id=room_id, display_name="Stable")}
+    nio_mock = build_nio_mock(
+        rooms={room_id: make_nio_room(room_id=room_id, display_name="Stable")}
     )
     nio_mock.should_upload_keys = False
     nio_mock.should_query_keys = False
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     emitted: list[object] = []
     client.subscribe(lambda e: emitted.append(e))
@@ -854,18 +705,19 @@ async def test_on_sync_skips_rooms_changed_when_nothing_changed() -> None:
             )
         ),
     )
+    on_sync = response_callback_for(nio_mock, nio.SyncResponse)
 
     # First call — should emit (establishes baseline).
-    await client._on_sync(fake_response)
+    await on_sync(fake_response)
     assert len(emitted) == 1
 
     # Second call with identical state — must not emit.
-    await client._on_sync(fake_response)
+    await on_sync(fake_response)
     assert len(emitted) == 1  # still 1
 
     # Mutate display_name — should emit again.
     nio_mock.rooms[room_id].display_name = "Changed Name"
-    await client._on_sync(fake_response)
+    await on_sync(fake_response)
     assert len(emitted) == 2
 
 
@@ -876,14 +728,14 @@ async def test_on_sync_skips_rooms_changed_when_nothing_changed() -> None:
 
 async def test_rooms_with_tags_parsed() -> None:
     """rooms() parses tags dict from nio room and exposes them in RoomSummary."""
-    room = _make_nio_room("!tagged:example.com", "Tagged")
+    room = make_nio_room("!tagged:example.com", "Tagged")
     room.tags = {
         "m.favourite": {"order": 0.5},
         "m.lowpriority": None,
     }
-    nio_mock = _build_nio_mock(rooms={"!tagged:example.com": room})
+    nio_mock = build_nio_mock(rooms={"!tagged:example.com": room})
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
     summaries = client.rooms()
     assert len(summaries) == 1
     tags = summaries[0].tags
@@ -894,13 +746,13 @@ async def test_rooms_with_tags_parsed() -> None:
 
 async def test_rooms_with_no_tags_attribute() -> None:
     """rooms() is safe when nio room lacks a tags attribute."""
-    room = _make_nio_room("!noattr:example.com", "NoAttr")
+    room = make_nio_room("!noattr:example.com", "NoAttr")
     # Ensure no tags attribute exists
     if hasattr(room, "tags"):
         del room.tags
-    nio_mock = _build_nio_mock(rooms={"!noattr:example.com": room})
+    nio_mock = build_nio_mock(rooms={"!noattr:example.com": room})
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
     summaries = client.rooms()
     assert len(summaries) == 1
     assert summaries[0].tags == {}
@@ -913,8 +765,8 @@ async def test_rooms_with_no_tags_attribute() -> None:
 
 async def test_members_unknown_room_returns_empty() -> None:
     """members() returns [] for a room_id that doesn't exist in nio client."""
-    nio_mock = _build_nio_mock(rooms={})
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock(rooms={})
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
     result = client.members("!nonexistent:example.com")
     assert result == []
 
@@ -926,8 +778,8 @@ async def test_members_unknown_room_returns_empty() -> None:
 
 async def test_messages_requires_login() -> None:
     """messages() raises NotLoggedInError if not logged in."""
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.messages("!room:example.com")
@@ -937,11 +789,10 @@ async def test_messages_failed_response_returns_empty() -> None:
     """messages() returns [] when nio returns a non-RoomMessagesResponse."""
     from unittest.mock import MagicMock
 
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.room_messages.return_value = MagicMock()  # not a RoomMessagesResponse
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
     result = await client.messages("!room:example.com")
     assert result == []
 
@@ -954,8 +805,8 @@ async def test_messages_failed_response_returns_empty() -> None:
 async def test_leave_room_requires_login() -> None:
     """leave_room() raises NotLoggedInError if not logged in."""
 
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.leave_room("!room:example.com")
@@ -967,11 +818,10 @@ async def test_leave_room_raises_on_nio_error() -> None:
 
     from telemente.matrix.client import MatrixError
 
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.room_leave.return_value = MagicMock(spec=nio.ErrorResponse)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     with pytest.raises(MatrixError):
         await client.leave_room("!room:example.com")
@@ -984,8 +834,8 @@ async def test_leave_room_raises_on_nio_error() -> None:
 
 async def test_set_room_tag_requires_login() -> None:
     """set_room_tag() raises NotLoggedInError if not logged in."""
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.set_room_tag("!room:example.com", "m.favourite")
@@ -995,16 +845,15 @@ async def test_set_room_tag_success() -> None:
     """set_room_tag() calls PUT on the correct URL and succeeds."""
     from aioresponses import aioresponses
 
-    nio_mock = _build_nio_mock()
-    nio_mock.user_id = _USER
-    nio_mock.access_token = _TOKEN
+    nio_mock = build_nio_mock()
+    nio_mock.user_id = USER
+    nio_mock.access_token = TOKEN
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     room_id = "!room:example.com"
     tag = "m.favourite"
-    url = f"{_HOMESERVER}/_matrix/client/v3/user/{_USER}/rooms/{room_id}/tags/{tag}"
+    url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
         m.put(url, status=200, payload={})
@@ -1015,16 +864,15 @@ async def test_set_room_tag_with_order() -> None:
     """set_room_tag() sends order in the payload when provided."""
     from aioresponses import aioresponses
 
-    nio_mock = _build_nio_mock()
-    nio_mock.user_id = _USER
-    nio_mock.access_token = _TOKEN
+    nio_mock = build_nio_mock()
+    nio_mock.user_id = USER
+    nio_mock.access_token = TOKEN
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     room_id = "!room:example.com"
     tag = "m.lowpriority"
-    url = f"{_HOMESERVER}/_matrix/client/v3/user/{_USER}/rooms/{room_id}/tags/{tag}"
+    url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
         m.put(url, status=204, payload={})
@@ -1037,16 +885,15 @@ async def test_set_room_tag_http_error_raises_matrix_error() -> None:
 
     from telemente.matrix.client import MatrixError
 
-    nio_mock = _build_nio_mock()
-    nio_mock.user_id = _USER
-    nio_mock.access_token = _TOKEN
+    nio_mock = build_nio_mock()
+    nio_mock.user_id = USER
+    nio_mock.access_token = TOKEN
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     room_id = "!room:example.com"
     tag = "m.favourite"
-    url = f"{_HOMESERVER}/_matrix/client/v3/user/{_USER}/rooms/{room_id}/tags/{tag}"
+    url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
         m.put(url, status=403, payload={"errcode": "M_FORBIDDEN"})
@@ -1056,8 +903,8 @@ async def test_set_room_tag_http_error_raises_matrix_error() -> None:
 
 async def test_remove_room_tag_requires_login() -> None:
     """remove_room_tag() raises NotLoggedInError if not logged in."""
-    nio_mock = _build_nio_mock()
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    nio_mock = build_nio_mock()
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
 
     with pytest.raises(NotLoggedInError):
         await client.remove_room_tag("!room:example.com", "m.favourite")
@@ -1067,16 +914,15 @@ async def test_remove_room_tag_success() -> None:
     """remove_room_tag() calls DELETE on the correct URL."""
     from aioresponses import aioresponses
 
-    nio_mock = _build_nio_mock()
-    nio_mock.user_id = _USER
-    nio_mock.access_token = _TOKEN
+    nio_mock = build_nio_mock()
+    nio_mock.user_id = USER
+    nio_mock.access_token = TOKEN
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     room_id = "!room:example.com"
     tag = "m.favourite"
-    url = f"{_HOMESERVER}/_matrix/client/v3/user/{_USER}/rooms/{room_id}/tags/{tag}"
+    url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
         m.delete(url, status=200, payload={})
@@ -1089,16 +935,15 @@ async def test_remove_room_tag_http_error_raises() -> None:
 
     from telemente.matrix.client import MatrixError
 
-    nio_mock = _build_nio_mock()
-    nio_mock.user_id = _USER
-    nio_mock.access_token = _TOKEN
+    nio_mock = build_nio_mock()
+    nio_mock.user_id = USER
+    nio_mock.access_token = TOKEN
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     room_id = "!room:example.com"
     tag = "m.favourite"
-    url = f"{_HOMESERVER}/_matrix/client/v3/user/{_USER}/rooms/{room_id}/tags/{tag}"
+    url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
         m.delete(url, status=500, payload={})
@@ -1118,16 +963,15 @@ async def test_on_sync_uploads_keys_when_needed() -> None:
 
     import nio
 
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.should_upload_keys = True
     nio_mock.should_query_keys = False
     nio_mock.keys_upload = AsyncMock(return_value=None)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    await restore_client(nio_mock)
 
     fake_response = cast(nio.SyncResponse, SimpleNamespace(rooms=SimpleNamespace(join={})))
-    await client._on_sync(fake_response)
+    await response_callback_for(nio_mock, nio.SyncResponse)(fake_response)
     nio_mock.keys_upload.assert_awaited_once()
 
 
@@ -1138,16 +982,15 @@ async def test_on_sync_queries_keys_when_needed() -> None:
 
     import nio
 
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.should_upload_keys = False
     nio_mock.should_query_keys = True
     nio_mock.keys_query = AsyncMock(return_value=None)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    await restore_client(nio_mock)
 
     fake_response = cast(nio.SyncResponse, SimpleNamespace(rooms=SimpleNamespace(join={})))
-    await client._on_sync(fake_response)
+    await response_callback_for(nio_mock, nio.SyncResponse)(fake_response)
     nio_mock.keys_query.assert_awaited_once()
 
 
@@ -1158,43 +1001,41 @@ async def test_on_sync_keys_upload_error_does_not_propagate() -> None:
 
     import nio
 
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.should_upload_keys = True
     nio_mock.should_query_keys = False
     nio_mock.keys_upload = AsyncMock(side_effect=RuntimeError("upload failed"))
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    await restore_client(nio_mock)
 
     fake_response = cast(nio.SyncResponse, SimpleNamespace(rooms=SimpleNamespace(join={})))
     # Should not raise
-    await client._on_sync(fake_response)
+    await response_callback_for(nio_mock, nio.SyncResponse)(fake_response)
 
 
 # ---------------------------------------------------------------------------
-# _on_room_media callback
+# Media callback (via nio registration)
 # ---------------------------------------------------------------------------
 
 
 async def test_on_room_media_emits_new_message() -> None:
-    """_on_room_media() emits a NewMessage with media_url and media_type set."""
+    """Media callback emits a NewMessage with media_url and media_type set."""
 
-    nio_mock = _build_nio_mock()
+    import nio
+
+    nio_mock = build_nio_mock()
     nio_mock.mxc_to_http = AsyncMock(
         return_value="https://example.com/_matrix/media/v3/download/example.com/img"
     )
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     received: list[Any] = []
     client.subscribe(lambda e: received.append(e))
 
-    room = _make_nio_room("!r:example.com")
-    media_ev = _make_media_event(kind="image", url="mxc://example.com/img", body="photo.jpg")
-    # _on_room_media expects a real-ish nio room and a RoomMessageMedia event
-    # We can call it directly since it's an async method
-    await client._on_room_media(room, media_ev)
+    room = make_nio_room("!r:example.com")
+    media_ev = make_media_event(kind="image", url="mxc://example.com/img", body="photo.jpg")
+    await event_callback_for(nio_mock, nio.RoomMessageMedia)(room, media_ev)
 
     assert len(received) == 1
     msg = received[0].message
@@ -1203,24 +1044,25 @@ async def test_on_room_media_emits_new_message() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _on_megolm_event callback
+# Megolm callback (via nio registration)
 # ---------------------------------------------------------------------------
 
 
 async def test_on_megolm_event_emits_placeholder_and_requests_key() -> None:
-    """_on_megolm_event() emits a 🔒 placeholder and calls request_room_key."""
-    nio_mock = _build_nio_mock()
+    """Megolm callback emits a 🔒 placeholder and calls request_room_key."""
+    import nio
+
+    nio_mock = build_nio_mock()
     nio_mock.request_room_key = AsyncMock(return_value=None)
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     received: list[Any] = []
     client.subscribe(lambda e: received.append(e))
 
-    room = _make_nio_room("!r:example.com")
-    enc_ev = _make_megolm_event()
-    await client._on_megolm_event(room, enc_ev)
+    room = make_nio_room("!r:example.com")
+    enc_ev = make_megolm_event()
+    await event_callback_for(nio_mock, nio.MegolmEvent)(room, enc_ev)
 
     nio_mock.request_room_key.assert_awaited_once()
     assert len(received) == 1
@@ -1228,65 +1070,62 @@ async def test_on_megolm_event_emits_placeholder_and_requests_key() -> None:
 
 
 async def test_on_megolm_event_request_key_failure_does_not_propagate() -> None:
-    """_on_megolm_event() gracefully handles request_room_key failures."""
-    nio_mock = _build_nio_mock()
+    """Megolm callback gracefully handles request_room_key failures."""
+    import nio
+
+    nio_mock = build_nio_mock()
     nio_mock.request_room_key = AsyncMock(side_effect=RuntimeError("key req failed"))
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     received: list[Any] = []
     client.subscribe(lambda e: received.append(e))
 
-    room = _make_nio_room("!r:example.com")
-    enc_ev = _make_megolm_event()
+    room = make_nio_room("!r:example.com")
+    enc_ev = make_megolm_event()
     # Should not raise
-    await client._on_megolm_event(room, enc_ev)
+    await event_callback_for(nio_mock, nio.MegolmEvent)(room, enc_ev)
     # Placeholder still emitted despite key request failure
     assert len(received) == 1
 
 
 # ---------------------------------------------------------------------------
-# _sync_loop: cached rooms path and sync failure path
+# start_sync lifecycle (public API)
 # ---------------------------------------------------------------------------
 
 
-async def test_sync_loop_emits_cached_rooms_immediately() -> None:
-    """_sync_loop() emits RoomsChanged with pre-loaded rooms before the network sync."""
+async def test_start_sync_emits_cached_rooms_immediately() -> None:
+    """start_sync() emits RoomsChanged for store-backed rooms before network sync."""
+
+    import nio
 
     async def _sync_forever(**kwargs: Any) -> None:
         await asyncio.sleep(9999)
 
-    nio_mock = _build_nio_mock(
-        rooms={"!cached:example.com": _make_nio_room("!cached:example.com", "Cached")}
+    nio_mock = build_nio_mock(
+        rooms={"!cached:example.com": make_nio_room("!cached:example.com", "Cached")}
     )
-    nio_mock.sync = AsyncMock(return_value=MagicMock(spec=__import__("nio").SyncResponse))
+    nio_mock.sync = AsyncMock(return_value=MagicMock(spec=nio.SyncResponse))
     nio_mock.sync_forever = _sync_forever
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     emitted: list[Any] = []
     client.subscribe(lambda e: emitted.append(e))
 
-    task = asyncio.create_task(client._sync_loop())
-    # Let the loop run a bit but not forever
+    await client.start_sync()
     await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
+    await client.close()
 
     from telemente.matrix.client import RoomsChanged
 
     rooms_events = [e for e in emitted if isinstance(e, RoomsChanged)]
-    # At least one RoomsChanged was emitted for cached rooms
     assert len(rooms_events) >= 1
     assert any(r.room_id == "!cached:example.com" for e in rooms_events for r in e.rooms)
 
 
-async def test_sync_loop_handles_sync_exception() -> None:
-    """_sync_loop() sets _initial_sync_done=True and continues to sync_forever on error."""
+async def test_start_sync_recovers_from_initial_sync_error() -> None:
+    """start_sync() continues to sync_forever when the initial sync raises."""
     sync_forever_started = asyncio.Event()
 
     async def _sync_raises(**kwargs: Any) -> None:
@@ -1296,52 +1135,38 @@ async def test_sync_loop_handles_sync_exception() -> None:
         sync_forever_started.set()
         await asyncio.sleep(9999)
 
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.sync = _sync_raises
     nio_mock.sync_forever = _sync_forever
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
-    task = asyncio.create_task(client._sync_loop())
-    # Wait for sync_forever to be reached (proving recovery)
+    await client.start_sync()
     try:
         await asyncio.wait_for(sync_forever_started.wait(), timeout=2.0)
     finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-    assert client._initial_sync_done is True
+        await client.close()
 
 
-# ---------------------------------------------------------------------------
-# close() with active poll task
-# ---------------------------------------------------------------------------
+async def test_close_shuts_down_active_sync() -> None:
+    """close() completes cleanly while start_sync() is running."""
 
-
-async def test_close_cancels_poll_task() -> None:
-    """close() cancels the rooms poll task when it is running."""
+    import nio
 
     async def _sync_forever(**kwargs: Any) -> None:
         await asyncio.sleep(9999)
 
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.sync_forever = _sync_forever
-    nio_mock.sync = AsyncMock(return_value=MagicMock(spec=__import__("nio").SyncResponse))
+    nio_mock.sync = AsyncMock(return_value=MagicMock(spec=nio.SyncResponse))
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client = await restore_client(nio_mock)
 
     await client.start_sync()
-    # Let _sync_loop start and create _rooms_poll_task
     await asyncio.sleep(0)
-
-    poll_task = client._rooms_poll_task
     await client.close()
 
-    if poll_task is not None:
-        assert poll_task.done()
+    nio_mock.close.assert_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -1351,10 +1176,10 @@ async def test_close_cancels_poll_task() -> None:
 
 async def test_me_returns_user_id() -> None:
     """me() returns (user_id, user_id) tuple from the nio client."""
-    nio_mock = _build_nio_mock()
+    nio_mock = build_nio_mock()
     nio_mock.user_id = "@me:example.com"
 
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
     uid, display = client.me()
     assert uid == "@me:example.com"
     assert display == "@me:example.com"
