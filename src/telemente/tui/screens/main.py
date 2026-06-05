@@ -10,6 +10,7 @@ Ctrl+\\ and the command palette.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from collections import OrderedDict
@@ -19,16 +20,19 @@ from typing import TYPE_CHECKING, ClassVar, Protocol, cast
 if TYPE_CHECKING:
     from telemente.tui.app import TelementeApp
 
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, TabbedContent, TabPane
+from textual.widgets import Footer, Header, Input, Tab, TabbedContent, TabPane
 
 from telemente.config import Paths
 from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged, TypingChanged
 from telemente.matrix.models import Member, Message, RoomSummary
+from telemente.tui.widgets.confirm_screen import ConfirmScreen
+from telemente.tui.widgets.context_menu import ContextMenu, MenuEntry, MenuItem, MenuSeparator
 from telemente.tui.widgets.log_panel import LogPanel
 from telemente.tui.widgets.member_list import MemberList
 from telemente.tui.widgets.message_view import MessageView
@@ -65,9 +69,17 @@ class _MainClient(Protocol):
 
     def me(self) -> tuple[str, str]: ...
 
+    def can_redact(self, room_id: str, target_sender: str) -> bool: ...
+
     def members(self, room_id: str) -> list[Member]: ...
 
     def rooms(self) -> list[RoomSummary]: ...
+
+    async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None: ...
+
+    async def remove_room_tag(self, room_id: str, tag: str) -> None: ...
+
+    async def leave_room(self, room_id: str) -> None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +96,9 @@ class MainScreen(Screen[None]):
         ("ctrl+k", "focus_search", "Search rooms"),
         ("ctrl+backslash", "toggle_log", "Log"),
     ]
+
+    # Context menu layer sits above all panels.
+    LAYERS: ClassVar[tuple[str, ...]] = ("context-menu",)
 
     rooms_visible: reactive[bool] = reactive(True)
     members_visible: reactive[bool] = reactive(True)
@@ -106,6 +121,8 @@ class MainScreen(Screen[None]):
         self.open_tabs: OrderedDict[str, str] = OrderedDict()
         # Track unread counts by room_id.
         self.unread: dict[str, int] = {}
+        # Active floating context menu (only one at a time).
+        self._active_context_menu: ContextMenu | None = None
 
     @property
     def active_room_id(self) -> str | None:
@@ -178,6 +195,184 @@ class MainScreen(Screen[None]):
 
     def on_log_panel_close_requested(self, _: LogPanel.CloseRequested) -> None:
         self.log_visible = False
+
+    # ------------------------------------------------------------------
+    # Context menu infrastructure (plan 0020)
+    # ------------------------------------------------------------------
+
+    def _show_context_menu(self, items: list[MenuEntry], screen_x: int, screen_y: int) -> None:
+        """Mount a ContextMenu at the given screen coordinates."""
+        self._dismiss_context_menu()
+        menu = ContextMenu(items, screen_x, screen_y)
+        self._active_context_menu = menu
+        self.mount(menu)
+
+    def _dismiss_context_menu(self) -> None:
+        """Remove the active context menu if one is shown."""
+        if self._active_context_menu is not None:
+            with contextlib.suppress(Exception):
+                self._active_context_menu.remove()
+            self._active_context_menu = None
+
+    def on_click(self, event: events.Click) -> None:
+        """Dismiss the active context menu on any outside click."""
+        self._dismiss_context_menu()
+
+    def on_context_menu_dismissed(self, _: ContextMenu.Dismissed) -> None:
+        """Clear the reference when the menu dismisses itself."""
+        self._active_context_menu = None
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Intercept right-click on Tab widgets before Tab._on_click fires."""
+        if event.button != 3:
+            return
+        widget = event.widget
+        while widget is not None:
+            if isinstance(widget, Tab):
+                event.stop()
+                self._show_tab_context_menu(widget, event.screen_x, event.screen_y)
+                return
+            widget = widget.parent  # type: ignore[assignment]
+
+    def _show_tab_context_menu(self, tab: Tab, screen_x: int, screen_y: int) -> None:
+        """Build and show context menu for a TabbedContent tab.
+
+        TabbedContent wraps pane IDs with '--content-tab-' prefix on the actual
+        Tab widget ID, so we compare against pane IDs by stripping that prefix.
+        """
+        # Textual prefixes ContentTab IDs with '--content-tab-'; strip it.
+        _PREFIX = "--content-tab-"
+        raw_id = tab.id or ""
+        pane_id = raw_id[len(_PREFIX) :] if raw_id.startswith(_PREFIX) else raw_id
+
+        room_id: str | None = None
+        for rid in self.open_tabs:
+            if _tab_id(rid) == pane_id:
+                room_id = rid
+                break
+        if room_id is None:
+            return
+
+        rid = room_id  # captured by closure
+
+        def _close() -> None:
+            self.run_worker(self.close_tab(rid), exclusive=False)
+
+        items: list[MenuEntry] = [MenuItem("Close tab", _close)]
+        self._show_context_menu(items, screen_x, screen_y)
+
+    # ------------------------------------------------------------------
+    # Message context menu handler (plan 0020)
+    # ------------------------------------------------------------------
+
+    def on_message_view_show_context_menu(self, event: MessageView.ShowContextMenu) -> None:
+        self._show_context_menu(event.items, event.screen_x, event.screen_y)
+
+    # ------------------------------------------------------------------
+    # Room context menu handler (plan 0020)
+    # ------------------------------------------------------------------
+
+    def on_room_list_room_context_menu(self, event: RoomList.RoomContextMenu) -> None:
+        room = event.room
+        tags = room.tags
+        room_id = room.room_id  # captured by closures
+
+        def _toggle_fav() -> None:
+            self._toggle_tag_for(room_id, "m.favourite")
+
+        def _toggle_lp() -> None:
+            self._toggle_tag_for(room_id, "m.lowpriority")
+
+        def _toggle_mute() -> None:
+            # m.mute is a de-facto standard used by Element and others; MSC2175 proposes
+            # m.muted but is not yet merged. We use m.mute for compatibility.
+            self._toggle_tag_for(room_id, "m.mute")
+
+        def _leave() -> None:
+            self._confirm_leave_room(room_id)
+
+        items: list[MenuEntry] = [
+            MenuItem(
+                "★ Unfavourite" if "m.favourite" in tags else "★ Favourite",
+                _toggle_fav,
+            ),
+            MenuItem(
+                "↓ Remove low priority" if "m.lowpriority" in tags else "↓ Low priority",
+                _toggle_lp,
+            ),
+            MenuItem(
+                "🔕 Unmute" if "m.mute" in tags else "🔕 Mute",
+                _toggle_mute,
+            ),
+            MenuSeparator(),
+            MenuItem("Leave room", _leave),
+        ]
+        self._show_context_menu(items, event.screen_x, event.screen_y)
+
+    def _toggle_tag_for(self, room_id: str, tag: str) -> None:
+        """Toggle a room tag on/off; delegates the async work to a worker."""
+        self.run_worker(
+            self._do_toggle_tag(room_id, tag),
+            exclusive=False,
+            exit_on_error=False,
+        )
+
+    async def _do_toggle_tag(self, room_id: str, tag: str) -> None:
+        """Async toggle: checks current tag state then set/remove."""
+        room_list = self.query_one(RoomList)
+        room = next((r for r in room_list.all_rooms if r.room_id == room_id), None)
+        is_tagged = room is not None and tag in room.tags
+
+        tag_labels = {
+            "m.favourite": "favourite ★",
+            "m.lowpriority": "low priority ↓",
+            "m.mute": "mute 🔕",
+        }
+        label = tag_labels.get(tag, tag)
+
+        try:
+            if is_tagged:
+                await self._client.remove_room_tag(room_id, tag)
+                self.app.notify(f"Removed {label}", timeout=3)
+            else:
+                await self._client.set_room_tag(room_id, tag)
+                self.app.notify(f"Set {label}", timeout=3)
+        except Exception as exc:
+            logger.warning("tag operation failed for %s %s: %s", tag, room_id, exc)
+            self.app.notify(f"Tag operation failed: {exc}", severity="error")
+
+    def _confirm_leave_room(self, room_id: str) -> None:
+        """Push the confirmation modal for leaving a room."""
+        try:
+            room_list = self.query_one(RoomList)
+            display_name = next(
+                (r.display_name for r in room_list.all_rooms if r.room_id == room_id),
+                room_id,
+            )
+        except Exception:
+            display_name = room_id
+
+        def _on_confirmed(confirmed: bool | None) -> None:
+            if confirmed:
+                self.run_worker(
+                    self._do_leave(room_id, display_name),
+                    exclusive=False,
+                    exit_on_error=False,
+                )
+
+        self.app.push_screen(
+            ConfirmScreen(f"Leave '{display_name}'?"),
+            _on_confirmed,
+        )
+
+    async def _do_leave(self, room_id: str, display_name: str) -> None:
+        """Leave the room and notify the user."""
+        try:
+            await self._client.leave_room(room_id)
+            self.app.notify(f"Left {display_name}", severity="information")
+        except Exception as exc:
+            logger.warning("leave_room failed for %s: %s", room_id, exc)
+            self.app.notify(f"Failed to leave room: {exc}", severity="error")
 
     # ------------------------------------------------------------------
     # Client event handlers (plan 0009)

@@ -23,60 +23,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from textual.app import ComposeResult
 from textual.command import DiscoveryHit, Hit, Hits, Provider
-from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Button, Label
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Simple confirmation modal
-# ---------------------------------------------------------------------------
-
-
-class _ConfirmScreen(ModalScreen[bool]):
-    """A minimal Y / N confirmation modal screen."""
-
-    DEFAULT_CSS = """
-    _ConfirmScreen {
-        align: center middle;
-    }
-    _ConfirmScreen > Vertical {
-        width: 50;
-        height: auto;
-        padding: 1 2;
-        background: $surface;
-        border: round $primary;
-    }
-    _ConfirmScreen Label {
-        width: 1fr;
-        content-align: center middle;
-    }
-    _ConfirmScreen Horizontal {
-        height: auto;
-        align: center middle;
-    }
-    _ConfirmScreen Button {
-        margin: 1 1;
-    }
-    """
-
-    def __init__(self, prompt: str) -> None:
-        super().__init__()
-        self._prompt = prompt
-
-    def compose(self) -> ComposeResult:
-        with Vertical():
-            yield Label(self._prompt)
-            with Horizontal():
-                yield Button("Yes", id="btn-yes", variant="error")
-                yield Button("No", id="btn-no")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(event.button.id == "btn-yes")
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +64,11 @@ class TelementeCommands(Provider):
                 "Leave room",
                 self.cmd_leave_room,
                 "Leave the currently selected room (asks for confirmation)",
+            ),
+            (
+                "React to message",
+                self.cmd_react_to_message,
+                "Open emoji picker to react to the focused message",
             ),
             ("Logout", self.cmd_logout, "Log out and return to the login screen"),
         ]
@@ -225,50 +179,7 @@ class TelementeCommands(Provider):
         if room_id is None:
             self.app.notify("No room selected", severity="warning")
             return
-        self.app.run_worker(
-            self._do_toggle_tag(room_id, tag),
-            exclusive=False,
-            exit_on_error=False,
-        )
-
-    async def _do_toggle_tag(self, room_id: str, tag: str) -> None:
-        from telemente.tui.app import TelementeApp
-        from telemente.tui.screens.main import MainScreen
-        from telemente.tui.widgets.room_list import RoomList
-
-        app = self.app
-        if not isinstance(app, TelementeApp):
-            return
-        client = app.client
-
-        is_tagged = False
-        screen = app.screen
-        if isinstance(screen, MainScreen):
-            try:
-                room_list = screen.query_one(RoomList)
-                room = next((r for r in room_list.all_rooms if r.room_id == room_id), None)
-                if room is not None:
-                    is_tagged = tag in room.tags
-            except Exception:
-                pass
-
-        tag_labels = {
-            "m.favourite": "favourite ★",
-            "m.lowpriority": "low priority ↓",
-            "m.mute": "mute 🔕",
-        }
-        label = tag_labels.get(tag, tag)
-
-        try:
-            if is_tagged:
-                await client.remove_room_tag(room_id, tag)
-                app.notify(f"Removed {label}", timeout=3)
-            else:
-                await client.set_room_tag(room_id, tag)
-                app.notify(f"Set {label}", timeout=3)
-        except Exception as exc:
-            logger.warning("tag operation failed for %s %s: %s", tag, room_id, exc)
-            app.notify(f"Tag operation failed: {exc}", severity="error")
+        screen._toggle_tag_for(room_id, tag)  # pyright: ignore[reportPrivateUsage]
 
     # ------------------------------------------------------------------
     # Room / session
@@ -285,43 +196,33 @@ class TelementeCommands(Provider):
         if room_id is None:
             self.app.notify("No room selected", severity="warning")
             return
+        screen._confirm_leave_room(room_id)  # pyright: ignore[reportPrivateUsage]
 
-        from telemente.tui.widgets.room_list import RoomList
+    def cmd_react_to_message(self) -> None:
+        """Open emoji picker to react to the focused (or last) message."""
+        from telemente.tui.screens.main import MainScreen
+        from telemente.tui.widgets.message_view import MessageRow
 
-        try:
-            room_list = screen.query_one(RoomList)
-            display_name = next(
-                (r.display_name for r in room_list.all_rooms if r.room_id == room_id),
-                room_id,
-            )
-        except Exception:
-            display_name = room_id
-
-        def _on_confirmed(confirmed: bool | None) -> None:
-            if confirmed:
-                self.app.run_worker(
-                    _do_leave(room_id),
-                    exclusive=False,
-                    exit_on_error=False,
-                )
-
-        async def _do_leave(rid: str) -> None:
-            from telemente.tui.app import TelementeApp
-
-            app = self.app
-            if not isinstance(app, TelementeApp):
+        screen = self.app.screen
+        if not isinstance(screen, MainScreen):
+            return
+        active_room = screen.active_room_id
+        if active_room is None:
+            self.app.notify("No room selected", severity="warning")
+            return
+        view = screen.message_view_for(active_room)
+        if view is None:
+            return
+        focused = list(view.query("MessageRow:focus"))
+        if focused:
+            row = focused[0]
+            if isinstance(row, MessageRow):
+                view._open_emoji_picker_for(row.message.event_id)  # pyright: ignore[reportPrivateUsage]
                 return
-            try:
-                await app.client.leave_room(rid)
-                app.notify(f"Left {display_name}", severity="information")
-            except Exception as exc:
-                logger.warning("leave_room failed for %s: %s", rid, exc)
-                app.notify(f"Failed to leave room: {exc}", severity="error")
-
-        self.app.push_screen(
-            _ConfirmScreen(f"Leave '{display_name}'?"),
-            _on_confirmed,
-        )
+        rows = list(view.query(MessageRow))
+        if not rows:
+            return
+        view._open_emoji_picker_for(rows[-1].message.event_id)  # pyright: ignore[reportPrivateUsage]
 
     def cmd_logout(self) -> None:
         from telemente.tui.app import TelementeApp

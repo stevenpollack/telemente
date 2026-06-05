@@ -685,6 +685,23 @@ class MatrixClient:
         user_id = self._client.user_id or ""
         return user_id, user_id
 
+    def can_redact(self, room_id: str, target_sender: str) -> bool:
+        """True if the logged-in user may redact target_sender's message.
+
+        Checks own-message ownership first (always allowed), then compares the
+        user's power level against the room's redact threshold (default 50).
+        Not logged-in → False (conservative; avoids raising).
+        """
+        if not self._logged_in:
+            return False
+        user_id = self._client.user_id or ""
+        if user_id == target_sender:
+            return True
+        room = self._client.rooms.get(room_id)
+        if room is None:
+            return False
+        return room.power_levels.can_user_redact(user_id)
+
     async def send_reaction(self, room_id: str, event_id: str, emoji: str) -> None:
         """Send an m.reaction to the given event_id in a room.
 

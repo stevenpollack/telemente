@@ -129,7 +129,7 @@ class MatrixRoom:
     display_name: str
     encrypted: bool
     users: dict[str, MatrixUser]
-    power_levels: PowerLevelsEvent
+    power_levels: PowerLevels
     tags: dict[str, dict[str, float] | None]
     unread_notifications: int
     unread_highlights: int
@@ -253,6 +253,23 @@ class RoomKeyRequestResponse(Response): ...
 # ---------------------------------------------------------------------------
 # Misc
 # ---------------------------------------------------------------------------
+
+class DefaultLevels:
+    ban: int
+    invite: int
+    kick: int
+    redact: int
+    state_default: int
+    events_default: int
+    users_default: int
+
+class PowerLevels:
+    defaults: DefaultLevels
+    users: dict[str, int]
+    events: dict[str, int]
+
+    def get_user_level(self, user_id: str) -> int: ...
+    def can_user_redact(self, user_id: str) -> bool: ...
 
 class PowerLevelsEvent:
     users: dict[str, int]

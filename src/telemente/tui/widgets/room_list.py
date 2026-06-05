@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import ClassVar
 
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.containers import Horizontal
@@ -40,6 +41,15 @@ class RoomItem(ListItem):
     }
     """
 
+    class ContextMenuRequest(TextualMessage):
+        """Posted when the user right-clicks a room item."""
+
+        def __init__(self, room: RoomSummary, screen_x: int, screen_y: int) -> None:
+            super().__init__()
+            self.room = room
+            self.screen_x = screen_x
+            self.screen_y = screen_y
+
     def __init__(self, room: RoomSummary, *, active: bool = False) -> None:
         super().__init__()
         self._room = room
@@ -55,6 +65,18 @@ class RoomItem(ListItem):
 
     def compose(self) -> ComposeResult:
         yield Label(self._render_name(), markup=True, classes=self._name_classes())
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        if event.button != 3:
+            return
+        event.stop()
+        self.post_message(
+            RoomItem.ContextMenuRequest(
+                room=self._room,
+                screen_x=event.screen_x,
+                screen_y=event.screen_y,
+            )
+        )
 
     def update_room(self, room: RoomSummary) -> None:
         """Mutate this item's data and re-render its label in place.
@@ -114,6 +136,15 @@ class RoomList(Widget):
         def __init__(self, room_id: str) -> None:
             super().__init__()
             self.room_id = room_id
+
+    class RoomContextMenu(TextualMessage):
+        """Posted when the user right-clicks a room item; bubbles to MainScreen."""
+
+        def __init__(self, room: RoomSummary, screen_x: int, screen_y: int) -> None:
+            super().__init__()
+            self.room = room
+            self.screen_x = screen_x
+            self.screen_y = screen_y
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -317,3 +348,7 @@ class RoomList(Widget):
         if isinstance(event.item, RoomItem):
             logger.info("Room selected: %s", event.item.room.room_id)
             self.post_message(RoomList.RoomSelected(event.item.room.room_id))
+
+    def on_room_item_context_menu_request(self, event: RoomItem.ContextMenuRequest) -> None:
+        """Re-post the context menu request upward as RoomList.RoomContextMenu."""
+        self.post_message(RoomList.RoomContextMenu(event.room, event.screen_x, event.screen_y))

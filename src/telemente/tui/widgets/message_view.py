@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, ClassVar, Protocol, cast
 if TYPE_CHECKING:
     from telemente.tui.app import TelementeApp
 
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import VerticalScroll
@@ -25,6 +26,7 @@ from textual.widgets import Input, Link, Static, TextArea
 
 from telemente.matrix.models import Message
 from telemente.tui.colors import sender_color
+from telemente.tui.widgets.context_menu import MenuEntry, MenuItem
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,8 @@ class _MessageViewClient(Protocol):
     async def redact_message(self, room_id: str, event_id: str, reason: str = "") -> None: ...
 
     def me(self) -> tuple[str, str]: ...
+
+    def can_redact(self, room_id: str, target_sender: str) -> bool: ...
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +132,13 @@ class MessageRow(Widget, can_focus=True):
         def __init__(self, message: Message) -> None:
             super().__init__()
             self.message = message
+
+    class ContextMenuRequest(TextualMessage):
+        def __init__(self, message: Message, screen_x: int, screen_y: int) -> None:
+            super().__init__()
+            self.message = message
+            self.screen_x = screen_x
+            self.screen_y = screen_y
 
     def __init__(self, message: Message, reply_quoted: Message | None = None) -> None:
         super().__init__()
@@ -210,6 +221,18 @@ class MessageRow(Widget, can_focus=True):
         )
         self.query_one("#body-static", Static).update(header_body)
 
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        if event.button != 3:
+            return
+        event.stop()
+        self.post_message(
+            self.ContextMenuRequest(
+                message=self._message,
+                screen_x=event.screen_x,
+                screen_y=event.screen_y,
+            )
+        )
+
     def action_react(self) -> None:
         self.post_message(self.ReactRequest(event_id=self._message.event_id))
 
@@ -274,6 +297,20 @@ class MessageView(Widget):
     clear()                  Remove all rendered messages.
     current_room_id          The currently loaded room, or None.
     """
+
+    class ShowContextMenu(TextualMessage):
+        """Requests the parent screen to display a context menu."""
+
+        def __init__(
+            self,
+            items: list[MenuEntry],
+            screen_x: int,
+            screen_y: int,
+        ) -> None:
+            super().__init__()
+            self.items = items
+            self.screen_x = screen_x
+            self.screen_y = screen_y
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("G", "scroll_latest", "Latest"),
@@ -424,6 +461,31 @@ class MessageView(Widget):
             return
         self.run_worker(self._do_redact_and_remove(room_id, msg), exclusive=False)
 
+    def on_message_row_context_menu_request(self, event: MessageRow.ContextMenuRequest) -> None:
+        msg = event.message
+        my_user_id = self._client.me()[0]
+        room_id = self._current_room_id or ""
+
+        def _reply() -> None:
+            self.post_message(MessageRow.ReplyRequest(msg))
+
+        def _edit() -> None:
+            self.post_message(MessageRow.EditRequest(msg))
+
+        def _react() -> None:
+            self._open_emoji_picker_for(msg.event_id)
+
+        def _delete() -> None:
+            self.post_message(MessageRow.DeleteRequest(msg))
+
+        items: list[MenuEntry] = [MenuItem("Reply", _reply)]
+        if msg.sender == my_user_id:
+            items.append(MenuItem("Edit", _edit))
+        items.append(MenuItem("React", _react))
+        can_delete = msg.sender == my_user_id or self._client.can_redact(room_id, msg.sender)
+        items.append(MenuItem("Delete", _delete, enabled=can_delete))
+        self.post_message(MessageView.ShowContextMenu(items, event.screen_x, event.screen_y))
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "emoji-input":
             self._handle_emoji_submitted(event)
@@ -454,6 +516,31 @@ class MessageView(Widget):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _open_emoji_picker_for(self, event_id: str) -> None:
+        """Open the emoji picker modal and send the selected reaction."""
+        from telemente.tui.screens.emoji_picker import EmojiPickerScreen
+
+        self._react_target_event_id = event_id
+
+        def _on_picked(emoji: str | None) -> None:
+            if emoji:
+                self._handle_emoji_value(emoji)
+
+        self.app.push_screen(EmojiPickerScreen(), _on_picked)
+
+    def _handle_emoji_value(self, emoji: str) -> None:
+        """Send a reaction for the currently targeted event ID."""
+        room_id = self._current_room_id
+        target_event_id = self._react_target_event_id
+        self._react_target_event_id = None
+        if emoji and room_id and target_event_id:
+            my_user_id = self._client.me()[0]
+            for row in self.query(MessageRow):
+                if row.message.event_id == target_event_id:
+                    row.update_reaction(emoji, my_user_id)
+                    break
+            self.run_worker(self._do_react(room_id, target_event_id, emoji), exclusive=False)
 
     def _handle_emoji_submitted(self, event: Input.Submitted) -> None:
         emoji = event.value.strip()

@@ -170,3 +170,37 @@ MemberList .member-entry {
 #log-panel {
     display: none;
 }
+
+/* -------------------------------------------------------------------------
+   Context menu — floating widget (plan 0020)
+   ------------------------------------------------------------------------- */
+
+ContextMenu {
+    width: auto;
+    height: auto;
+    min-width: 24;
+    background: $surface;
+    border: round $primary;
+    padding: 0 1;
+    layer: context-menu;
+}
+
+ContextMenu .menu-item {
+    height: 1;
+    padding: 0 1;
+    width: 1fr;
+}
+
+ContextMenu .menu-item:hover,
+ContextMenu .menu-item.-focused {
+    background: $accent 30%;
+}
+
+ContextMenu .menu-item.-disabled {
+    color: $text-muted;
+}
+
+ContextMenu Rule {
+    height: 1;
+    color: $primary;
+}

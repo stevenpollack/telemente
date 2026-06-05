@@ -162,6 +162,10 @@ class FakeMatrixClient:
         # §2.3.3 Scripted me() (plan 0018)
         self._me: tuple[str, str] = ("@fake:matrix.org", "Fake User")
 
+        # Scripted can_redact results (plan 0020): (room_id, target_sender) -> bool
+        # Default False for other users. Not cleared by reset_spies().
+        self.can_redact_results: dict[tuple[str, str], bool] = {}
+
         # §2.3.4 Paginated messages (plan 0018)
         self._messages_page_size: int = 50
 
@@ -353,6 +357,16 @@ class FakeMatrixClient:
 
     def me(self) -> tuple[str, str]:
         return self._me
+
+    def can_redact(self, room_id: str, target_sender: str) -> bool:
+        """True if the logged-in user may redact target_sender's message.
+
+        Own messages are always redactable. Other senders use can_redact_results
+        (defaults to False).
+        """
+        if target_sender == self._me[0]:
+            return True
+        return self.can_redact_results.get((room_id, target_sender), False)
 
     async def send_text(self, room_id: str, body: str, reply_to_event_id: str | None = None) -> str:
         if not self.logged_in:
