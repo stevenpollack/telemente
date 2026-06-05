@@ -69,6 +69,11 @@ ruff + mypy clean.** Each `plans/*.md` document lists its test cases first.
 - **E2EE tests** are marked `@pytest.mark.olm` and skip when libolm is absent;
   CI installs `libolm-dev`.
 - Tests mirror the package: `tests/matrix/`, `tests/tui/`.
+- **Matrix unit tests use the public `MatrixClient` API only** (plan 0017).
+  Use `matrix.helpers.restore_client()` for authenticated setup; invoke nio
+  callbacks via `event_callback_for()` / `response_callback_for()` after
+  `restore()` registers them.  Do not assign `client._logged_in` or call
+  `client._on_*` directly.
 
 ## Fast feedback loop
 

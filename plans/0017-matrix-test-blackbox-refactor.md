@@ -1,6 +1,6 @@
 # 0017 — Matrix Test Black-Box Refactor
 
-**Status: in progress**
+**Status: done**
 
 ## Goal
 
@@ -76,7 +76,7 @@ setting scripted state **on the fake object via its public methods** (`login()`,
 
 ## Phase 1 — Auth lifecycle & helper consolidation
 
-**Status: pending**
+**Status: done**
 
 ### Scope
 
@@ -118,14 +118,14 @@ All tests currently using `_logged_in = True` (~36), plus:
 
 ### Done-when (Phase 1)
 
-- [ ] Zero `client._logged_in =` in `tests/matrix/test_client.py`.
-- [ ] Zero `client._last_activity` reads/writes in seed tests.
-- [ ] Zero `client._task` reads in `test_start_sync_and_close`.
-- [ ] `_make_login_error` removed.
-- [ ] Builders live in `helpers.py` / `fakes.py`, not duplicated in test file.
-- [ ] `uv run pytest tests/matrix/test_client.py -n auto` passes.
-- [ ] `uv run mypy` passes.
-- [ ] `npx pyright tests/matrix/test_client.py` — no `reportPrivateUsage` from
+- [x] Zero `client._logged_in =` in `tests/matrix/test_client.py`.
+- [x] Zero `client._last_activity` reads/writes in seed tests.
+- [x] Zero `client._task` reads in `test_start_sync_and_close`.
+- [x] `_make_login_error` removed.
+- [x] Builders live in `helpers.py` / `fakes.py`, not duplicated in test file.
+- [x] `uv run pytest tests/matrix/test_client.py -n auto` passes.
+- [x] `uv run mypy` passes.
+- [x] `npx pyright tests/matrix/test_client.py` — no `reportPrivateUsage` from
       Phase 1 scope (sync/callback privates may remain until Phase 2/3).
 
 ### Commit message
@@ -136,7 +136,7 @@ All tests currently using `_logged_in = True` (~36), plus:
 
 ## Phase 2 — Event callbacks via nio registration
 
-**Status: pending**
+**Status: done**
 
 ### Scope
 
@@ -174,10 +174,10 @@ recorded by the `AsyncMock`.
 
 ### Done-when (Phase 2)
 
-- [ ] Zero `client._on_room_*` / `client._on_sync` / `client._update_last_activity`
+- [x] Zero `client._on_room_*` / `client._on_sync` / `client._update_last_activity`
       calls in `test_client.py`.
-- [ ] `test_update_last_activity_populates_cache` asserts via `rooms()[].last_activity`.
-- [ ] All Phase 2 tests still pass.
+- [x] `test_update_last_activity_populates_cache` asserts via `rooms()[].last_activity`.
+- [x] All Phase 2 tests still pass.
 
 ### Commit message
 
@@ -187,7 +187,7 @@ recorded by the `AsyncMock`.
 
 ## Phase 3 — Sync lifecycle via public API
 
-**Status: pending**
+**Status: done**
 
 ### Scope
 
@@ -206,12 +206,12 @@ mocks unless a small JSON fixture clearly helps.
 
 ### Done-when (Phase 3)
 
-- [ ] Zero `client._sync_loop`, `client._task`, `client._initial_sync_done`,
+- [x] Zero `client._sync_loop`, `client._task`, `client._initial_sync_done`,
       `client._rooms_poll_task` access in `test_client.py`.
-- [ ] `npx pyright tests/matrix/test_client.py` — zero `reportPrivateUsage`.
-- [ ] `npx pyright tests/tui/test_login_sso.py` — zero `reportPrivateUsage`.
-- [ ] Full `uv run pytest -n auto` passes.
-- [ ] `AGENTS.md` updated with black-box matrix testing rule.
+- [x] `npx pyright tests/matrix/test_client.py` — zero `reportPrivateUsage`.
+- [x] `npx pyright tests/tui/test_login_sso.py` — zero `reportPrivateUsage`.
+- [x] Full `uv run pytest -n auto` passes.
+- [x] `AGENTS.md` updated with black-box matrix testing rule.
 
 ### Commit message
 
@@ -223,10 +223,8 @@ mocks unless a small JSON fixture clearly helps.
 
 | Date | Phase | Commit | Notes |
 |------|-------|--------|-------|
-| 2026-06-05 | — | (pending) | Plan written |
-| | 1 | (pending) | |
-| | 2 | (pending) | |
-| | 3 | (pending) | |
+| 2026-06-05 | — | `00d8168` | Plan written |
+| 2026-06-05 | 1–3 | (this commit) | All phases implemented in one pass |
 
 ---
 
@@ -240,9 +238,9 @@ mocks unless a small JSON fixture clearly helps.
 
 ## Done-when (overall)
 
-- [ ] All three phases complete; progress log filled in.
-- [ ] `uv run pytest -n auto` passes.
-- [ ] `uv run mypy` passes.
-- [ ] `npx pyright tests/matrix/test_client.py tests/tui/test_login_sso.py` — 0
+- [x] All three phases complete; progress log filled in.
+- [x] `uv run pytest -n auto` passes.
+- [x] `uv run mypy` passes.
+- [x] `npx pyright tests/matrix/test_client.py tests/tui/test_login_sso.py` — 0
       `reportPrivateUsage` errors.
-- [ ] `AGENTS.md` documents the black-box rule for matrix unit tests.
+- [x] `AGENTS.md` documents the black-box rule for matrix unit tests.
