@@ -62,7 +62,7 @@ class HttpMocker(Protocol):
 
     def put(
         self,
-        url: str,
+        url: str | Pattern[str],
         *,
         payload: dict[str, Any] | None = ...,
         status: int = ...,
@@ -124,7 +124,7 @@ def stub_post(
 
 def stub_put(
     m: HttpMocker,
-    url: str,
+    url: str | Pattern[str],
     *,
     payload: dict[str, Any] | None = None,
     status: int = 200,
@@ -427,6 +427,60 @@ def stub_sync(
 ) -> None:
     """Stub a ``GET /sync`` response (matches query-string variants)."""
     stub_get(m, sync_url_pattern(homeserver), payload=payload, repeat=repeat)
+
+
+def stub_room_send(
+    m: HttpMocker,
+    room_id: str,
+    *,
+    event_type: str = "m.room.message",
+    event_id: str = "$new_event:example.com",
+    homeserver: str = HOMESERVER,
+) -> None:
+    """Stub PUT /rooms/{id}/send/{type}/{txnid}."""
+    pattern = re.compile(
+        rf"^{re.escape(homeserver)}/_matrix/client/v3/rooms/"
+        rf"{re.escape(room_id)}/send/{re.escape(event_type)}/[^/]+$"
+    )
+    stub_put(m, pattern, payload={"event_id": event_id})
+
+
+def stub_room_redact(
+    m: HttpMocker,
+    room_id: str,
+    event_id: str,
+    *,
+    homeserver: str = HOMESERVER,
+) -> None:
+    """Stub PUT /rooms/{id}/redact/{event_id}/{txnid}."""
+    pattern = re.compile(
+        rf"^{re.escape(homeserver)}/_matrix/client/v3/rooms/"
+        rf"{re.escape(room_id)}/redact/{re.escape(event_id)}/[^/]+$"
+    )
+    stub_put(m, pattern, payload={"event_id": "$redact_event:example.com"})
+
+
+def stub_login_flows(
+    m: HttpMocker,
+    payload: dict[str, Any] | None = None,
+    *,
+    homeserver: str = HOMESERVER,
+    status: int = 200,
+) -> None:
+    """Stub GET /_matrix/client/v3/login for login-flows discovery."""
+    url = f"{homeserver}/_matrix/client/v3/login"
+    stub_get(m, url, payload=payload or load_fixture("login_flows.json"), status=status)
+
+
+def stub_room_messages(
+    m: HttpMocker,
+    room_id: str,
+    payload: dict[str, Any],
+    *,
+    homeserver: str = HOMESERVER,
+) -> None:
+    """Stub GET /rooms/{id}/messages (convenience wrapper)."""
+    stub_get(m, room_messages_url_pattern(room_id, homeserver=homeserver), payload=payload)
 
 
 # Re-exported so test imports don't need to know about the production module.

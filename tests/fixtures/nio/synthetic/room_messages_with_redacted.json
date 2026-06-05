@@ -1,0 +1,20 @@
+{
+  "start": "t5-start",
+  "end": "t5-end",
+  "chunk": [
+    {
+      "type": "m.room.message",
+      "event_id": "$msg1:example.com",
+      "sender": "@alice:example.com",
+      "origin_server_ts": 1700000005000,
+      "content": {},
+      "unsigned": {
+        "redacted_because": {
+          "type": "m.room.redaction",
+          "sender": "@alice:example.com",
+          "content": { "reason": "oops" }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "next_batch": "s_typing",
+  "rooms": {
+    "join": {
+      "!room_a:example.com": {
+        "timeline": { "events": [], "limited": false },
+        "state": { "events": [] },
+        "account_data": { "events": [] },
+        "ephemeral": {
+          "events": [
+            {
+              "type": "m.typing",
+              "content": {
+                "user_ids": ["@bob:example.com"]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "next_batch": "s_invite",
+  "rooms": {
+    "join": {},
+    "invite": {
+      "!invited_room:example.com": {
+        "invite_state": {
+          "events": [
+            {
+              "type": "m.room.name",
+              "state_key": "",
+              "sender": "@bob:example.com",
+              "content": { "name": "Secret Club" }
+            },
+            {
+              "type": "m.room.member",
+              "state_key": "@alice:example.com",
+              "sender": "@bob:example.com",
+              "content": { "membership": "invite", "displayname": "Alice" }
+            }
+          ]
+        }
+      }
+    },
+    "leave": {}
+  }
+}

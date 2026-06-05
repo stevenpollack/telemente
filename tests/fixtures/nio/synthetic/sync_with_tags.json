@@ -1,0 +1,25 @@
+{
+  "next_batch": "s_tags",
+  "rooms": {
+    "join": {
+      "!room_a:example.com": {
+        "timeline": { "events": [], "limited": false },
+        "state": { "events": [] },
+        "account_data": {
+          "events": [
+            {
+              "type": "m.tag",
+              "content": {
+                "tags": {
+                  "m.favourite": { "order": 0.5 }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

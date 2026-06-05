@@ -1,0 +1,11 @@
+{
+  "flows": [
+    { "type": "m.login.password" },
+    {
+      "type": "m.login.sso",
+      "identity_providers": [
+        { "id": "gitlab", "name": "GitLab" }
+      ]
+    }
+  ]
+}

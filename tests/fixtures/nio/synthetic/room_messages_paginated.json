@@ -1,0 +1,13 @@
+{
+  "start": "t1-end",
+  "end": "t1-page2-end",
+  "chunk": [
+    {
+      "type": "m.room.message",
+      "event_id": "$older2:example.com",
+      "sender": "@carol:example.com",
+      "origin_server_ts": 1700000002000,
+      "content": { "msgtype": "m.text", "body": "page 2 message" }
+    }
+  ]
+}

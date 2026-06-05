@@ -28,6 +28,7 @@ from telemente.matrix.client import (
     ClientEvent,
     EventHandler,
     LoginError,
+    MatrixError,
     NotLoggedInError,
 )
 from telemente.matrix.models import Member, Message, RoomSummary
@@ -150,6 +151,27 @@ class FakeMatrixClient:
         self.sso_redirect_url_called: bool = False
         self.sso_redirect_url_idp_id: str | None = None
 
+        # §2.3.1 Per-operation failure scripting (plan 0018)
+        self._fail_next: set[str] = set()
+        self._always_fail: set[str] = set()
+        self.raise_not_logged_in: bool = False  # §2.3.9
+
+        # §2.3.2 Per-operation blocking (plan 0018)
+        self._blocked_ops: dict[str, asyncio.Event] = {}
+
+        # §2.3.3 Scripted me() (plan 0018)
+        self._me: tuple[str, str] = ("@fake:matrix.org", "Fake User")
+
+        # §2.3.4 Paginated messages (plan 0018)
+        self._messages_page_size: int = 50
+
+        # §2.3.5 Auto-emit on send_text (plan 0018)
+        self.auto_emit_sent_messages: bool = False
+
+        # §2.3.6 Subscription counters (plan 0018)
+        self.subscribe_count: int = 0
+        self.unsubscribe_count: int = 0
+
     # ------------------------------------------------------------------
     # Scripting helpers
     # ------------------------------------------------------------------
@@ -166,6 +188,83 @@ class FakeMatrixClient:
         """Script the homeserver URL used by SSO helpers."""
         self._fake_homeserver = homeserver
         self.homeserver = homeserver
+
+    def set_me(self, user_id: str, display_name: str) -> None:
+        """Script the (user_id, display_name) tuple returned by me()."""
+        self._me = (user_id, display_name)
+
+    def set_messages_page_size(self, size: int) -> None:
+        """Limit how many messages messages() returns per call (simulates pagination)."""
+        self._messages_page_size = size
+
+    def fail_next(self, op: str) -> None:
+        """Make the next call to ``op`` raise MatrixError (one-shot)."""
+        self._fail_next.add(op)
+
+    def always_fail(self, op: str) -> None:
+        """Make every call to ``op`` raise MatrixError until cleared."""
+        self._always_fail.add(op)
+
+    def clear_failures(self, op: str | None = None) -> None:
+        """Clear failure scripting for ``op``, or all ops if None."""
+        if op is None:
+            self._fail_next.clear()
+            self._always_fail.clear()
+        else:
+            self._fail_next.discard(op)
+            self._always_fail.discard(op)
+
+    def _check_fail(self, op: str) -> None:
+        if self.raise_not_logged_in:
+            raise NotLoggedInError(f"Scripted not-logged-in: {op}")
+        if op in self._always_fail:
+            raise MatrixError(f"Scripted failure: {op}")
+        if op in self._fail_next:
+            self._fail_next.discard(op)
+            raise MatrixError(f"Scripted failure: {op}")
+
+    def block_op(self, op: str) -> None:
+        """Make the next call to ``op`` block until ``unblock_op(op)`` is called."""
+        ev = asyncio.Event()
+        self._blocked_ops[op] = ev
+
+    def unblock_op(self, op: str) -> None:
+        """Release a blocked operation."""
+        ev = self._blocked_ops.pop(op, None)
+        if ev:
+            ev.set()
+
+    async def _maybe_block(self, op: str) -> None:
+        ev = self._blocked_ops.get(op)
+        if ev is not None:
+            await ev.wait()
+            self._blocked_ops.pop(op, None)
+
+    def reset_spies(self) -> None:
+        """Clear all call recording without affecting scripted state."""
+        self.login_called = False
+        self.start_sync_called = False
+        self.close_called = False
+        self.sent_messages.clear()
+        self.sent_reactions.clear()
+        self.edited_messages.clear()
+        self.redacted_messages.clear()
+        self.left_rooms.clear()
+        self.set_tags.clear()
+        self.removed_tags.clear()
+        self.login_with_token_called = False
+        self.login_with_token_token = ""
+        self.sso_redirect_url_called = False
+        self.sso_redirect_url_idp_id = None
+        self.subscribe_count = 0
+        self.unsubscribe_count = 0
+
+    async def emit_sequence(self, *events: ClientEvent, pause: float = 0.0) -> None:
+        """Emit events in order, optionally sleeping between each."""
+        for event in events:
+            await self.emit(event)
+            if pause > 0:
+                await asyncio.sleep(pause)
 
     # ------------------------------------------------------------------
     # Auth — SSO surface (plan 0011)
@@ -214,7 +313,7 @@ class FakeMatrixClient:
             access_token="fake_token",
         )
 
-    async def restore(self, session: Session) -> None:
+    async def restore(self, _session: Session) -> None:
         self.logged_in = True
 
     async def logout(self) -> None:
@@ -244,51 +343,84 @@ class FakeMatrixClient:
         return list(self.members_data.get(room_id, []))
 
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]:
-        return list(self.messages_data.get(room_id, []))
+        all_msgs = list(self.messages_data.get(room_id, []))
+        effective_limit = min(limit, self._messages_page_size)
+        return all_msgs[:effective_limit]
 
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
 
     def me(self) -> tuple[str, str]:
-        return "@fake:matrix.org", "Fake User"
+        return self._me
 
     async def send_text(self, room_id: str, body: str, reply_to_event_id: str | None = None) -> str:
         if not self.logged_in:
             raise NotLoggedInError("Not logged in")
+        self._check_fail("send_text")
+        await self._maybe_block("send_text")
         self.sent_messages.append((room_id, body, reply_to_event_id))
-        return f"$fake_sent_{len(self.sent_messages)}:matrix.org"
+        event_id = f"$fake_sent_{len(self.sent_messages)}:matrix.org"
+        if self.auto_emit_sent_messages:
+            from datetime import UTC, datetime
+
+            from telemente.matrix.client import NewMessage
+            from telemente.matrix.models import Message
+
+            msg = Message(
+                event_id=event_id,
+                room_id=room_id,
+                sender=self._me[0],
+                sender_display_name=self._me[1],
+                body=body,
+                timestamp=datetime.now(UTC),
+                reply_to_event_id=reply_to_event_id,
+            )
+            await self.emit(NewMessage(message=msg))
+        return event_id
 
     async def send_reaction(self, room_id: str, event_id: str, emoji: str) -> None:
         if not self.logged_in:
             raise NotLoggedInError("Not logged in")
+        self._check_fail("send_reaction")
+        await self._maybe_block("send_reaction")
         self.sent_reactions.append((room_id, event_id, emoji))
 
     async def edit_message(self, room_id: str, event_id: str, new_body: str) -> str:
         if not self.logged_in:
             raise NotLoggedInError("Not logged in")
+        self._check_fail("edit_message")
+        await self._maybe_block("edit_message")
         self.edited_messages.append((room_id, event_id, new_body))
         return f"$fake_edit_{len(self.edited_messages)}:matrix.org"
 
     async def redact_message(self, room_id: str, event_id: str, reason: str = "") -> None:
         if not self.logged_in:
             raise NotLoggedInError("Not logged in")
+        self._check_fail("redact_message")
+        await self._maybe_block("redact_message")
         self.redacted_messages.append((room_id, event_id))
 
     async def leave_room(self, room_id: str) -> None:
         if not self.logged_in:
             raise NotLoggedInError("Not logged in")
+        self._check_fail("leave_room")
+        await self._maybe_block("leave_room")
         self.left_rooms.append(room_id)
         self.rooms_data = [r for r in self.rooms_data if r.room_id != room_id]
 
     async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None:
         if not self.logged_in:
             raise NotLoggedInError("Not logged in")
+        self._check_fail("set_room_tag")
+        await self._maybe_block("set_room_tag")
         self.set_tags.append((room_id, tag, order))
 
     async def remove_room_tag(self, room_id: str, tag: str) -> None:
         if not self.logged_in:
             raise NotLoggedInError("Not logged in")
+        self._check_fail("remove_room_tag")
+        await self._maybe_block("remove_room_tag")
         self.removed_tags.append((room_id, tag))
 
     # ------------------------------------------------------------------
@@ -297,10 +429,12 @@ class FakeMatrixClient:
 
     def subscribe(self, handler: EventHandler) -> Callable[[], None]:
         self._handlers.append(handler)
+        self.subscribe_count += 1
 
         def _unsubscribe() -> None:
             with contextlib.suppress(ValueError):
                 self._handlers.remove(handler)
+            self.unsubscribe_count += 1
 
         return _unsubscribe
 

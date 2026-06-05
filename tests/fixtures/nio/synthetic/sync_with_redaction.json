@@ -1,0 +1,26 @@
+{
+  "next_batch": "s_redaction",
+  "rooms": {
+    "join": {
+      "!room_a:example.com": {
+        "timeline": {
+          "events": [
+            {
+              "type": "m.room.redaction",
+              "event_id": "$redact1:example.com",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1700000500000,
+              "redacts": "$ev1:example.com",
+              "content": { "reason": "spam" }
+            }
+          ],
+          "limited": false
+        },
+        "state": { "events": [] },
+        "account_data": { "events": [] }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

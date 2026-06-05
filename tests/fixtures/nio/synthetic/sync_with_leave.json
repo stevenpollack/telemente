@@ -1,0 +1,13 @@
+{
+  "next_batch": "s_leave",
+  "rooms": {
+    "join": {},
+    "invite": {},
+    "leave": {
+      "!room_b:example.com": {
+        "timeline": { "events": [], "limited": false },
+        "state": { "events": [] }
+      }
+    }
+  }
+}

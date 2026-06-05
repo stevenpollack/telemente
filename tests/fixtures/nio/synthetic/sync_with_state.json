@@ -1,0 +1,52 @@
+{
+  "next_batch": "s_state",
+  "rooms": {
+    "join": {
+      "!room_a:example.com": {
+        "state": {
+          "events": [
+            {
+              "type": "m.room.name",
+              "event_id": "$name1:example.com",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1700000000000,
+              "state_key": "",
+              "content": { "name": "General" }
+            },
+            {
+              "type": "m.room.member",
+              "event_id": "$member_alice:example.com",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1700000000001,
+              "state_key": "@alice:example.com",
+              "content": { "membership": "join", "displayname": "Alice" }
+            },
+            {
+              "type": "m.room.member",
+              "event_id": "$member_bob:example.com",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1700000000002,
+              "state_key": "@bob:example.com",
+              "content": { "membership": "join", "displayname": "Bob" }
+            },
+            {
+              "type": "m.room.power_levels",
+              "event_id": "$pl1:example.com",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1700000000003,
+              "state_key": "",
+              "content": {
+                "users": { "@alice:example.com": 100 },
+                "users_default": 0
+              }
+            }
+          ]
+        },
+        "timeline": { "events": [], "limited": false },
+        "account_data": { "events": [] }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

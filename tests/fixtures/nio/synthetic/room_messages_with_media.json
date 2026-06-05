@@ -1,0 +1,28 @@
+{
+  "start": "t4-start",
+  "end": "t4-end",
+  "chunk": [
+    {
+      "type": "m.room.message",
+      "event_id": "$img1:example.com",
+      "sender": "@alice:example.com",
+      "origin_server_ts": 1700000008000,
+      "content": {
+        "msgtype": "m.image",
+        "body": "photo.jpg",
+        "url": "mxc://example.com/photo123"
+      }
+    },
+    {
+      "type": "m.room.message",
+      "event_id": "$vid1:example.com",
+      "sender": "@alice:example.com",
+      "origin_server_ts": 1700000009000,
+      "content": {
+        "msgtype": "m.video",
+        "body": "clip.mp4",
+        "url": "mxc://example.com/video456"
+      }
+    }
+  ]
+}

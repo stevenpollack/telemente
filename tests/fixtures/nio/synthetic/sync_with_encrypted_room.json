@@ -1,0 +1,42 @@
+{
+  "next_batch": "s_encrypted",
+  "rooms": {
+    "join": {
+      "!room_enc:example.com": {
+        "state": {
+          "events": [
+            {
+              "type": "m.room.encryption",
+              "event_id": "$enc_state:example.com",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1700000000000,
+              "state_key": "",
+              "content": { "algorithm": "m.megolm.v1.aes-sha2" }
+            }
+          ]
+        },
+        "timeline": {
+          "events": [
+            {
+              "type": "m.room.encrypted",
+              "event_id": "$enc_msg:example.com",
+              "sender": "@bob:example.com",
+              "origin_server_ts": 1700000200000,
+              "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "sender_key": "abc123",
+                "session_id": "session123",
+                "ciphertext": "AQIDBA=="
+              }
+            }
+          ],
+          "limited": false
+        },
+        "account_data": { "events": [] },
+        "unread_notifications": { "notification_count": 1, "highlight_count": 0 }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

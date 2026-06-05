@@ -20,6 +20,7 @@ class AsyncClientConfig:
         store_sync_tokens: bool = ...,
         encryption_enabled: bool = ...,
         store_type: type[Any] | None = ...,
+        max_limit_exceeded: int | None = ...,
     ) -> None: ...
 
 class OlmAccount:

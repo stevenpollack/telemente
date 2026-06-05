@@ -1,0 +1,33 @@
+{
+  "start": "t2-start",
+  "end": "t2-end",
+  "chunk": [
+    {
+      "type": "m.reaction",
+      "event_id": "$rxn_a:example.com",
+      "sender": "@bob:example.com",
+      "origin_server_ts": 1700000006500,
+      "content": {
+        "m.relates_to": {
+          "rel_type": "m.annotation",
+          "event_id": "$msg2:example.com",
+          "key": "👍"
+        }
+      }
+    },
+    {
+      "type": "m.room.message",
+      "event_id": "$msg2:example.com",
+      "sender": "@alice:example.com",
+      "origin_server_ts": 1700000006000,
+      "content": { "msgtype": "m.text", "body": "newer backfill" }
+    },
+    {
+      "type": "m.room.message",
+      "event_id": "$msg1:example.com",
+      "sender": "@alice:example.com",
+      "origin_server_ts": 1700000005000,
+      "content": { "msgtype": "m.text", "body": "backfill message" }
+    }
+  ]
+}

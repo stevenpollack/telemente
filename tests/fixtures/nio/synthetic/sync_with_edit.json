@@ -1,0 +1,33 @@
+{
+  "next_batch": "s_edit",
+  "rooms": {
+    "join": {
+      "!room_a:example.com": {
+        "timeline": {
+          "events": [
+            {
+              "type": "m.room.message",
+              "event_id": "$edit1:example.com",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1700000400000,
+              "content": {
+                "msgtype": "m.text",
+                "body": "* corrected body",
+                "m.new_content": { "msgtype": "m.text", "body": "corrected body" },
+                "m.relates_to": {
+                  "rel_type": "m.replace",
+                  "event_id": "$ev1:example.com"
+                }
+              }
+            }
+          ],
+          "limited": false
+        },
+        "state": { "events": [] },
+        "account_data": { "events": [] }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

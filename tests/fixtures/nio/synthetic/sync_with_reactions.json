@@ -1,0 +1,31 @@
+{
+  "next_batch": "s_reaction",
+  "rooms": {
+    "join": {
+      "!room_a:example.com": {
+        "timeline": {
+          "events": [
+            {
+              "type": "m.reaction",
+              "event_id": "$rxn1:example.com",
+              "sender": "@bob:example.com",
+              "origin_server_ts": 1700000300000,
+              "content": {
+                "m.relates_to": {
+                  "rel_type": "m.annotation",
+                  "event_id": "$ev1:example.com",
+                  "key": "👍"
+                }
+              }
+            }
+          ],
+          "limited": false
+        },
+        "state": { "events": [] },
+        "account_data": { "events": [] }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

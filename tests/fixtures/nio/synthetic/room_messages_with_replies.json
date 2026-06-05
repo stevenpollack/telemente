@@ -1,0 +1,26 @@
+{
+  "start": "t3-start",
+  "end": "t3-end",
+  "chunk": [
+    {
+      "type": "m.room.message",
+      "event_id": "$reply1:example.com",
+      "sender": "@bob:example.com",
+      "origin_server_ts": 1700000007000,
+      "content": {
+        "msgtype": "m.text",
+        "body": "> <@alice:example.com> original\n\nreplying",
+        "m.relates_to": {
+          "m.in_reply_to": { "event_id": "$msg1:example.com" }
+        }
+      }
+    },
+    {
+      "type": "m.room.message",
+      "event_id": "$msg1:example.com",
+      "sender": "@alice:example.com",
+      "origin_server_ts": 1700000005000,
+      "content": { "msgtype": "m.text", "body": "original" }
+    }
+  ]
+}
