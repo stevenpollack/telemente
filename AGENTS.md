@@ -103,7 +103,7 @@ with **`aioresponses`** — no live homeserver in CI. See
 uv run ruff check .      # lint  (also runs on commit via pre-commit)
 uv run ruff format .     # format
 uv run mypy              # strict types (runs on commit)
-npx pyright src/         # strict Pyright (validates nio stubs against client.py)
+pyright src/             # strict Pyright (validates nio stubs against client.py)
 uv run pytest            # tests, parallel workers auto-detected (-n auto is the default)
 uv run pytest --cov=telemente --cov-report=term-missing  # coverage (opt-in, slow)
 ```
@@ -144,7 +144,7 @@ on `RoomInfo` in sync responses, not on the in-memory room object).
 When upgrading `matrix-nio`, audit API changes and update the stubs:
 
 ```bash
-uv run mypy && npx pyright src/telemente/matrix/client.py
+uv run mypy && pyright src/telemente/matrix/client.py
 ```
 
 To inspect dependency source — signatures, docstrings, internal behaviour —
