@@ -314,7 +314,10 @@ class MatrixClient:
 
         # Now run incremental sync forever.
         logger.info("Starting sync_forever (incremental)")
-        await self._client.sync_forever(timeout=30000)
+        # loop_sleep_time prevents aioresponses from accumulating unbounded
+        # deepcopy'd RequestCall entries in tests (30s long-poll makes this
+        # irrelevant against a real homeserver).
+        await self._client.sync_forever(timeout=30000, loop_sleep_time=100)
 
     async def close(self) -> None:
         """Cancel the sync task and close the nio client."""
@@ -433,6 +436,9 @@ class MatrixClient:
                 bucket = reactions_by_event.setdefault(event.reacts_to, {})
                 bucket.setdefault(event.key, []).append(event.sender)
             elif isinstance(event, nio.RoomMessageText):
+                rel_type = event.source.get("content", {}).get("m.relates_to", {}).get("rel_type")
+                if rel_type == "m.replace":
+                    continue
                 sender_display_name = _get_display_name(room, event.sender)
                 ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
                 reply_to: str | None = (
@@ -762,6 +768,9 @@ class MatrixClient:
             event.sender,
             event.event_id,
         )
+        rel_type = event.source.get("content", {}).get("m.relates_to", {}).get("rel_type")
+        if rel_type == "m.replace":
+            return
         sender_display_name = _get_display_name(room, event.sender)
         ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
         message = Message(
