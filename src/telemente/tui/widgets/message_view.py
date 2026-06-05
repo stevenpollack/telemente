@@ -354,6 +354,7 @@ class MessageView(Widget):
 
     def action_scroll_latest(self) -> None:
         self._scroll_to_bottom()
+        self.query_one("#composer", _ComposerArea).focus()
 
     # ------------------------------------------------------------------
     # Event handlers

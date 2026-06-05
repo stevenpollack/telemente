@@ -860,3 +860,39 @@ async def test_clear_button_visibility_tracks_filter() -> None:
         room_list.apply_filter("")
         await pilot.pause()
         assert btn.display is False
+
+
+# ---------------------------------------------------------------------------
+# Test 26: set_sort_mode updates DOM order (not just visible_rooms list)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_sort_mode_updates_dom_order() -> None:
+    """set_sort_mode('alpha') must repaint the ListView — DOM order matches
+    alphabetical order after a single pilot.pause()."""
+    from textual.widgets import ListView
+
+    from telemente.tui.widgets.room_list import _RoomItem
+
+    app = HostApp()
+    rooms = [
+        _room("!z:h", "Zebra", last_activity=DT_NEW),
+        _room("!a:h", "Alpha", last_activity=DT_OLD),
+        _room("!m:h", "Mango", last_activity=DT_MID),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        room_list.set_sort_mode("alpha")
+        await pilot.pause()
+
+        # Verify DOM order matches alphabetical, not just the Python list.
+        list_view = room_list.query_one(ListView)
+        dom_items = list(list_view.query(_RoomItem))
+        dom_names = [item.room.display_name for item in dom_items]
+        assert dom_names == ["Alpha", "Mango", "Zebra"]

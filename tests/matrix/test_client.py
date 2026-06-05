@@ -477,6 +477,56 @@ async def test_messages_mixed_events_all_included() -> None:
     assert msgs[2].event_id == "$e1"
 
 
+async def test_messages_resolves_media_urls_concurrently() -> None:
+    """messages() resolves all mxc_to_http URLs; each media Message has a non-None
+    media_url. Correctness of all resolved URLs is the observable invariant
+    (concurrency itself is not directly assertable in unit tests)."""
+
+    media_ev1 = _make_media_event(
+        event_id="$m1", url="mxc://example.com/img1", server_timestamp=1_000, kind="image"
+    )
+    media_ev2 = _make_media_event(
+        event_id="$m2",
+        url="mxc://example.com/vid1",
+        server_timestamp=2_000,
+        kind="video",
+        body="clip.mp4",
+    )
+    text_ev = _make_text_event(event_id="$t1", server_timestamp=3_000, body="hello")
+    # room_messages returns newest-first
+    nio_mock = _build_nio_mock()
+    nio_mock.room_messages.return_value = _make_rooms_response([text_ev, media_ev2, media_ev1])
+    nio_mock.rooms = {}
+
+    # mxc_to_http returns different URLs per call.
+    # The event list is [text_ev, media_ev2, media_ev1] (newest-first).
+    # The loop processes media_ev2 first, then media_ev1.
+    nio_mock.mxc_to_http.side_effect = [
+        "https://example.com/download/vid1",
+        "https://example.com/download/img1",
+    ]
+
+    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
+    client._logged_in = True
+    msgs = await client.messages("!r:example.com")
+
+    # All three messages must be returned in chronological order
+    assert len(msgs) == 3
+    assert msgs[0].event_id == "$m1"
+    assert msgs[1].event_id == "$m2"
+    assert msgs[2].event_id == "$t1"
+
+    # Both media messages must have resolved, non-None URLs
+    assert msgs[0].media_url == "https://example.com/download/img1"
+    assert msgs[1].media_url == "https://example.com/download/vid1"
+
+    # Text message has no media URL
+    assert msgs[2].media_url is None
+
+    # mxc_to_http was called exactly twice (once per media event)
+    assert nio_mock.mxc_to_http.call_count == 2
+
+
 # ---------------------------------------------------------------------------
 # Feature 2: reactions
 # ---------------------------------------------------------------------------

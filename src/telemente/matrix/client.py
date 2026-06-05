@@ -378,6 +378,8 @@ class MatrixClient:
         # reactions_by_event: target_event_id -> emoji -> [sender, ...]
         reactions_by_event: dict[str, dict[str, list[str]]] = {}
         raw_messages: list[Message] = []
+        # Accumulates (nio_event, index_in_raw_messages) for concurrent URL resolution.
+        media_events: list[tuple[nio.RoomMessageMedia, int]] = []
 
         room = self._client.rooms.get(room_id)
         for event in response.chunk:
@@ -408,7 +410,7 @@ class MatrixClient:
                 sender_display_name = _get_display_name(room, event.sender)
                 ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
                 media_type = _media_type_label(event)
-                http_url = await self._client.mxc_to_http(event.url)
+                media_events.append((event, len(raw_messages)))
                 raw_messages.append(
                     Message(
                         event_id=event.event_id,
@@ -417,7 +419,7 @@ class MatrixClient:
                         sender_display_name=sender_display_name,
                         body=event.body or media_type,
                         timestamp=ts,
-                        media_url=http_url,
+                        media_url=None,
                         media_type=media_type,
                     )
                 )
@@ -434,6 +436,16 @@ class MatrixClient:
                         timestamp=ts,
                     )
                 )
+
+        # Resolve all media mxc URLs concurrently.
+        if media_events:
+            from dataclasses import replace as _replace
+
+            urls = await asyncio.gather(
+                *(self._client.mxc_to_http(ev.url) for ev, _ in media_events)
+            )
+            for (_, idx), http_url in zip(media_events, urls, strict=True):
+                raw_messages[idx] = _replace(raw_messages[idx], media_url=http_url)
 
         # Second pass: attach reactions to their target messages.
         # Reactions targeting unknown event_ids are silently ignored.

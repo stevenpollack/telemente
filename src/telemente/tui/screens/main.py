@@ -203,6 +203,16 @@ class MainScreen(Screen[None]):
     # RoomSelected handler
     # ------------------------------------------------------------------
 
+    def _clear_unread(self, room_id: str) -> None:
+        """Zero the unread badge for room_id in local state and the RoomList.
+
+        Clears both the local ``_unread`` counter (incremented by
+        ``handle_new_message``) and the RoomList widget so that any unread
+        count carried in the last ``set_rooms`` payload is also zeroed.
+        """
+        self._unread.pop(room_id, None)
+        self.query_one(RoomList).update_unread(room_id, 0)
+
     def on_room_list_room_selected(self, message: RoomList.RoomSelected) -> None:
         room_id = message.room_id
         tid = _tab_id(room_id)
@@ -212,6 +222,7 @@ class MainScreen(Screen[None]):
             # Tab exists — just focus it and refresh the highlight
             self._open_tabs.move_to_end(room_id)
             tc.active = tid
+            self._clear_unread(room_id)
             self._sync_room_highlight()
             return
 
@@ -230,22 +241,8 @@ class MainScreen(Screen[None]):
         )
         self._open_tabs[room_id] = display_name
 
-        # Clear unread for this room
-        if room_id in self._unread:
-            del self._unread[room_id]
-        updated = [
-            RoomSummary(
-                room_id=r.room_id,
-                display_name=r.display_name,
-                unread_count=0 if r.room_id == room_id else r.unread_count,
-                last_activity=r.last_activity,
-                encrypted=r.encrypted,
-                tags=r.tags,
-            )
-            for r in room_list.all_rooms
-        ]
         room_list.set_active_room(room_id)
-        room_list.set_rooms(updated)
+        self._clear_unread(room_id)
 
         # Open the tab (and evict if needed) in one exclusive worker so that
         # remove_pane always completes before add_pane, and concurrent room
@@ -262,6 +259,7 @@ class MainScreen(Screen[None]):
         if active is not None:
             self.query_one(RoomList).set_active_room(active)
             self.query_one(MemberList).load_room(active)
+            self._clear_unread(active)
 
     # ------------------------------------------------------------------
     # Async helpers

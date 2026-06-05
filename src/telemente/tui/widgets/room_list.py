@@ -57,9 +57,18 @@ class _RoomItem(ListItem):
         yield Label(self._render_name(), markup=True, classes=self._name_classes())
 
     def update_room(self, room: RoomSummary) -> None:
-        """Mutate this item's data and re-render its label in place."""
+        """Mutate this item's data and re-render its label in place.
+
+        If the item has not yet been composed (e.g. it was just appended
+        via call_after_refresh and compose() hasn't run), the stored data is
+        updated but the DOM is left alone — the next compose() pass will pick
+        up _room and render correctly.
+        """
         self._room = room
-        label = self.query_one(".room-name", Label)
+        labels = self.query(".room-name")
+        if not labels:
+            return
+        label = labels.first(Label)
         label.update(self._render_name())
         # Sync CSS classes without forcing a full remount.
         new_classes = self._name_classes()
@@ -242,7 +251,7 @@ class RoomList(Widget):
             rooms_without_dt.sort(key=lambda r: r.display_name)
             self._visible_rooms = rooms_with_dt + rooms_without_dt
 
-        self._refresh_list()
+        self.call_after_refresh(self._refresh_list)
         self._sync_loading_state()
         self._sync_clear_button()
 

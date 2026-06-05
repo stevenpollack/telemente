@@ -785,3 +785,35 @@ async def test_delete_binding_removes_row() -> None:
         remaining_rendered = _rendered_text(view)
         assert "keep me" in remaining_rendered
         assert "delete me" not in remaining_rendered
+
+
+# ---------------------------------------------------------------------------
+# Test 20: G key focuses the composer after scrolling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_G_key_focuses_composer() -> None:
+    """Pressing G must move focus to the composer, not just scroll the timeline."""
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    fake._messages["!r:s"] = [_msg(f"$e{i}", "!r:s", f"msg {i}") for i in range(10)]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        # Focus somewhere else (the first message row) so composer is not already focused
+        row = view.query_one(_MessageRow)
+        row.focus()
+        await pilot.pause()
+        assert not isinstance(app.focused, _ComposerArea)
+
+        # Press G — should scroll and focus composer
+        view.action_scroll_latest()
+        await pilot.pause()
+
+        assert isinstance(app.focused, _ComposerArea)

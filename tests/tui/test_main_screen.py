@@ -6,12 +6,17 @@ A minimal host App pushes MainScreen and lets us assert layout/focus.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Label
 
 import fakes as fakes_module
 from telemente.tui.screens.main import MainScreen
+
+if TYPE_CHECKING:
+    from telemente.tui.app import TelementeApp
 
 FakeMatrixClient = fakes_module.FakeMatrixClient
 
@@ -333,3 +338,170 @@ async def test_close_tab_removes_tab() -> None:
 
         assert tc.tab_count == 0
         assert "!a:h" not in screen._open_tabs
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TelementeApp-based unread tests
+# ---------------------------------------------------------------------------
+
+
+def _make_sync_app() -> tuple[TelementeApp, FakeMatrixClient]:
+    """Build a TelementeApp wired with a FakeMatrixClient, bypassing login."""
+    import tempfile
+    from pathlib import Path
+
+    from telemente.config import CredentialStore, Paths
+    from telemente.tui.app import TelementeApp
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    paths = Paths(
+        config_dir=tmp_dir / "config",
+        data_dir=tmp_dir / "data",
+        store_dir=tmp_dir / "store",
+    )
+    fake = FakeMatrixClient()
+    fake._logged_in = True
+    store = CredentialStore(paths, service="telemente-test-main")
+    tapp = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
+    tapp._start_sync_and_subscribe()
+    return tapp, fake
+
+
+# ---------------------------------------------------------------------------
+# Test 10: unread clears when re-selecting an already-open tab
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unread_clears_on_reselect_existing_tab() -> None:
+    """Selecting a room whose tab is already open must clear the unread badge."""
+    from datetime import UTC, datetime
+
+    from telemente.matrix.client import NewMessage
+    from telemente.matrix.models import Message, RoomSummary
+    from telemente.tui.screens.main import MainScreen as MS
+    from telemente.tui.widgets.room_list import RoomList
+
+    tapp, fake = _make_sync_app()
+    fake._messages["!a:h"] = []
+    fake._members["!a:h"] = []
+    fake._messages["!b:h"] = []
+    fake._members["!b:h"] = []
+
+    async with tapp.run_test() as pilot:
+        tapp.push_screen(MS(fake))
+        await pilot.pause()
+        screen = tapp.screen
+        assert isinstance(screen, MS)
+
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms(
+            [
+                RoomSummary(room_id="!a:h", display_name="Alpha"),
+                RoomSummary(room_id="!b:h", display_name="Beta"),
+            ]
+        )
+        await pilot.pause()
+
+        # Open room A
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        # Switch to room B so A is no longer active
+        room_list.post_message(RoomList.RoomSelected("!b:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        # Simulate a message arriving in room A while it's not active
+        msg = Message(
+            event_id="$ev1",
+            room_id="!a:h",
+            sender="@alice:matrix.org",
+            sender_display_name="Alice",
+            body="hello",
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        await fake.emit(NewMessage(message=msg))
+        await pilot.pause()
+
+        # Room A should now have unread count 1
+        assert screen._unread.get("!a:h", 0) == 1
+
+        # Re-select room A (tab already open)
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        # Unread must be cleared
+        assert screen._unread.get("!a:h", 0) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 11: unread clears on manual tab-bar switch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unread_clears_on_tab_bar_switch() -> None:
+    """on_tabbed_content_tab_activated must clear unread for the activated room."""
+    from datetime import UTC, datetime
+
+    from textual.widgets import TabbedContent
+
+    from telemente.matrix.client import NewMessage
+    from telemente.matrix.models import Message, RoomSummary
+    from telemente.tui.screens.main import MainScreen as MS
+    from telemente.tui.widgets.room_list import RoomList
+
+    tapp, fake = _make_sync_app()
+    fake._messages["!a:h"] = []
+    fake._members["!a:h"] = []
+    fake._messages["!b:h"] = []
+    fake._members["!b:h"] = []
+
+    async with tapp.run_test() as pilot:
+        tapp.push_screen(MS(fake))
+        await pilot.pause()
+        screen = tapp.screen
+        assert isinstance(screen, MS)
+
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms(
+            [
+                RoomSummary(room_id="!a:h", display_name="Alpha"),
+                RoomSummary(room_id="!b:h", display_name="Beta"),
+            ]
+        )
+        await pilot.pause()
+
+        # Open both rooms
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await pilot.pause()
+        await pilot.pause()
+        room_list.post_message(RoomList.RoomSelected("!b:h"))
+        await pilot.pause()
+        await pilot.pause()
+
+        # Simulate a message arriving in room A while B is active
+        msg = Message(
+            event_id="$ev2",
+            room_id="!a:h",
+            sender="@alice:matrix.org",
+            sender_display_name="Alice",
+            body="hi there",
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        await fake.emit(NewMessage(message=msg))
+        await pilot.pause()
+
+        assert screen._unread.get("!a:h", 0) == 1
+
+        # Manually switch tab bar to room A's tab
+        tc = screen.query_one(TabbedContent)
+        tc.active = "tab-room--a-h"
+        await pilot.pause()
+        await pilot.pause()
+
+        # Unread must be cleared
+        assert screen._unread.get("!a:h", 0) == 0
