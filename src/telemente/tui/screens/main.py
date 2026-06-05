@@ -1,8 +1,11 @@
-"""Main screen for telemente (plan 0005 / 0009).
+"""Main screen for telemente (plan 0005 / 0009 / 0014).
 
 Three-panel layout: collapsible room list (left), tabbed message views (center),
 collapsible member list (right).  Each selected room opens in its own tab (up to
 TAB_CAP=8); the oldest tab is evicted LRU when the cap is exceeded.
+
+Plan 0014: optional log viewer panel docked at the bottom, toggled via
+Ctrl+\\ and the command palette.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import OrderedDict
+from pathlib import Path
 from typing import ClassVar, Protocol
 
 from textual.app import ComposeResult
@@ -19,8 +23,10 @@ from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, TabbedContent, TabPane
 
+from telemente.config import Paths
 from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged
 from telemente.matrix.models import Member, Message, RoomSummary
+from telemente.tui.widgets.log_panel import LogPanel
 from telemente.tui.widgets.member_list import MemberList
 from telemente.tui.widgets.message_view import MessageView
 from telemente.tui.widgets.room_list import RoomList
@@ -73,14 +79,22 @@ class MainScreen(Screen[None]):
         ("ctrl+b", "toggle_rooms", "Rooms"),
         ("ctrl+r", "toggle_members", "Members"),
         ("ctrl+k", "focus_search", "Search rooms"),
+        ("ctrl+backslash", "toggle_log", "Log"),
     ]
 
     rooms_visible: reactive[bool] = reactive(True)
     members_visible: reactive[bool] = reactive(True)
+    log_visible: reactive[bool] = reactive(False)
 
-    def __init__(self, client: _MainClient) -> None:
+    def __init__(
+        self,
+        client: _MainClient,
+        *,
+        log_file: Path | None = None,
+    ) -> None:
         super().__init__()
         self._client = client
+        self._log_file: Path = log_file or (Paths.default().data_dir / "telemente.log")
         # LRU-ordered dict: room_id -> display_name; oldest first.
         self._open_tabs: OrderedDict[str, str] = OrderedDict()
         # Track unread counts by room_id.
@@ -112,6 +126,7 @@ class MainScreen(Screen[None]):
             with TabbedContent(id="message-panel"):
                 pass
             yield MemberList(self._client, id="members-panel")
+        yield LogPanel(self._log_file, id="log-panel")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -131,6 +146,9 @@ class MainScreen(Screen[None]):
     def watch_members_visible(self, visible: bool) -> None:
         self.query_one("#members-panel").display = visible
 
+    def watch_log_visible(self, visible: bool) -> None:
+        self.query_one("#log-panel").display = visible
+
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
@@ -141,8 +159,18 @@ class MainScreen(Screen[None]):
     def action_toggle_members(self) -> None:
         self.members_visible = not self.members_visible
 
+    def action_toggle_log(self) -> None:
+        self.log_visible = not self.log_visible
+
     def action_focus_search(self) -> None:
         self.query_one("#room-search", Input).focus()
+
+    # ------------------------------------------------------------------
+    # LogPanel events
+    # ------------------------------------------------------------------
+
+    def on_log_panel_close_requested(self, _: LogPanel.CloseRequested) -> None:
+        self.log_visible = False
 
     # ------------------------------------------------------------------
     # Client event handlers (plan 0009)

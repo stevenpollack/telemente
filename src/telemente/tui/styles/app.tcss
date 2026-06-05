@@ -162,3 +162,11 @@ MemberList .member-entry {
     padding: 0 1;
     color: $text;
 }
+
+/* -------------------------------------------------------------------------
+   Log viewer panel — LogPanel widget (plan 0014)
+   ------------------------------------------------------------------------- */
+
+#log-panel {
+    display: none;
+}

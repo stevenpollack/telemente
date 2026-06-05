@@ -7,6 +7,7 @@ to palette commands, not replacements.
 Commands exposed:
   Search rooms            — focus the room search bar
   Toggle members pane     — show/hide the right-hand members panel
+  Toggle log viewer       — show/hide the bottom log tail panel
   Close tab               — close the active room's tab
   Sort: Recent activity   — sort room list by newest message first (default)
   Sort: Alphabetical      — sort room list A-Z
@@ -95,6 +96,7 @@ class TelementeCommands(Provider):
         return [
             ("Search rooms", self._cmd_search_rooms, "Focus the room search bar"),
             ("Toggle members pane", self._cmd_toggle_members, "Show/hide the members panel"),
+            ("Toggle log viewer", self._cmd_toggle_log, "Show/hide the log tail panel"),
             ("Close tab", self._cmd_close_tab, "Close the active room's tab"),
             (
                 "Sort: Recent activity",
@@ -150,6 +152,13 @@ class TelementeCommands(Provider):
         screen = self.app.screen
         if isinstance(screen, MainScreen):
             screen.action_toggle_members()
+
+    def _cmd_toggle_log(self) -> None:
+        from telemente.tui.screens.main import MainScreen
+
+        screen = self.app.screen
+        if isinstance(screen, MainScreen):
+            screen.action_toggle_log()
 
     def _cmd_close_tab(self) -> None:
         """Close the currently active room tab."""
