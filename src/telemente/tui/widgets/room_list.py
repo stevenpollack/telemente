@@ -304,7 +304,7 @@ class RoomList(Widget):
             return
 
         # Slow path: order or membership changed — rebuild once without flicker.
-        with self.app.batch_update():
+        with self.app.batch_update():  # pyright: ignore[reportUnknownMemberType]
             list_view.clear()
             for room in new_rooms:
                 list_view.append(RoomItem(room, active=self._active_room_id == room.room_id))
