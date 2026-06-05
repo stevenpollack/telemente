@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.events import Key
 from textual.message import Message as TextualMessage
 from textual.widget import Widget
@@ -316,6 +316,9 @@ class MessageView(Widget):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("G", "scroll_latest", "Latest"),
+        Binding("ctrl+f", "open_search", "Search"),
+        Binding("n", "next_match", "Next match", show=False),
+        Binding("N", "prev_match", "Prev match", show=False),
     ]
 
     @property
@@ -343,12 +346,17 @@ class MessageView(Widget):
         self._react_target_event_id: str | None = None
         self._replying_to: Message | None = None
         self._editing: Message | None = None
+        self._match_event_ids: list[str] = []
+        self._match_index: int = 0
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="message-timeline"):
             pass
         yield Static("", id="encryption-notice", classes="encryption-notice")
         yield Static("", id="typing-indicator", classes="typing-indicator")
+        with Horizontal(id="search-bar"):
+            yield Input(id="search-input", placeholder="Search messages…")
+            yield Static("", id="search-count")
         yield Static("", id="reply-indicator", classes="reply-banner")
         yield Input(id="emoji-input", placeholder="React…")
         yield ComposerArea(id="composer", soft_wrap=True)
@@ -357,6 +365,7 @@ class MessageView(Widget):
         self.query_one("#reply-indicator", Static).display = False
         self.query_one("#emoji-input", Input).display = False
         self.query_one("#typing-indicator", Static).display = False
+        self.query_one("#search-bar").display = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -446,7 +455,25 @@ class MessageView(Widget):
         self.query_one("#composer", ComposerArea).focus()
 
     def action_open_search(self) -> None:
-        """Placeholder: in-room search is not yet implemented."""
+        self.query_one("#search-bar").display = True
+        self.query_one("#search-input", Input).focus()
+
+    def action_next_match(self) -> None:
+        if not self._match_event_ids:
+            return
+        self._match_index = (self._match_index + 1) % len(self._match_event_ids)
+        self._apply_current_match()
+
+    def action_prev_match(self) -> None:
+        if not self._match_event_ids:
+            return
+        self._match_index = (self._match_index - 1) % len(self._match_event_ids)
+        self._apply_current_match()
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action in ("next_match", "prev_match"):
+            return len(self._match_event_ids) > 0
+        return True
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -520,6 +547,11 @@ class MessageView(Widget):
         items.append(MenuItem("Delete", _delete, enabled=can_delete))
         self.post_message(MessageView.ShowContextMenu(items, event.screen_x, event.screen_y))
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "search-input":
+            return
+        self.run_worker(self._do_search(event.value), exclusive=False)
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "emoji-input":
             self._handle_emoji_submitted(event)
@@ -528,7 +560,7 @@ class MessageView(Widget):
         self._handle_composer_submitted(event)
 
     def on_key(self, event: object) -> None:
-        """ESC dismisses emoji input, reply indicator, or edit mode."""
+        """ESC dismisses search bar, emoji input, reply indicator, or edit mode."""
         from textual.events import Key
 
         if not isinstance(event, Key) or event.key != "escape":
@@ -537,6 +569,9 @@ class MessageView(Widget):
         if emoji_input.display:
             emoji_input.display = False
             self._react_target_event_id = None
+            return
+        if self.query_one("#search-bar").display:
+            self._close_search()
             return
         indicator = self.query_one("#reply-indicator", Static)
         if indicator.display:
@@ -716,6 +751,55 @@ class MessageView(Widget):
             notice.display = True
         else:
             notice.display = False
+
+    async def _do_search(self, query: str) -> None:
+        room_id = self._current_room_id
+        for row in self.query(MessageRow):
+            row.remove_class("-search-match", "-search-current")
+        if not query or not room_id:
+            self._match_event_ids = []
+            self._match_index = 0
+            self.query_one("#search-count", Static).update("")
+            self.query_one("#message-timeline", VerticalScroll).focus()
+            return
+        match_ids = await self._client.search_messages(room_id, query)
+        self._match_event_ids = match_ids
+        self._match_index = 0
+        self._apply_search_highlights()
+        # Transfer focus to a non-Input widget so n/N bindings survive _binding_chain filtering
+        self.query_one("#message-timeline", VerticalScroll).focus()
+
+    def _apply_search_highlights(self) -> None:
+        match_set = set(self._match_event_ids)
+        for row in self.query(MessageRow):
+            if row.message.event_id in match_set:
+                row.add_class("-search-match")
+            else:
+                row.remove_class("-search-match")
+        self._apply_current_match()
+
+    def _apply_current_match(self) -> None:
+        for row in self.query(MessageRow):
+            row.remove_class("-search-current")
+        if not self._match_event_ids:
+            self.query_one("#search-count", Static).update("")
+            return
+        current_id = self._match_event_ids[self._match_index]
+        for row in self.query(MessageRow):
+            if row.message.event_id == current_id:
+                row.add_class("-search-current")
+                break
+        total = len(self._match_event_ids)
+        self.query_one("#search-count", Static).update(f"{self._match_index + 1} / {total}")
+
+    def _close_search(self) -> None:
+        self.query_one("#search-bar").display = False
+        self.query_one("#search-input", Input).clear()
+        self._match_event_ids = []
+        self._match_index = 0
+        for row in self.query(MessageRow):
+            row.remove_class("-search-match", "-search-current")
+        self.query_one("#search-count", Static).update("")
 
     def _scroll_to_bottom(self) -> None:
         """Scroll the timeline to the bottom."""
