@@ -162,6 +162,11 @@ class FakeMatrixClient:
         """Script the LoginFlows returned by login_flows()."""
         self._flows = flows
 
+    def set_homeserver(self, homeserver: str) -> None:
+        """Script the homeserver URL used by SSO helpers."""
+        self._fake_homeserver = homeserver
+        self.homeserver = homeserver
+
     # ------------------------------------------------------------------
     # Auth — SSO surface (plan 0011)
     # ------------------------------------------------------------------

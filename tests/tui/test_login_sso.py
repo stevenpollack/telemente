@@ -47,7 +47,7 @@ def _tracking_factory(
 
     def factory(homeserver: str) -> FakeMatrixClient:
         calls.append(homeserver)
-        fake._fake_homeserver = homeserver
+        fake.set_homeserver(homeserver)
         return fake
 
     return factory, calls
@@ -461,7 +461,7 @@ async def test_sso_uses_resolved_homeserver_for_mxid() -> None:
                 await pilot.pause()
 
     assert "https://clam.au" in factory_calls
-    assert fake._fake_homeserver == "https://clam.au"
+    assert fake.homeserver == "https://clam.au"
     assert browser_urls
     assert "clam.au" in browser_urls[0]
     assert "matrix.org" not in browser_urls[0]
