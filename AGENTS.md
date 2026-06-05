@@ -167,6 +167,20 @@ To inspect dependency source — signatures, docstrings, internal behaviour —
 Use the `Read` tool (or `grep`/`find` via Bash) on those paths. No need to
 write a Python helper script just to call `help()` or `inspect`.
 
+### Reading Python source (required)
+
+Never use `sed`, `awk`, `head`, `tail`, or `cat` to read `.py` files.
+Use one of these instead, in order of preference:
+
+1. **`Read` tool** — for any `.py` file, including those under `.venv/`.
+2. **LSP** (`go to definition` / `hover`) — to jump directly to a symbol
+   without knowing its file path.
+3. **`grep`/`find` via Bash** — only to locate a file or symbol before
+   reading it with `Read`.
+
+This applies to project source, test files, stubs, and third-party packages
+under `.venv/`.
+
 Do not add `# type: ignore` for nio types — extend the stubs instead.
 
 ## Performance guidelines
