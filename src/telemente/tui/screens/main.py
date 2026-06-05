@@ -404,13 +404,14 @@ class MainScreen(Screen[None]):
         member_list = self.query_one(MemberList)
         if active is not None and active not in departed and member_list.member_count == 0:
             logger.debug(
-                "handle_rooms_changed: reloading active room=%s after sync populated room state",
+                "handle_rooms_changed: patching active room=%s after sync populated room state",
                 active,
             )
             member_list.load_room(active)
             view = self.message_view_for(active)
             if view is not None:
-                self.run_worker(view.load_room(active), exclusive=True)
+                names = {m.user_id: m.display_name for m in self._client.members(active)}
+                view.patch_sender_names(names)
 
     def handle_new_message(self, event: NewMessage) -> None:
         msg = event.message

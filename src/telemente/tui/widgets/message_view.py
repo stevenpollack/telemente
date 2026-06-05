@@ -7,6 +7,7 @@ all protocol access goes through the injected client.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 from datetime import UTC, date, datetime
@@ -199,22 +200,21 @@ class MessageRow(Widget, can_focus=True):
 
     def update_body(self, new_body: str) -> None:
         """Update the displayed message body after an edit."""
-        self._message = Message(
-            event_id=self._message.event_id,
-            room_id=self._message.room_id,
-            sender=self._message.sender,
-            sender_display_name=self._message.sender_display_name,
-            body=new_body,
-            timestamp=self._message.timestamp,
-            media_url=self._message.media_url,
-            media_type=self._message.media_type,
-            reactions=self._message.reactions,
-            reply_to_event_id=self._message.reply_to_event_id,
-        )
+        self._message = dataclasses.replace(self._message, body=new_body)
+        self._refresh_body_static()
+
+    def update_sender_display_name(self, display_name: str) -> None:
+        """Patch the sender name in-place without rebuilding the row."""
+        if display_name == self._message.sender_display_name:
+            return
+        self._message = dataclasses.replace(self._message, sender_display_name=display_name)
+        self._refresh_body_static()
+
+    def _refresh_body_static(self) -> None:
         color = sender_color(self._message.sender)
         local_ts: datetime = self._message.timestamp.astimezone()
         time_str = local_ts.strftime("%H:%M")
-        body = _linkify(new_body)
+        body = _linkify(self._message.body)
         header_body = (
             f"[bold {color}]{self._message.sender_display_name}[/bold {color}]"
             f" [dim]{time_str}[/dim]\n{body}"
@@ -390,6 +390,17 @@ class MessageView(Widget):
         timeline = self.query_one("#message-timeline", VerticalScroll)
         timeline.mount(MessageRow(message, reply_quoted=reply_quoted))
         self._scroll_to_bottom()
+
+    def patch_sender_names(self, names: dict[str, str]) -> None:
+        """Update sender display names in already-rendered rows without rebuilding.
+
+        ``names`` maps user_id → resolved display_name.  Only rows whose
+        sender_display_name differs from the resolved name are touched.
+        """
+        for row in self.query(MessageRow):
+            resolved = names.get(row.message.sender)
+            if resolved is not None:
+                row.update_sender_display_name(resolved)
 
     def clear(self) -> None:
         """Remove all rendered message rows and date separators."""
