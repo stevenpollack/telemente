@@ -300,9 +300,10 @@ class MatrixClient:
             logger.info("Initial sync (full_state=%s)...", full_state)
             resp = await self._client.sync(timeout=30000, full_state=full_state)
             if isinstance(resp, nio.SyncResponse):
-                self._initial_sync_done = True
                 logger.info("Initial sync complete: %d rooms", len(self._client.rooms))
-                await self._emit(RoomsChanged(rooms=self.rooms()))
+                # nio.sync() updates room state but does not run response callbacks
+                # (only sync_forever does). Mirror that path so last_activity is set.
+                await self._on_sync(resp)
             else:
                 logger.warning("Initial sync failed: %s", resp)
                 self._initial_sync_done = True
