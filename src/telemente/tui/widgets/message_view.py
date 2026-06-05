@@ -480,11 +480,14 @@ class MessageView(Widget):
 
     async def _do_edit(self, room_id: str, original: Message, new_body: str) -> None:
         logger.debug("Editing %s in %s", original.event_id, room_id)
-        await self._client.edit_message(room_id, original.event_id, new_body)
-        # Optimistic local update on the row
+        new_event_id = await self._client.edit_message(room_id, original.event_id, new_body)
+        # Suppress the sync echo for the replacement event.
+        self._rendered_event_ids.add(new_event_id)
+        # Optimistic local update on the row.
         for row in self.query(MessageRow):
             if row.message.event_id == original.event_id:
                 row.update_body(new_body)
+                self._msgs_by_id[original.event_id] = row.message
                 break
 
     async def _do_redact_and_remove(self, room_id: str, msg: Message) -> None:

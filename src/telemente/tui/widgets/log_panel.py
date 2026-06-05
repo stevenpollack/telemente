@@ -94,6 +94,7 @@ class LogPanel(Widget):
         super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self._log_file = log_file
         self._max_lines = max_lines
+        self._tail_started: bool = False
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="log-header"):
@@ -108,7 +109,12 @@ class LogPanel(Widget):
         )
 
     def on_mount(self) -> None:
-        self._start_tail()
+        pass  # defer tail start until the panel is first shown
+
+    def on_show(self) -> None:
+        if not self._tail_started:
+            self._tail_started = True
+            self._start_tail()
 
     # ------------------------------------------------------------------
     # Event handlers
