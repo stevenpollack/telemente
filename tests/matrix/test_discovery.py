@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from aioresponses import aioresponses
 
+from matrix.helpers import http_stub_count, stub_get
 from telemente.matrix.discovery import (
     DiscoveryError,
     discover_homeserver_url,
@@ -48,7 +49,7 @@ def test_parse_server_name_empty_raises() -> None:
 @pytest.mark.asyncio
 async def test_discover_homeserver_url_success() -> None:
     with aioresponses() as m:
-        m.get(_WELL_KNOWN, payload=_CLAM_DISCOVERY)
+        stub_get(m, _WELL_KNOWN, payload=_CLAM_DISCOVERY)
         result = await discover_homeserver_url("clam.au")
     assert result == "https://clam.au"
 
@@ -57,7 +58,7 @@ async def test_discover_homeserver_url_success() -> None:
 async def test_discover_homeserver_url_clam_au_full_well_known() -> None:
     """Realistic clam.au well-known payload still yields m.homeserver.base_url."""
     with aioresponses() as m:
-        m.get(_WELL_KNOWN, payload=_CLAM_DISCOVERY)
+        stub_get(m, _WELL_KNOWN, payload=_CLAM_DISCOVERY)
         result = await resolve_homeserver("@steven:clam.au")
     assert result == "https://clam.au"
 
@@ -65,7 +66,7 @@ async def test_discover_homeserver_url_clam_au_full_well_known() -> None:
 @pytest.mark.asyncio
 async def test_resolve_homeserver_mxid() -> None:
     with aioresponses() as m:
-        m.get(_WELL_KNOWN, payload=_CLAM_DISCOVERY)
+        stub_get(m, _WELL_KNOWN, payload=_CLAM_DISCOVERY)
         result = await resolve_homeserver("@steven:clam.au")
     assert result == "https://clam.au"
 
@@ -73,7 +74,7 @@ async def test_resolve_homeserver_mxid() -> None:
 @pytest.mark.asyncio
 async def test_resolve_homeserver_bare_domain() -> None:
     with aioresponses() as m:
-        m.get(_WELL_KNOWN, payload=_CLAM_DISCOVERY)
+        stub_get(m, _WELL_KNOWN, payload=_CLAM_DISCOVERY)
         result = await resolve_homeserver("clam.au")
     assert result == "https://clam.au"
 
@@ -83,13 +84,13 @@ async def test_resolve_homeserver_full_url_skips_well_known() -> None:
     with aioresponses() as m:
         result = await resolve_homeserver("https://clam.au")
     assert result == "https://clam.au"
-    assert len(m.requests) == 0
+    assert http_stub_count(m) == 0
 
 
 @pytest.mark.asyncio
 async def test_discover_homeserver_url_404_fallback() -> None:
     with aioresponses() as m:
-        m.get(_WELL_KNOWN, status=404, body="Not Found")
+        stub_get(m, _WELL_KNOWN, status=404, body="Not Found")
         result = await discover_homeserver_url("clam.au")
     assert result == "https://clam.au"
 

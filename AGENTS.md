@@ -74,6 +74,8 @@ ruff + mypy clean.** Each `plans/*.md` document lists its test cases first.
   callbacks via `event_callback_for()` / `response_callback_for()` after
   `restore()` registers them.  Do not assign `client._logged_in` or call
   `client._on_*` directly.
+- **HTTP integration tests** use typed `matrix.helpers.stub_get/post/put/delete`
+  instead of calling `aioresponses` methods directly (keeps Pyright clean).
 
 ## Fast feedback loop
 

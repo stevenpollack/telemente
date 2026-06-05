@@ -30,6 +30,9 @@ from matrix.helpers import (
     make_text_event,
     response_callback_for,
     restore_client,
+    stub_delete,
+    stub_post,
+    stub_put,
 )
 from telemente.matrix.client import (
     LoginError,
@@ -226,7 +229,7 @@ async def test_login_integration_aioresponses() -> None:
     login_url = f"{HOMESERVER}/_matrix/client/v3/login"
 
     with aioresponses() as m:
-        m.post(login_url, payload=login_json)
+        stub_post(m, login_url, payload=login_json)
         real_nio = nio.AsyncClient(HOMESERVER, "@intuser:example.com")
         client = MatrixClient(HOMESERVER, nio_client=real_nio)
         session = await client.login("@intuser:example.com", "password")
@@ -246,7 +249,7 @@ async def test_login_forbidden_integration() -> None:
     login_url = f"{HOMESERVER}/_matrix/client/v3/login"
 
     with aioresponses() as m:
-        m.post(login_url, payload=error_json, status=403)
+        stub_post(m, login_url, payload=error_json, status=403)
         real_nio = nio.AsyncClient(HOMESERVER, USER)
         client = MatrixClient(HOMESERVER, nio_client=real_nio)
 
@@ -856,7 +859,7 @@ async def test_set_room_tag_success() -> None:
     url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
-        m.put(url, status=200, payload={})
+        stub_put(m, url, status=200, payload={})
         await client.set_room_tag(room_id, tag)
 
 
@@ -875,7 +878,7 @@ async def test_set_room_tag_with_order() -> None:
     url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
-        m.put(url, status=204, payload={})
+        stub_put(m, url, status=204, payload={})
         await client.set_room_tag(room_id, tag, order=0.5)
 
 
@@ -896,7 +899,7 @@ async def test_set_room_tag_http_error_raises_matrix_error() -> None:
     url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
-        m.put(url, status=403, payload={"errcode": "M_FORBIDDEN"})
+        stub_put(m, url, status=403, payload={"errcode": "M_FORBIDDEN"})
         with pytest.raises(MatrixError):
             await client.set_room_tag(room_id, tag)
 
@@ -925,7 +928,7 @@ async def test_remove_room_tag_success() -> None:
     url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
-        m.delete(url, status=200, payload={})
+        stub_delete(m, url, status=200, payload={})
         await client.remove_room_tag(room_id, tag)
 
 
@@ -946,7 +949,7 @@ async def test_remove_room_tag_http_error_raises() -> None:
     url = f"{HOMESERVER}/_matrix/client/v3/user/{USER}/rooms/{room_id}/tags/{tag}"
 
     with aioresponses() as m:
-        m.delete(url, status=500, payload={})
+        stub_delete(m, url, status=500, payload={})
         with pytest.raises(MatrixError):
             await client.remove_room_tag(room_id, tag)
 

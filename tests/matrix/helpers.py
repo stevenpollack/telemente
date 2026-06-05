@@ -1,12 +1,13 @@
 """Shared helpers for matrix unit/integration tests (plan 0017).
 
 Builders and ``restore_client()`` keep tests on the public MatrixClient API.
+Typed ``stub_*`` helpers wrap ``aioresponses`` for a clean Pyright LSP.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any, cast
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, Protocol, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from telemente.config import Session
@@ -17,6 +18,122 @@ USER = "@alice:example.com"
 PASSWORD = "s3cret"
 DEVICE_ID = "TESTDEVICE"
 TOKEN = "access_token_xyz"
+
+
+class HttpMocker(Protocol):
+    """Narrow HTTP-stub surface used in tests (avoids aioresponses ``Pattern[Unknown]``)."""
+
+    @property
+    def requests(self) -> Mapping[object, object]: ...
+
+    def get(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any] | None = ...,
+        status: int = ...,
+        body: str = ...,
+    ) -> None: ...
+
+    def post(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any] | None = ...,
+        status: int = ...,
+        body: str = ...,
+    ) -> None: ...
+
+    def put(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any] | None = ...,
+        status: int = ...,
+        body: str = ...,
+    ) -> None: ...
+
+    def delete(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any] | None = ...,
+        status: int = ...,
+        body: str = ...,
+    ) -> None: ...
+
+
+def http_stub_count(m: HttpMocker) -> int:
+    """Return how many HTTP requests were recorded on an ``aioresponses`` context."""
+    return len(m.requests)
+
+
+def stub_get(
+    m: HttpMocker,
+    url: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    status: int = 200,
+    body: str | None = None,
+) -> None:
+    """Register a stubbed GET response on an ``aioresponses`` context."""
+    if body is not None:
+        m.get(url, body=body, status=status)
+    elif payload is not None:
+        m.get(url, payload=payload, status=status)
+    else:
+        m.get(url, status=status)
+
+
+def stub_post(
+    m: HttpMocker,
+    url: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    status: int = 200,
+    body: str | None = None,
+) -> None:
+    """Register a stubbed POST response on an ``aioresponses`` context."""
+    if body is not None:
+        m.post(url, body=body, status=status)
+    elif payload is not None:
+        m.post(url, payload=payload, status=status)
+    else:
+        m.post(url, status=status)
+
+
+def stub_put(
+    m: HttpMocker,
+    url: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    status: int = 200,
+    body: str | None = None,
+) -> None:
+    """Register a stubbed PUT response on an ``aioresponses`` context."""
+    if body is not None:
+        m.put(url, body=body, status=status)
+    elif payload is not None:
+        m.put(url, payload=payload, status=status)
+    else:
+        m.put(url, status=status)
+
+
+def stub_delete(
+    m: HttpMocker,
+    url: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    status: int = 200,
+    body: str | None = None,
+) -> None:
+    """Register a stubbed DELETE response on an ``aioresponses`` context."""
+    if body is not None:
+        m.delete(url, body=body, status=status)
+    elif payload is not None:
+        m.delete(url, payload=payload, status=status)
+    else:
+        m.delete(url, status=status)
 
 
 def make_session(

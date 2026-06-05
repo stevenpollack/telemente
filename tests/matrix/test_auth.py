@@ -14,6 +14,7 @@ import nio
 import pytest
 from aioresponses import aioresponses
 
+from matrix.helpers import stub_get
 from telemente.config import Session
 from telemente.matrix.auth import (
     IdentityProvider,
@@ -140,7 +141,7 @@ async def test_login_flows_http() -> None:
     login_url = f"{_HOMESERVER}/_matrix/client/v3/login"
 
     with aioresponses() as m:
-        m.get(login_url, payload=flows_json)
+        stub_get(m, login_url, payload=flows_json)
         real_nio = nio.AsyncClient(_HOMESERVER, _USER)
         client = MatrixClient(_HOMESERVER, nio_client=real_nio)
         flows = await client.login_flows()
@@ -158,7 +159,7 @@ async def test_login_flows_http_error_raises_login_error() -> None:
     login_url = f"{_HOMESERVER}/_matrix/client/v3/login"
 
     with aioresponses() as m:
-        m.get(login_url, status=500, body="Internal Server Error")
+        stub_get(m, login_url, status=500, body="Internal Server Error")
         real_nio = nio.AsyncClient(_HOMESERVER, _USER)
         client = MatrixClient(_HOMESERVER, nio_client=real_nio)
         with pytest.raises(LoginError):

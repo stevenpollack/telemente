@@ -16,6 +16,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Label, Static
 
 import fakes as fakes_module
+from matrix.helpers import stub_get
 from telemente.config import Session
 from telemente.matrix.auth import IdentityProvider, LoginFlows
 from telemente.matrix.sso import SsoTimeoutError
@@ -438,7 +439,7 @@ async def test_sso_uses_resolved_homeserver_for_mxid() -> None:
         return True
 
     with aioresponses() as m:
-        m.get(_CLAM_WELL_KNOWN, payload=_CLAM_DISCOVERY)
+        stub_get(m, _CLAM_WELL_KNOWN, payload=_CLAM_DISCOVERY)
 
         app = SsoHostApp(
             factory,
@@ -479,7 +480,7 @@ async def test_sso_stale_homeserver_without_enter() -> None:
     browser_urls: list[str] = []
 
     with aioresponses() as m:
-        m.get(_CLAM_WELL_KNOWN, payload=_CLAM_DISCOVERY)
+        stub_get(m, _CLAM_WELL_KNOWN, payload=_CLAM_DISCOVERY)
 
         def record_browser(url: str) -> bool:
             browser_urls.append(url)
