@@ -52,6 +52,8 @@ class _MessageViewClient(Protocol):
 
     async def redact_message(self, room_id: str, event_id: str, reason: str = "") -> None: ...
 
+    async def search_messages(self, room_id: str, query: str) -> list[str]: ...
+
     def me(self) -> tuple[str, str]: ...
 
     def can_redact(self, room_id: str, target_sender: str) -> bool: ...
@@ -411,6 +413,15 @@ class MessageView(Widget):
         self._msgs_by_id.clear()
         self.query_one("#encryption-notice", Static).display = False
 
+    def remove_message(self, event_id: str) -> None:
+        """Remove a message row by event_id (for server-side redactions)."""
+        self._rendered_event_ids.discard(event_id)
+        self._msgs_by_id.pop(event_id, None)
+        for row in list(self.query(MessageRow)):
+            if row.message.event_id == event_id:
+                row.remove()
+                break
+
     def set_typing(self, room_id: str, user_ids: list[str]) -> None:
         """Update the typing indicator for *room_id*.
 
@@ -433,6 +444,9 @@ class MessageView(Widget):
     def action_scroll_latest(self) -> None:
         self._scroll_to_bottom()
         self.query_one("#composer", ComposerArea).focus()
+
+    def action_open_search(self) -> None:
+        """Placeholder: in-room search is not yet implemented."""
 
     # ------------------------------------------------------------------
     # Event handlers

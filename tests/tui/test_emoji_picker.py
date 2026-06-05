@@ -228,3 +228,33 @@ async def test_emoji_picker_filter_reuses_existing_buttons() -> None:
         assert after_buttons, "no buttons after filter"
         shared = before_ids & after_ids
         assert shared, "no button widgets reused after filter (diff-update not working)"
+
+
+# ---------------------------------------------------------------------------
+# Test 8: emoji grid uses fixed row height to prevent layout recalc on hover
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emoji_picker_grid_rows_not_auto() -> None:
+    """The emoji grid must use a fixed grid-row height, not 'auto'.
+
+    Regression test for Bug 2 (hover flicker): grid-rows: auto forces the Grid
+    to recalculate row heights on every hover-induced button repaint, causing
+    the whole grid to flicker. A fixed row height (e.g. 2) prevents this.
+    """
+    from textual.css.scalar import Unit
+
+    app = PickerHostApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, EmojiPickerScreen)
+        from textual.containers import Grid
+
+        grid = app.screen.query_one("#emoji-grid", Grid)
+        grid_rows = grid.styles.grid_rows
+        assert grid_rows, "grid-rows not set on #emoji-grid"
+        for scalar in grid_rows:
+            assert scalar.unit != Unit.AUTO, (
+                f"grid-rows uses 'auto' — hover flicker fix not applied: {scalar}"
+            )

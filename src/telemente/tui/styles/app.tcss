@@ -197,6 +197,12 @@ MessageRow.-search-current {
    Context menu — floating widget (plan 0020)
    ------------------------------------------------------------------------- */
 
+/* Declare the layer so ContextMenu's 'layer: context-menu' rule takes effect
+   and the menu renders above all panels (Bug 1 fix). */
+MainScreen {
+    layers: context-menu;
+}
+
 ContextMenu {
     width: auto;
     height: auto;

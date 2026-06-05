@@ -161,7 +161,7 @@ class EmojiPickerScreen(ModalScreen[str]):
         height: auto;
         max-height: 20;
         grid-size: 8;
-        grid-rows: auto;
+        grid-rows: 2;
         overflow-y: auto;
     }
     EmojiPickerScreen #emoji-grid Button {
@@ -170,6 +170,10 @@ class EmojiPickerScreen(ModalScreen[str]):
         height: 2;
         padding: 0;
         border: none;
+    }
+    EmojiPickerScreen #emoji-grid Button:hover {
+        border: none;
+        background: $accent 30%;
     }
     EmojiPickerScreen #emoji-hint {
         width: 1fr;

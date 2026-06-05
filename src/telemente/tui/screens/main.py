@@ -29,7 +29,13 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Tab, TabbedContent, TabPane
 
 from telemente.config import Paths
-from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged, TypingChanged
+from telemente.matrix.client import (
+    MembersChanged,
+    MessageRedacted,
+    NewMessage,
+    RoomsChanged,
+    TypingChanged,
+)
 from telemente.matrix.models import Member, Message, RoomSummary
 from telemente.tui.widgets.confirm_screen import ConfirmScreen
 from telemente.tui.widgets.context_menu import ContextMenu, MenuEntry, MenuItem, MenuSeparator
@@ -66,6 +72,8 @@ class _MainClient(Protocol):
     async def edit_message(self, room_id: str, event_id: str, new_body: str) -> str: ...
 
     async def redact_message(self, room_id: str, event_id: str, reason: str = "") -> None: ...
+
+    async def search_messages(self, room_id: str, query: str) -> list[str]: ...
 
     def me(self) -> tuple[str, str]: ...
 
@@ -471,6 +479,13 @@ class MainScreen(Screen[None]):
         view = self.message_view_for(event.room_id)
         if view is not None:
             view.set_typing(event.room_id, event.user_ids)
+
+    def handle_redaction(self, event: MessageRedacted) -> None:
+        """Remove a redacted message row from the open MessageView, if visible."""
+        logger.debug("handle_redaction: room=%s event_id=%s", event.room_id, event.event_id)
+        view = self.message_view_for(event.room_id)
+        if view is not None:
+            view.remove_message(event.event_id)
 
     # ------------------------------------------------------------------
     # RoomSelected handler

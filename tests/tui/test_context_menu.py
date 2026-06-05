@@ -5,14 +5,29 @@ Tier-2 tests: no real client needed — ContextMenu is a standalone widget.
 
 from __future__ import annotations
 
+import pathlib
 from collections.abc import Sequence
 
 import pytest
 from textual.app import App, ComposeResult
 from textual.geometry import Offset
-from textual.widgets import Static
+from textual.widgets import Label, Static
 
+import fakes as fakes_module
+from telemente.matrix.models import RoomSummary
+from telemente.tui.screens.main import MainScreen
 from telemente.tui.widgets.context_menu import ContextMenu, MenuEntry, MenuItem
+
+FakeMatrixClient = fakes_module.FakeMatrixClient
+
+_APP_TCSS = str(
+    pathlib.Path(__file__).parent.parent.parent
+    / "src"
+    / "telemente"
+    / "tui"
+    / "styles"
+    / "app.tcss"
+)
 
 # ---------------------------------------------------------------------------
 # Host apps
@@ -239,3 +254,64 @@ async def test_context_menu_menu_item_not_using_1fr() -> None:
                 assert w.unit != Unit.FRACTION, (
                     f".menu-item width uses 1fr — Bug 7 fix not applied: {w}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Test 8: ContextMenu layer + screen layers declaration (Bug 1 regression)
+# ---------------------------------------------------------------------------
+
+
+class MainScreenHostApp(App[None]):
+    """Host app that loads app.tcss via CSS_PATH so layer declarations apply."""
+
+    CSS_PATH = _APP_TCSS
+
+    def __init__(self, client: FakeMatrixClient) -> None:
+        super().__init__()
+        self._client = client
+
+    def compose(self) -> ComposeResult:
+        yield Label("host")
+
+    def on_mount(self) -> None:
+        self.push_screen(MainScreen(self._client))
+
+
+async def test_context_menu_uses_context_menu_layer() -> None:
+    """ContextMenu must be in the 'context-menu' layer so it renders above panels.
+
+    Regression test for Bug 1: without 'layers: context-menu' declared in the
+    screen's CSS, the ContextMenu falls back to the default layer and is rendered
+    behind other widgets (last-mounted widget has lowest rendering priority).
+    """
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    fake.rooms_data = [RoomSummary(room_id="!r:s", display_name="R")]
+    app = MainScreenHostApp(fake)
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+
+        # Show a context menu via the internal API.
+        items: list[MenuEntry] = [MenuItem("Test", lambda: None)]
+        screen._show_context_menu(items, 5, 5)  # pyright: ignore[reportPrivateUsage]
+        await pilot.pause()
+
+        menus = list(screen.query(ContextMenu))
+        assert menus, "ContextMenu not mounted"
+        menu = menus[0]
+
+        # The ContextMenu widget's CSS 'layer' property must be 'context-menu'.
+        assert menu.styles.layer == "context-menu", (
+            f"ContextMenu layer is {menu.styles.layer!r}, expected 'context-menu'. "
+            "app.tcss must set 'layer: context-menu' on ContextMenu."
+        )
+
+        # The screen must declare 'context-menu' in its layers so the layer
+        # assignment takes effect in the compositor.
+        assert "context-menu" in screen.layers, (
+            f"'context-menu' not in screen.layers: {screen.layers}. "
+            "app.tcss must set 'layers: context-menu' on MainScreen."
+        )

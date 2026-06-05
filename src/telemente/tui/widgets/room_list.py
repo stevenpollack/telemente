@@ -300,14 +300,22 @@ class RoomList(Widget):
             logger.info("Room selected: %s", room_id)
             self.post_message(RoomList.RoomSelected(room_id))
 
-    def on_option_list_mouse_down(self, event: events.MouseDown) -> None:
-        """Right-click on the OptionList posts RoomList.RoomContextMenu."""
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Right-click on the OptionList posts RoomList.RoomContextMenu.
+
+        on_option_list_mouse_down would not be called — MouseDown is a core
+        event, not a Message subclass, so Textual's node-scoped handler naming
+        does not apply.  We use on_mouse_down and check that the click landed
+        on the OptionList by reading the Rich strip metadata embedded by the
+        OptionList renderer (event.style.meta["option"] == option index).
+        """
         if event.button != 3:
             return
-        event.stop()
-        ol = self.query_one("#room-list-view", OptionList)
-        idx = ol.highlighted
+        # The option index is embedded by OptionList in the Rich strip metadata
+        # the same way it is for Click and MouseMove events.
+        idx: int | None = event.style.meta.get("option")
         if idx is None or idx >= len(self._visible_rooms):
             return
+        event.stop()
         room = self._visible_rooms[idx]
         self.post_message(RoomList.RoomContextMenu(room, event.screen_x, event.screen_y))

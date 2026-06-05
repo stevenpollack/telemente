@@ -14,6 +14,21 @@ from textual.app import App, ComposeResult
 from telemente.matrix.models import RoomSummary
 from telemente.tui.widgets.room_list import RoomList, _option_id
 
+
+class RoomContextMenuHostApp(App[None]):
+    """App that mounts RoomList and records RoomContextMenu messages."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.context_menu_events: list[RoomList.RoomContextMenu] = []
+
+    def compose(self) -> ComposeResult:
+        yield RoomList(id="room-list")
+
+    def on_room_list_room_context_menu(self, message: RoomList.RoomContextMenu) -> None:
+        self.context_menu_events.append(message)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -1169,3 +1184,68 @@ async def test_active_highlight_index_after_refresh() -> None:
         ol = room_list.query_one(OptionList)
         expected = ol.get_option_index(_option_id("!b:h"))
         assert ol.highlighted == expected
+
+
+# ---------------------------------------------------------------------------
+# Regression: right-click via on_mouse_down with Rich style.meta
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_right_click_posts_room_context_menu_via_meta() -> None:
+    """Regression: on_mouse_down must use event.style.meta['option'] to find the
+    clicked room, NOT ol.highlighted (which only tracks keyboard navigation).
+
+    Simulates what Textual does when the user right-clicks a room item: it
+    delivers a MouseDown event whose Rich style carries {"option": idx} metadata.
+    The handler must read that metadata and post RoomContextMenu with the
+    correct room, regardless of what highlighted is set to.
+    """
+    from rich.style import Style
+    from textual.events import MouseDown
+    from textual.widgets import OptionList
+
+    app = RoomContextMenuHostApp()
+    rooms = [
+        _room("!a:h", "Alpha"),
+        _room("!b:h", "Beta"),
+    ]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        ol = room_list.query_one(OptionList)
+        # Do NOT set ol.highlighted — it should be irrelevant to the fix.
+        assert ol.highlighted is None or ol.highlighted == 0
+
+        # Find the index of "!b:h" in visible_rooms.
+        beta_idx = next(i for i, r in enumerate(room_list.visible_rooms) if r.room_id == "!b:h")
+
+        # Build a MouseDown event with Rich style metadata pointing to Beta.
+        # This is how Textual delivers the event when the user clicks on a
+        # rendered OptionList strip that has {"option": beta_idx} embedded.
+        style_with_meta = Style.from_meta({"option": beta_idx})
+        event = MouseDown(
+            widget=ol,
+            x=2,
+            y=beta_idx,
+            delta_x=0,
+            delta_y=0,
+            button=3,  # right-click
+            shift=False,
+            meta=False,
+            ctrl=False,
+            screen_x=10,
+            screen_y=beta_idx + 1,
+            style=style_with_meta,
+        )
+        room_list.on_mouse_down(event)
+        await pilot.pause()
+
+        assert len(app.context_menu_events) == 1, "Expected exactly 1 RoomContextMenu event"
+        assert app.context_menu_events[0].room.room_id == "!b:h", (
+            f"Expected room !b:h, got {app.context_menu_events[0].room.room_id!r}"
+        )

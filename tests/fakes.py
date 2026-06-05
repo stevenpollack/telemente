@@ -128,6 +128,8 @@ class FakeMatrixClient:
         self.rooms_data: list[RoomSummary] = []
         self.members_data: dict[str, list[Member]] = {}
         self.messages_data: dict[str, list[Message]] = {}
+        # Scripted search results: room_id -> list of matching event_ids
+        self.search_results: dict[str, list[str]] = {}
 
         # Subscriptions
         self._handlers: list[EventHandler] = []
@@ -350,6 +352,12 @@ class FakeMatrixClient:
         all_msgs = list(self.messages_data.get(room_id, []))
         effective_limit = min(limit, self._messages_page_size)
         return all_msgs[:effective_limit]
+
+    async def search_messages(self, room_id: str, query: str) -> list[str]:
+        """Return scripted search results for the given room and query."""
+        if not query:
+            return []
+        return list(self.search_results.get(room_id, []))
 
     # ------------------------------------------------------------------
     # Actions
