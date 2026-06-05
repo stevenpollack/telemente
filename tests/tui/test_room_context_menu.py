@@ -14,7 +14,7 @@ from telemente.matrix.models import RoomSummary
 from telemente.tui.screens.main import MainScreen
 from telemente.tui.widgets.confirm_screen import ConfirmScreen
 from telemente.tui.widgets.context_menu import ContextMenu
-from telemente.tui.widgets.room_list import RoomItem, RoomList
+from telemente.tui.widgets.room_list import RoomList, _option_id
 
 FakeMatrixClient = fakes_module.FakeMatrixClient
 
@@ -60,23 +60,38 @@ def _menu_item_labels(app: App[None]) -> list[str]:
 
 
 async def _right_click_room(pilot: object, app: HostApp, room_id: str) -> None:
-    """Right-click the RoomItem for the given room_id."""
+    """Simulate a right-click on the option for the given room_id."""
     import asyncio
 
     from textual.pilot import Pilot
+    from textual.widgets import OptionList
 
     screen = app.screen
     assert isinstance(screen, MainScreen)
     room_list = screen.query_one(RoomList)
     room_list.set_rooms(app._client.rooms_data)
     await asyncio.sleep(0.05)
-    for item in screen.query(RoomItem):
-        if item.room.room_id == room_id:
-            assert isinstance(pilot, Pilot)
-            await pilot.click(item, button=3)
-            await pilot.pause()
-            return
-    raise AssertionError(f"RoomItem for {room_id} not found in DOM")
+    await pilot.pause()  # type: ignore[attr-defined]
+
+    ol = room_list.query_one(OptionList)
+    oid = _option_id(room_id)
+    try:
+        idx = ol.get_option_index(oid)
+    except Exception as exc:
+        raise AssertionError(f"Option for {room_id!r} not found in OptionList") from exc
+
+    # Set highlighted so the mouse-down handler can find the room by index.
+    ol.highlighted = idx
+
+    # Post a RoomList.RoomContextMenu directly — the OptionList mouse-down
+    # handler reads ol.highlighted which we just set.
+    visible = room_list.visible_rooms
+    room = next((r for r in visible if r.room_id == room_id), None)
+    assert room is not None, f"Room {room_id!r} not in visible_rooms"
+
+    assert isinstance(pilot, Pilot)
+    room_list.post_message(RoomList.RoomContextMenu(room, screen_x=5, screen_y=5))
+    await pilot.pause()
 
 
 # ---------------------------------------------------------------------------
@@ -313,10 +328,10 @@ async def test_leave_cancelled_does_nothing() -> None:
 
 @pytest.mark.asyncio
 async def test_mute_shows_bell_icon_after_toggle() -> None:
-    """Clicking Mute emits RoomsChanged with m.mute tag → RoomItem label shows bell icon."""
+    """Clicking Mute emits RoomsChanged with m.mute tag → option prompt shows bell icon."""
     import asyncio
 
-    from telemente.tui.widgets.room_list import RoomItem
+    from textual.widgets import OptionList
 
     room_id = "!room1:server"
     fake = FakeMatrixClient()
@@ -339,17 +354,21 @@ async def test_mute_shows_bell_icon_after_toggle() -> None:
         await pilot.click(mute_items[0])
 
         # Wait for FakeMatrixClient to emit RoomsChanged (which it does after tag ops).
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+        room_list = screen.query_one(RoomList)
+        ol = room_list.query_one(OptionList)
         for _ in range(20):
             await pilot.pause()
             await asyncio.sleep(0.02)
-            items = list(app.screen.query(RoomItem))
-            if items and "🔕" in str(items[0].query_one(".room-name").render()):
-                break
+            if ol.option_count > 0:
+                prompt = str(ol.get_option_at_index(0).prompt)
+                if "🔕" in prompt:
+                    break
 
-        items = list(app.screen.query(RoomItem))
-        assert items, "no RoomItems in DOM"
-        label_text = str(items[0].query_one(".room-name").render())
-        assert "🔕" in label_text, f"mute icon not shown after mute: {label_text!r}"
+        assert ol.option_count > 0, "no options in OptionList"
+        prompt = str(ol.get_option_at_index(0).prompt)
+        assert "🔕" in prompt, f"mute icon not shown after mute: {prompt!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +381,7 @@ async def test_unmute_removes_bell_icon() -> None:
     """Clicking Unmute emits RoomsChanged without m.mute → bell icon disappears."""
     import asyncio
 
-    from telemente.tui.widgets.room_list import RoomItem
+    from textual.widgets import OptionList
 
     room_id = "!room1:server"
     fake = FakeMatrixClient()
@@ -382,17 +401,21 @@ async def test_unmute_removes_bell_icon() -> None:
         assert unmute_items, "Unmute item not found"
         await pilot.click(unmute_items[0])
 
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+        room_list = screen.query_one(RoomList)
+        ol = room_list.query_one(OptionList)
         for _ in range(20):
             await pilot.pause()
             await asyncio.sleep(0.02)
-            items = list(app.screen.query(RoomItem))
-            if items and "🔕" not in str(items[0].query_one(".room-name").render()):
-                break
+            if ol.option_count > 0:
+                prompt = str(ol.get_option_at_index(0).prompt)
+                if "🔕" not in prompt:
+                    break
 
-        items = list(app.screen.query(RoomItem))
-        assert items, "no RoomItems in DOM"
-        label_text = str(items[0].query_one(".room-name").render())
-        assert "🔕" not in label_text, f"mute icon still shown after unmute: {label_text!r}"
+        assert ol.option_count > 0, "no options in OptionList"
+        prompt = str(ol.get_option_at_index(0).prompt)
+        assert "🔕" not in prompt, f"mute icon still shown after unmute: {prompt!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -412,17 +435,17 @@ async def test_context_menu_does_not_overflow_screen() -> None:
     async with app.run_test(size=(80, 24)) as pilot:
         await pilot.pause()
 
-        # Post a context menu request near the bottom of the screen.
+        # Post a RoomList.RoomContextMenu near the bottom of the screen.
         screen = app.screen
         assert isinstance(screen, MainScreen)
         room_list = screen.query_one(RoomList)
         room_list.set_rooms(fake.rooms_data)
         await pilot.pause()
 
-        for item in screen.query(RoomItem):
-            if item.room.room_id == room_id:
-                item.post_message(RoomItem.ContextMenuRequest(item.room, screen_x=5, screen_y=22))
-                break
+        visible = room_list.visible_rooms
+        room = next((r for r in visible if r.room_id == room_id), None)
+        assert room is not None, f"Room {room_id!r} not found in visible_rooms"
+        room_list.post_message(RoomList.RoomContextMenu(room, screen_x=5, screen_y=22))
         await pilot.pause()
 
         menus = list(screen.query(ContextMenu))

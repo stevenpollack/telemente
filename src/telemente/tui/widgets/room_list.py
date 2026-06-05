@@ -2,11 +2,16 @@
 
 Displays a list of Matrix rooms sorted by recent activity, with live
 substring filtering, unread badges, and encryption indicators.
+
+Plan 0012: migrated from ListView/RoomItem(ListItem) to OptionList/Option
+for synchronous, flicker-free DOM updates.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import re
 from typing import ClassVar
 
 from textual import events
@@ -17,101 +22,34 @@ from textual.events import Key
 from textual.message import Message as TextualMessage
 from textual.timer import Timer
 from textual.widget import Widget
-from textual.widgets import Button, Input, Label, ListItem, ListView, Static
+from textual.widgets import Button, Input, OptionList, Static
+from textual.widgets.option_list import Option, OptionDoesNotExist
 
 from telemente.matrix.models import RoomSummary
 from telemente.matrix.sort import sort_rooms_by_recency
 
 logger = logging.getLogger(__name__)
 
+_INVALID_ID_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
 
-class RoomItem(ListItem):
-    """A single room entry in the ListView."""
 
-    DEFAULT_CSS = """
-    RoomItem {
-        height: auto;
-        padding: 0 1;
-    }
-    RoomItem:hover {
-        background: $boost;
-    }
-    RoomItem.-highlight {
-        background: $accent 20%;
-    }
-    """
+def _option_id(room_id: str) -> str:
+    """Map a room_id to a valid CSS/option id string."""
+    return "opt-room-" + _INVALID_ID_CHARS.sub("-", room_id)
 
-    class ContextMenuRequest(TextualMessage):
-        """Posted when the user right-clicks a room item."""
 
-        def __init__(self, room: RoomSummary, screen_x: int, screen_y: int) -> None:
-            super().__init__()
-            self.room = room
-            self.screen_x = screen_x
-            self.screen_y = screen_y
-
-    def __init__(self, room: RoomSummary, *, active: bool = False) -> None:
-        super().__init__()
-        self._room = room
-        self._active = active
-
-    def on_mount(self) -> None:
-        if self._active:
-            self.call_after_refresh(self.add_class, "-highlight")
-
-    @property
-    def room(self) -> RoomSummary:
-        return self._room
-
-    def compose(self) -> ComposeResult:
-        yield Label(self._render_name(), markup=True, classes=self._name_classes())
-
-    def on_mouse_down(self, event: events.MouseDown) -> None:
-        if event.button != 3:
-            return
-        event.stop()
-        self.post_message(
-            RoomItem.ContextMenuRequest(
-                room=self._room,
-                screen_x=event.screen_x,
-                screen_y=event.screen_y,
-            )
-        )
-
-    def update_room(self, room: RoomSummary) -> None:
-        """Mutate this item's data and re-render its label in place.
-
-        If the item has not yet been composed (e.g. it was just appended
-        via call_after_refresh and compose() hasn't run), the stored data is
-        updated but the DOM is left alone — the next compose() pass will pick
-        up _room and render correctly.
-        """
-        self._room = room
-        labels = self.query(".room-name")
-        if not labels:
-            return
-        label = labels.first(Label)
-        label.update(self._render_name())
-        # Sync CSS classes without forcing a full remount.
-        new_classes = self._name_classes()
-        label.set_classes(new_classes)
-
-    def _render_name(self) -> str:
-        room = self._room
-        name = f"\U0001f512 {room.display_name}" if room.encrypted else room.display_name
-        if "m.favourite" in room.tags:
-            name = f"★ {name}"
-        if "m.lowpriority" in room.tags:
-            name = f"{name} ↓"
-        if "m.mute" in room.tags:
-            name = f"{name} 🔕"
-        if room.unread_count > 0:
-            name = f"[bold]{name} ({room.unread_count})[/bold]"
-        return name
-
-    def _name_classes(self) -> str:
-        extra = " -unread" if self._room.unread_count > 0 else ""
-        return f"room-name{extra}"
+def _render_name(room: RoomSummary) -> str:
+    """Render the display name for a room, including badges and markup."""
+    name = f"\U0001f512 {room.display_name}" if room.encrypted else room.display_name
+    if "m.favourite" in room.tags:
+        name = f"★ {name}"
+    if "m.lowpriority" in room.tags:
+        name = f"{name} ↓"
+    if "m.mute" in room.tags:
+        name = f"{name} 🔕"
+    if room.unread_count > 0:
+        name = f"[bold]{name} ({room.unread_count})[/bold]"
+    return name
 
 
 class RoomList(Widget):
@@ -127,7 +65,7 @@ class RoomList(Widget):
     BINDINGS: ClassVar[list[BindingType]] = []
 
     # ------------------------------------------------------------------
-    # Message
+    # Messages
     # ------------------------------------------------------------------
 
     class RoomSelected(TextualMessage):
@@ -167,6 +105,8 @@ class RoomList(Widget):
         self._sort_mode: str = "recent"  # "recent" | "alpha"
         self._filter_timer: Timer | None = None
         self.pending_filter: str = ""
+        # side-table: option_id -> original room_id (mapping is not always invertible)
+        self._opt_to_room: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="search-bar"):
@@ -177,7 +117,7 @@ class RoomList(Widget):
             id="room-list--loading",
             classes="room-loading-state",
         )
-        yield ListView(id="room-list-view")
+        yield OptionList(id="room-list-view")
         yield Static(
             "No rooms match",
             id="room-list--empty-state",
@@ -202,7 +142,7 @@ class RoomList(Widget):
         self._rebuild()
 
     def set_active_room(self, room_id: str | None) -> None:
-        """Highlight the RoomItem matching room_id; survives list rebuilds."""
+        """Highlight the option matching room_id; survives list rebuilds."""
         self._active_room_id = room_id
         self._apply_active_highlight()
 
@@ -220,8 +160,7 @@ class RoomList(Widget):
     def update_unread(self, room_id: str, count: int) -> None:
         """Update the unread count for a single room without a full list rebuild.
 
-        Mutates the matching RoomItem in place and updates _all_rooms and
-        _visible_rooms so the count survives the next set_rooms() call.
+        Uses replace_option_prompt for a surgical patch — no clear_options.
         """
 
         def _patch(rooms: list[RoomSummary]) -> list[RoomSummary]:
@@ -241,11 +180,13 @@ class RoomList(Widget):
 
         self._all_rooms = _patch(self._all_rooms)
         self._visible_rooms = _patch(self._visible_rooms)
-        for item in self.query(RoomItem):
-            if item.room.room_id == room_id:
-                updated = next(r for r in self._all_rooms if r.room_id == room_id)
-                item.update_room(updated)
-                break
+
+        ol = self.query_one("#room-list-view", OptionList)
+        oid = _option_id(room_id)
+        updated = next((r for r in self._visible_rooms if r.room_id == room_id), None)
+        if updated is not None:
+            with contextlib.suppress(OptionDoesNotExist):
+                ol.replace_option_prompt(oid, _render_name(updated))
 
     @property
     def all_rooms(self) -> list[RoomSummary]:
@@ -274,49 +215,34 @@ class RoomList(Widget):
         else:
             self._visible_rooms = sort_rooms_by_recency(filtered)
 
-        self.call_after_refresh(self._refresh_list)
+        self._refresh_list()
         self._sync_loading_state()
         self._sync_clear_button()
 
     def _refresh_list(self) -> None:
-        """Sync the ListView DOM to match _visible_rooms with minimal mutation.
+        """Sync the OptionList DOM to match _visible_rooms.
 
-        If room order and membership are unchanged, patch each item in-place
-        (no DOM churn). Otherwise do a full clear+rebuild wrapped in
-        batch_update so Textual repaints exactly once.
+        Synchronous — no call_after_refresh deferred callback.
+        Rebuilds the full option list on every call.
         """
-        list_view = self.query_one("#room-list-view", ListView)
-        current_items = list(list_view.query(RoomItem))
-        new_rooms = self._visible_rooms
-
-        # Fast path: same rooms in the same order — just patch data in-place.
-        if len(current_items) == len(new_rooms) and all(
-            item.room.room_id == room.room_id
-            for item, room in zip(current_items, new_rooms, strict=True)
-        ):
-            for item, room in zip(current_items, new_rooms, strict=True):
-                item.update_room(room)
-                if self._active_room_id == room.room_id:
-                    item.add_class("-highlight")
-                else:
-                    item.remove_class("-highlight")
-            self._sync_empty_state()
-            return
-
-        # Slow path: order or membership changed — rebuild once without flicker.
-        with self.app.batch_update():  # pyright: ignore[reportUnknownMemberType]
-            list_view.clear()
-            for room in new_rooms:
-                list_view.append(RoomItem(room, active=self._active_room_id == room.room_id))
+        ol = self.query_one("#room-list-view", OptionList)
+        self._opt_to_room.clear()
+        ol.clear_options()
+        for room in self._visible_rooms:
+            oid = _option_id(room.room_id)
+            self._opt_to_room[oid] = room.room_id
+            ol.add_option(Option(_render_name(room), id=oid))
+        self._apply_active_highlight()
         self._sync_empty_state()
 
     def _apply_active_highlight(self) -> None:
-        """Re-apply -highlight to the active room (used by set_active_room)."""
-        for item in self.query(RoomItem):
-            if self._active_room_id is not None and item.room.room_id == self._active_room_id:
-                item.add_class("-highlight")
-            else:
-                item.remove_class("-highlight")
+        """Set ol.highlighted to the active room's index."""
+        if self._active_room_id is None:
+            return
+        ol = self.query_one("#room-list-view", OptionList)
+        oid = _option_id(self._active_room_id)
+        with contextlib.suppress(OptionDoesNotExist):
+            ol.highlighted = ol.get_option_index(oid)
 
     def _sync_loading_state(self) -> None:
         """Show 'Syncing…' until the first batch of rooms arrives."""
@@ -367,12 +293,21 @@ class RoomList(Widget):
             search_input.clear()
             search_input.focus()
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Translate ListView.Selected into RoomList.RoomSelected."""
-        if isinstance(event.item, RoomItem):
-            logger.info("Room selected: %s", event.item.room.room_id)
-            self.post_message(RoomList.RoomSelected(event.item.room.room_id))
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Translate OptionList.OptionSelected into RoomList.RoomSelected."""
+        room_id = self._opt_to_room.get(event.option.id or "")
+        if room_id:
+            logger.info("Room selected: %s", room_id)
+            self.post_message(RoomList.RoomSelected(room_id))
 
-    def on_room_item_context_menu_request(self, event: RoomItem.ContextMenuRequest) -> None:
-        """Re-post the context menu request upward as RoomList.RoomContextMenu."""
-        self.post_message(RoomList.RoomContextMenu(event.room, event.screen_x, event.screen_y))
+    def on_option_list_mouse_down(self, event: events.MouseDown) -> None:
+        """Right-click on the OptionList posts RoomList.RoomContextMenu."""
+        if event.button != 3:
+            return
+        event.stop()
+        ol = self.query_one("#room-list-view", OptionList)
+        idx = ol.highlighted
+        if idx is None or idx >= len(self._visible_rooms):
+            return
+        room = self._visible_rooms[idx]
+        self.post_message(RoomList.RoomContextMenu(room, event.screen_x, event.screen_y))

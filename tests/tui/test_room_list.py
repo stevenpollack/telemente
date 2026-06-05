@@ -1,4 +1,4 @@
-"""Tests for the RoomList widget (plan 0006).
+"""Tests for the RoomList widget (plan 0006, updated for plan 0012).
 
 All tests use a minimal host App that mounts RoomList directly.
 No network — RoomSummary fixtures are built in-process.
@@ -12,7 +12,7 @@ import pytest
 from textual.app import App, ComposeResult
 
 from telemente.matrix.models import RoomSummary
-from telemente.tui.widgets.room_list import RoomList
+from telemente.tui.widgets.room_list import RoomList, _option_id
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -215,11 +215,11 @@ async def test_selecting_posts_roomselected() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        # Focus the list, move to the first item (Alpha = newest), then select
-        from textual.widgets import ListView
+        # Focus the OptionList, move to the first item (Alpha = newest), then select
+        from textual.widgets import OptionList
 
-        list_view = room_list.query_one(ListView)
-        list_view.focus()
+        option_list = room_list.query_one(OptionList)
+        option_list.focus()
         await pilot.pause()
         await pilot.press("down")
         await pilot.pause()
@@ -237,8 +237,8 @@ async def test_selecting_posts_roomselected() -> None:
 
 @pytest.mark.asyncio
 async def test_unread_badge_rendered() -> None:
-    """Unread count is embedded in the room-name label as '(3)'."""
-    from telemente.tui.widgets.room_list import RoomItem
+    """Unread count is embedded in the option prompt as '(3)'."""
+    from textual.widgets import OptionList
 
     app = HostApp()
     rooms = [
@@ -251,11 +251,11 @@ async def test_unread_badge_rendered() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        items = list(app.query(RoomItem))
-        assert len(items) == 1
-        rendered = str(items[0].query_one(".room-name").render())
-        assert "Busy Room" in rendered
-        assert "(3)" in rendered
+        ol = room_list.query_one(OptionList)
+        assert ol.option_count == 1
+        prompt = str(ol.get_option_at_index(0).prompt)
+        assert "Busy Room" in prompt
+        assert "(3)" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -347,14 +347,14 @@ async def test_set_rooms_while_filtered_preserves_all_rooms() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 11: set_active_room highlights the matching RoomItem
+# Test 11: set_active_room highlights the matching option
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_set_active_room_highlights_matching_item() -> None:
-    """set_active_room('!a:h') — matching RoomItem has -highlight, others don't."""
-    from telemente.tui.widgets.room_list import RoomItem
+    """set_active_room('!a:h') — matching option is highlighted."""
+    from textual.widgets import OptionList
 
     app = HostApp()
     rooms = [
@@ -372,15 +372,9 @@ async def test_set_active_room_highlights_matching_item() -> None:
         room_list.set_active_room("!a:h")
         await pilot.pause()
 
-        items = list(app.query(RoomItem))
-        assert len(items) == 3
-
-        highlighted = [item for item in items if "-highlight" in item.classes]
-        assert len(highlighted) == 1
-        assert highlighted[0].room.room_id == "!a:h"
-
-        not_highlighted = [item for item in items if "-highlight" not in item.classes]
-        assert len(not_highlighted) == 2
+        ol = room_list.query_one(OptionList)
+        expected_idx = ol.get_option_index(_option_id("!a:h"))
+        assert ol.highlighted == expected_idx
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +385,8 @@ async def test_set_active_room_highlights_matching_item() -> None:
 @pytest.mark.asyncio
 async def test_active_highlight_survives_set_rooms_rebuild() -> None:
     """Regression: calling set_rooms() after set_active_room() must re-apply the
-    highlight — previously the rebuild wiped all classes on new RoomItem instances."""
-    from telemente.tui.widgets.room_list import RoomItem
+    highlight — previously the rebuild wiped all classes on new instances."""
+    from textual.widgets import OptionList
 
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
@@ -408,12 +402,10 @@ async def test_active_highlight_survives_set_rooms_rebuild() -> None:
         # Simulate a sync that rebuilds the list (e.g. RoomsChanged)
         room_list.set_rooms(rooms)
         await pilot.pause()
-        await pilot.pause()  # second pause lets call_after_refresh fire
 
-        items = list(app.query(RoomItem))
-        highlighted = [item for item in items if "-highlight" in item.classes]
-        assert len(highlighted) == 1
-        assert highlighted[0].room.room_id == "!a:h"
+        ol = room_list.query_one(OptionList)
+        expected_idx = ol.get_option_index(_option_id("!a:h"))
+        assert ol.highlighted == expected_idx
 
 
 # ---------------------------------------------------------------------------
@@ -423,12 +415,8 @@ async def test_active_highlight_survives_set_rooms_rebuild() -> None:
 
 @pytest.mark.asyncio
 async def test_switch_active_room_moves_highlight() -> None:
-    """Regression: selecting room B after room A must remove the highlight from A.
-
-    The bug: set_rooms() was called before set_active_room(), so the rebuild
-    used the old _active_room_id and the new selection had no effect until the
-    next render cycle."""
-    from telemente.tui.widgets.room_list import RoomItem
+    """Regression: selecting room B after room A must move the highlight to B."""
+    from textual.widgets import OptionList
 
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
@@ -443,18 +431,15 @@ async def test_switch_active_room_moves_highlight() -> None:
         room_list.set_active_room("!a:h")
         room_list.set_rooms(rooms)
         await pilot.pause()
-        await pilot.pause()
 
         # Now switch to room B (set_active_room before set_rooms, as main.py does)
         room_list.set_active_room("!b:h")
         room_list.set_rooms(rooms)
         await pilot.pause()
-        await pilot.pause()
 
-        items = list(app.query(RoomItem))
-        highlighted = [item for item in items if "-highlight" in item.classes]
-        assert len(highlighted) == 1
-        assert highlighted[0].room.room_id == "!b:h"
+        ol = room_list.query_one(OptionList)
+        expected_idx = ol.get_option_index(_option_id("!b:h"))
+        assert ol.highlighted == expected_idx
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +450,8 @@ async def test_switch_active_room_moves_highlight() -> None:
 @pytest.mark.asyncio
 async def test_unread_room_name_is_bold() -> None:
     """A room with unread_count>0 renders its name with bold markup and (N) count."""
+    from textual.widgets import OptionList
+
     app = HostApp()
     rooms = [_room("!a:h", "General", unread_count=3)]
 
@@ -474,13 +461,11 @@ async def test_unread_room_name_is_bold() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import RoomItem
-
-        items = list(app.query(RoomItem))
-        assert len(items) == 1
-        rendered = str(items[0].query_one(".room-name").render())
-        assert "General" in rendered
-        assert "(3)" in rendered
+        ol = room_list.query_one(OptionList)
+        assert ol.option_count == 1
+        prompt = str(ol.get_option_at_index(0).prompt)
+        assert "General" in prompt
+        assert "(3)" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +476,8 @@ async def test_unread_room_name_is_bold() -> None:
 @pytest.mark.asyncio
 async def test_read_room_name_is_plain() -> None:
     """A room with unread_count==0 renders its name without (N) count."""
+    from textual.widgets import OptionList
+
     app = HostApp()
     rooms = [_room("!a:h", "General", unread_count=0)]
 
@@ -500,12 +487,11 @@ async def test_read_room_name_is_plain() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import RoomItem
-
-        items = list(app.query(RoomItem))
-        rendered = str(items[0].query_one(".room-name").render())
-        assert "General" in rendered
-        assert "(" not in rendered
+        ol = room_list.query_one(OptionList)
+        assert ol.option_count == 1
+        prompt = str(ol.get_option_at_index(0).prompt)
+        assert "General" in prompt
+        assert "(" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +502,8 @@ async def test_read_room_name_is_plain() -> None:
 @pytest.mark.asyncio
 async def test_favourite_tag_shows_star() -> None:
     """A room tagged m.favourite shows ★ in its rendered name."""
+    from textual.widgets import OptionList
+
     app = HostApp()
     rooms = [
         RoomSummary(
@@ -531,11 +519,9 @@ async def test_favourite_tag_shows_star() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import RoomItem
-
-        items = list(app.query(RoomItem))
-        rendered = str(items[0].query_one(".room-name").render())
-        assert "★" in rendered
+        ol = room_list.query_one(OptionList)
+        prompt = str(ol.get_option_at_index(0).prompt)
+        assert "★" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +532,8 @@ async def test_favourite_tag_shows_star() -> None:
 @pytest.mark.asyncio
 async def test_lowpriority_tag_shows_arrow() -> None:
     """A room tagged m.lowpriority shows ↓ in its rendered name."""
+    from textual.widgets import OptionList
+
     app = HostApp()
     rooms = [
         RoomSummary(
@@ -561,11 +549,9 @@ async def test_lowpriority_tag_shows_arrow() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import RoomItem
-
-        items = list(app.query(RoomItem))
-        rendered = str(items[0].query_one(".room-name").render())
-        assert "↓" in rendered
+        ol = room_list.query_one(OptionList)
+        prompt = str(ol.get_option_at_index(0).prompt)
+        assert "↓" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -674,15 +660,15 @@ async def test_debounced_search_does_not_rebuild_per_keystroke() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 21: update_unread patches the label without a full rebuild
+# Test 21: update_unread patches the option without a full rebuild
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_update_unread_patches_label_in_place() -> None:
     """update_unread(room_id, count) updates the unread display without
-    a full ListView rebuild — the same RoomItem instance stays in the DOM."""
-    from telemente.tui.widgets.room_list import RoomItem
+    a full OptionList rebuild — option_count unchanged, prompt updated."""
+    from textual.widgets import OptionList
 
     app = HostApp()
     rooms = [
@@ -696,24 +682,20 @@ async def test_update_unread_patches_label_in_place() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        items_before = list(app.query(RoomItem))
-        assert len(items_before) == 2
-        # Grab identity of the item for room a
-        item_a_before = next(i for i in items_before if i.room.room_id == "!a:h")
+        ol = room_list.query_one(OptionList)
+        count_before = ol.option_count
+        assert count_before == 2
 
         room_list.update_unread("!a:h", 5)
         await pilot.pause()
 
-        items_after = list(app.query(RoomItem))
-        assert len(items_after) == 2
-        item_a_after = next(i for i in items_after if i.room.room_id == "!a:h")
+        # option_count unchanged — no rebuild.
+        assert ol.option_count == count_before
 
-        # Same DOM node — no teardown+rebuild.
-        assert item_a_before is item_a_after
-
-        # Label updated to reflect new unread count.
-        rendered = str(item_a_after.query_one(".room-name").render())
-        assert "(5)" in rendered
+        # Prompt for room a updated to show new count.
+        idx = ol.get_option_index(_option_id("!a:h"))
+        prompt = str(ol.get_option_at_index(idx).prompt)
+        assert "(5)" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -724,6 +706,8 @@ async def test_update_unread_patches_label_in_place() -> None:
 @pytest.mark.asyncio
 async def test_mute_tag_shows_bell() -> None:
     """A room tagged m.mute shows 🔕 in its rendered name."""
+    from textual.widgets import OptionList
+
     app = HostApp()
     rooms = [
         RoomSummary(
@@ -739,11 +723,9 @@ async def test_mute_tag_shows_bell() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import RoomItem
-
-        items = list(app.query(RoomItem))
-        rendered = str(items[0].query_one(".room-name").render())
-        assert "🔕" in rendered
+        ol = room_list.query_one(OptionList)
+        prompt = str(ol.get_option_at_index(0).prompt)
+        assert "🔕" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -863,17 +845,15 @@ async def test_clear_button_visibility_tracks_filter() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 26: set_sort_mode updates DOM order (not just visible_rooms list)
+# Test 26: set_sort_mode updates OptionList order (not just visible_rooms list)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_set_sort_mode_updates_dom_order() -> None:
-    """set_sort_mode('alpha') must repaint the ListView — DOM order matches
+    """set_sort_mode('alpha') must repaint the OptionList — DOM order matches
     alphabetical order after a single pilot.pause()."""
-    from textual.widgets import ListView
-
-    from telemente.tui.widgets.room_list import RoomItem
+    from textual.widgets import OptionList
 
     app = HostApp()
     rooms = [
@@ -891,11 +871,14 @@ async def test_set_sort_mode_updates_dom_order() -> None:
         room_list.set_sort_mode("alpha")
         await pilot.pause()
 
-        # Verify DOM order matches alphabetical, not just the Python list.
-        list_view = room_list.query_one(ListView)
-        dom_items = list(list_view.query(RoomItem))
-        dom_names = [item.room.display_name for item in dom_items]
-        assert dom_names == ["Alpha", "Mango", "Zebra"]
+        # Verify OptionList order matches alphabetical.
+        ol = room_list.query_one(OptionList)
+        dom_names = [str(ol.get_option_at_index(i).prompt) for i in range(ol.option_count)]
+        # Prompts may include markup — just check that names appear in order
+        assert dom_names[0].find("Alpha") < dom_names[0].find("Z") or "Alpha" in dom_names[0]
+        assert "Alpha" in dom_names[0]
+        assert "Mango" in dom_names[1]
+        assert "Zebra" in dom_names[2]
 
 
 # ---------------------------------------------------------------------------
@@ -989,74 +972,200 @@ async def test_all_none_timestamps_sort_alphabetically() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests for _refresh_list fast-path (same order → patch in-place, no remount)
+# Test F (replaces test_set_rooms_same_order_patches_items_in_place):
+# _refresh_list is synchronous — visible_rooms updated without extra pause
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_set_rooms_same_order_patches_items_in_place() -> None:
-    """set_rooms with same room_ids in same order reuses existing RoomItem
-    instances — no teardown and remount, so scroll position is preserved."""
-    from telemente.tui.widgets.room_list import RoomItem
-
+async def test_refresh_list_is_synchronous() -> None:
+    """After set_rooms(rooms), visible_rooms is updated without an extra
+    pilot.pause() to drain a deferred callback."""
     app = HostApp()
-    rooms_v1 = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
-    rooms_v2 = [_room("!a:h", "Alpha (updated)"), _room("!b:h", "Beta")]
+    rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
 
     async with app.run_test() as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
-        room_list.set_rooms(rooms_v1)
-        await pilot.pause()
+        room_list.set_rooms(rooms)
+        # No extra pilot.pause() — _rebuild calls _refresh_list synchronously.
+        assert len(room_list.visible_rooms) == 2
 
-        items_before = list(app.query(RoomItem))
-        assert len(items_before) == 2
-        ids_before = [id(item) for item in items_before]
 
-        room_list.set_rooms(rooms_v2)
-        await pilot.pause()
-
-        items_after = list(app.query(RoomItem))
-        assert len(items_after) == 2
-        # Same Python objects — fast path ran, no remount.
-        assert [id(item) for item in items_after] == ids_before
-        # Data updated in-place.
-        assert items_after[0].room.display_name == "Alpha (updated)"
+# ---------------------------------------------------------------------------
+# Test G (replaces test_set_rooms_order_change_rebuilds_correctly):
+# OptionList has the correct option count after set_rooms
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_set_rooms_order_change_rebuilds_correctly() -> None:
-    """set_rooms with a different room order (slow path) still produces
-    a correct DOM — and replaces the old RoomItem instances."""
-    from datetime import UTC, datetime
-
-    from telemente.tui.widgets.room_list import RoomItem
+async def test_option_list_count_after_set_rooms() -> None:
+    """OptionList.option_count == len(rooms) after set_rooms."""
+    from textual.widgets import OptionList
 
     app = HostApp()
-    rooms_v1 = [
-        _room("!a:h", "Alpha", last_activity=datetime(2024, 1, 1, tzinfo=UTC)),
-        _room("!b:h", "Beta", last_activity=datetime(2024, 6, 1, tzinfo=UTC)),
-    ]
-    # v2: Beta becomes older, Alpha becomes newest — order flips
-    rooms_v2 = [
-        _room("!b:h", "Beta", last_activity=datetime(2024, 1, 1, tzinfo=UTC)),
-        _room("!a:h", "Alpha", last_activity=datetime(2024, 6, 1, tzinfo=UTC)),
+    rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        ol = room_list.query_one(OptionList)
+        assert ol.option_count == 2
+
+
+# ---------------------------------------------------------------------------
+# New Test A: set_rooms populates OptionList with correct IDs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_rooms_populates_option_ids() -> None:
+    """set_rooms() populates the OptionList with options using _option_id IDs."""
+    from textual.widgets import OptionList
+
+    app = HostApp()
+    rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        ol = room_list.query_one(OptionList)
+        assert ol.option_count == 2
+        assert ol.get_option_index(_option_id("!a:h")) == 0
+
+
+# ---------------------------------------------------------------------------
+# New Test B: update_unread calls replace_option_prompt, not clear_options
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_unread_uses_replace_not_clear() -> None:
+    """update_unread must call replace_option_prompt, NOT clear_options."""
+    from textual.widgets import OptionList
+
+    app = HostApp()
+    rooms = [
+        _room("!a:h", "General"),
+        _room("!b:h", "Random"),
     ]
 
     async with app.run_test() as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
-        room_list.set_rooms(rooms_v1)
+        room_list.set_rooms(rooms)
         await pilot.pause()
 
-        items_before = list(app.query(RoomItem))
-        assert [i.room.room_id for i in items_before] == ["!b:h", "!a:h"]
+        ol = room_list.query_one(OptionList)
+        clear_called = False
+        original_clear = ol.clear_options
 
-        room_list.set_rooms(rooms_v2)
+        def patched_clear() -> None:
+            nonlocal clear_called
+            clear_called = True
+            original_clear()
+
+        ol.clear_options = patched_clear  # type: ignore[assignment]
+
+        room_list.update_unread("!a:h", 7)
         await pilot.pause()
 
-        items_after = list(app.query(RoomItem))
-        # Slow path ran — instances replaced.
-        assert items_after is not items_before
-        # DOM order updated correctly.
-        assert [i.room.room_id for i in items_after] == ["!a:h", "!b:h"]
+        assert not clear_called, "clear_options must NOT be called by update_unread"
+
+        # Prompt updated with new count.
+        idx = ol.get_option_index(_option_id("!a:h"))
+        prompt = str(ol.get_option_at_index(idx).prompt)
+        assert "(7)" in prompt
+
+
+# ---------------------------------------------------------------------------
+# New Test C: RoomSelected carries correct room_id for IDs with special chars
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_room_selected_special_chars_in_room_id() -> None:
+    """RoomSelected.room_id is the original room_id (with : and .) not the option id."""
+    from textual.widgets import OptionList
+
+    app = HostApp()
+    rooms = [_room("!abc:example.com", "Special")]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        ol = room_list.query_one(OptionList)
+        ol.focus()
+        await pilot.pause()
+        await pilot.press("down")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert len(app.selected_room_ids) == 1
+        assert app.selected_room_ids[0] == "!abc:example.com"
+
+
+# ---------------------------------------------------------------------------
+# New Test D: filter hides/restores options without full widget replacement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_filter_changes_option_count() -> None:
+    """apply_filter reduces option_count; clearing restores it."""
+    from textual.widgets import OptionList
+
+    app = HostApp()
+    rooms = [_room("!a:h", "General"), _room("!b:h", "Random")]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_rooms(rooms)
+        await pilot.pause()
+
+        room_list.apply_filter("rand")
+        await pilot.pause()
+        ol = room_list.query_one(OptionList)
+        assert ol.option_count == 1
+
+        room_list.apply_filter("")
+        await pilot.pause()
+        assert ol.option_count == 2
+
+
+# ---------------------------------------------------------------------------
+# New Test E: active highlight index set correctly after _refresh_list
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_active_highlight_index_after_refresh() -> None:
+    """After set_active_room('!b:h') + set_rooms([ra, rb]),
+    ol.highlighted == ol.get_option_index(_option_id('!b:h'))."""
+    from textual.widgets import OptionList
+
+    app = HostApp()
+    ra = _room("!a:h", "Alpha")
+    rb = _room("!b:h", "Beta")
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        room_list = app.query_one(RoomList)
+        room_list.set_active_room("!b:h")
+        room_list.set_rooms([ra, rb])
+        await pilot.pause()
+
+        ol = room_list.query_one(OptionList)
+        expected = ol.get_option_index(_option_id("!b:h"))
+        assert ol.highlighted == expected

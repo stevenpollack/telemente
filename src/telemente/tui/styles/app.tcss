@@ -93,12 +93,8 @@ RoomList .room-empty-state {
     padding: 1;
 }
 
-RoomList .room-name {
-    width: 1fr;
-}
-
-RoomList .room-name.-unread {
-    color: $accent;
+RoomList #room-list-view > .option-list--option {
+    padding: 0 1;
 }
 
 /* -------------------------------------------------------------------------
