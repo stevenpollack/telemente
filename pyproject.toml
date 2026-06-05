@@ -88,6 +88,7 @@ testpaths = ["tests"]
 addopts = "-q -n auto"
 markers = [
     "olm: tests that require libolm (end-to-end encryption)",
+    "recorded: smoke tests using local tests/fixtures/nio/recorded/ (skipped when absent)",
 ]
 
 [tool.coverage.run]

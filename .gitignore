@@ -32,6 +32,12 @@ coverage.xml
 .telemente/
 *.log
 
+# Local credentials for optional matrix fixture recording (see .env.local.example)
+.env.local
+
+# Live homeserver recordings (generate with scripts/record_nio_fixtures.py)
+tests/fixtures/nio/recorded/
+
 # OS / editor
 .DS_Store
 .idea/
