@@ -77,6 +77,26 @@ ruff + mypy clean.** Each `plans/*.md` document lists its test cases first.
 - **HTTP integration tests** use typed `matrix.helpers.stub_get/post/put/delete`
   instead of calling `aioresponses` methods directly (keeps Pyright clean).
 
+### Nio cassette fixtures (plan 0016)
+
+Matrix integration tests replay **JSON cassettes** through **real matrix-nio**
+with **`aioresponses`** — no live homeserver in CI. See
+[`tests/fixtures/nio/README.md`](tests/fixtures/nio/README.md).
+
+| Tier | Path | CI | Purpose |
+|------|------|----|---------|
+| **Synthetic** | `tests/fixtures/nio/synthetic/` | Yes | Deterministic behavioral tests (`test_client.py`); fixed room IDs and timestamps |
+| **Recorded** | `tests/fixtures/nio/recorded/` | No (gitignored) | Optional smoke tests (`@pytest.mark.recorded`); real Synapse shapes from a live capture |
+
+- Load cassettes via `matrix.helpers.load_fixture(name, tier="synthetic"|"recorded")`.
+- Use `matrix.helpers.stub_sync()` / `start_sync_with_stubs()` for sync replay;
+  assert on the **public API** (`rooms()`, `RoomSummary.last_activity`), not
+  `MatrixClient._*` attributes.
+- **Recording** (local only): copy `.env.local.example` → `.env.local`, then
+  `uv run python scripts/record_nio_fixtures.py --full-sync` (and again without
+  `--full-sync` for incremental). Tokens are sanitized on write. Run smoke tests
+  with `uv run pytest -m recorded -n 0`.
+
 ## Fast feedback loop
 
 ```bash

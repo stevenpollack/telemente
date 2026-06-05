@@ -85,6 +85,22 @@ uv run pytest tests/test_smoke.py::test_version
 uv run textual run --dev telemente.tui.app:TelementeApp
 ```
 
+### Matrix nio cassette tests (plan 0016)
+
+CI replays committed JSON fixtures from `tests/fixtures/nio/synthetic/` through
+real matrix-nio (stubbed with `aioresponses`) — no live homeserver. For optional
+higher-fidelity smoke tests against a real Synapse capture:
+
+```bash
+cp .env.local.example .env.local   # add matrix.org test credentials
+uv run python scripts/record_nio_fixtures.py --full-sync
+uv run python scripts/record_nio_fixtures.py
+uv run pytest -m recorded -n 0
+```
+
+Recordings land in `tests/fixtures/nio/recorded/` (gitignored; tokens
+sanitized). Details: [`tests/fixtures/nio/README.md`](tests/fixtures/nio/README.md).
+
 This project practices **test-driven development** — see
 [`AGENTS.md`](AGENTS.md) and the [`plans/`](plans/) directory for the workflow
 and per-feature specifications.
@@ -97,6 +113,7 @@ src/telemente/      Application code
   tui/              Textual screens & widgets
 stubs/nio/          Partial type stubs for matrix-nio (used by mypy + Pyright)
 tests/              Test suite (mirrors the package layout)
+  fixtures/nio/     Matrix HTTP cassettes (synthetic/ committed; recorded/ local)
 plans/              Detailed, per-feature implementation plans
 ```
 
