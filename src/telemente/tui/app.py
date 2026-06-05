@@ -112,6 +112,7 @@ class TelementeApp(App[None]):
             self._default_homeserver,
             store_path=str(paths.store_dir),
             device_name=settings.default_device_name,
+            cache_path=paths.cache_db_path(),
         )
 
         # Subscription handle; set once we subscribe.
@@ -151,6 +152,7 @@ class TelementeApp(App[None]):
                     homeserver,
                     store_path=store_path,
                     device_name=device_name,
+                    cache_path=paths.cache_db_path(),
                 )
 
             self.push_screen(
@@ -187,6 +189,7 @@ class TelementeApp(App[None]):
                 session.homeserver,
                 store_path=str(paths.store_dir),
                 device_name=settings.default_device_name,
+                cache_path=paths.cache_db_path(),
             )
 
         await self._client.restore(session)
@@ -235,6 +238,7 @@ class TelementeApp(App[None]):
             session.homeserver,
             store_path=str(paths.store_dir),
             device_name=settings.default_device_name,
+            cache_path=paths.cache_db_path(),
         )
         # Restore credentials without re-authenticating (login already done)
         self.run_worker(
@@ -341,6 +345,7 @@ class TelementeApp(App[None]):
                 homeserver,
                 store_path=store_path,
                 device_name=device_name,
+                cache_path=paths.cache_db_path(),
             )
 
         self.push_screen(

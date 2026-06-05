@@ -6,6 +6,7 @@ Unit tests inject mock nio clients; integration tests use aioresponses.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -1785,3 +1786,122 @@ async def test_messages_redacted_event_from_cassette(real_nio_client: Any) -> No
     # Pin the observed behaviour: nio parses redacted m.room.message as
     # RoomMessageText with an empty body string.
     assert isinstance(msgs, list)
+
+
+# ---------------------------------------------------------------------------
+# Plan 0013: message cache integration tests (items 12-15)
+# ---------------------------------------------------------------------------
+
+
+async def test_messages_cold_room_hits_network() -> None:
+    """messages() with a cold cache fetches from the network (room_messages called)."""
+    import tempfile
+
+    text_ev = make_text_event(body="cached message")
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=True) as f:
+        cache_path = f.name
+
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock, cache_path=cache_path)
+    await client.restore(make_session())
+    try:
+        msgs = await client.messages("!r:example.com")
+    finally:
+        await client.close()
+
+    nio_mock.room_messages.assert_awaited_once()
+    assert len(msgs) == 1
+    assert msgs[0].body == "cached message"
+
+
+async def test_messages_warm_room_skips_network() -> None:
+    """messages() on a warm room returns from cache without calling room_messages again."""
+    import tempfile
+
+    text_ev = make_text_event(body="first message")
+    nio_mock = build_nio_mock()
+    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        cache_path = f.name
+
+    import os
+
+    try:
+        client = MatrixClient(HOMESERVER, nio_client=nio_mock, cache_path=cache_path)
+        await client.restore(make_session())
+        # First call — cold, hits network and populates cache
+        await client.messages("!r:example.com")
+        assert nio_mock.room_messages.await_count == 1
+
+        # Second call — warm, served from cache
+        msgs2 = await client.messages("!r:example.com")
+        assert nio_mock.room_messages.await_count == 1  # still 1
+        assert len(msgs2) == 1
+        await client.close()
+    finally:
+        os.unlink(cache_path)
+
+
+async def test_on_room_message_writes_to_cache() -> None:
+    """_on_room_message writes the new message to the cache (room becomes warm)."""
+    import tempfile
+
+    import nio
+
+    nio_mock = build_nio_mock()
+    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        cache_path = f.name
+
+    import os
+
+    try:
+        client = MatrixClient(HOMESERVER, nio_client=nio_mock, cache_path=cache_path)
+        await client.restore(make_session())
+
+        room = make_nio_room("!r:example.com")
+        event = make_text_event(event_id="$sync_ev:example.com", body="sync arrived")
+        await event_callback_for(nio_mock, nio.RoomMessageText)(room, event)
+
+        # Room is now warm because the sync callback wrote to the cache.
+        assert client._cache is not None
+        assert not await client._cache.is_cold("!r:example.com")
+
+        await client.close()
+    finally:
+        os.unlink(cache_path)
+
+
+async def test_close_closes_cache() -> None:
+    """close() closes the cache connection."""
+    import tempfile
+
+    nio_mock = build_nio_mock()
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        cache_path = f.name
+
+    import os
+
+    try:
+        client = MatrixClient(HOMESERVER, nio_client=nio_mock, cache_path=cache_path)
+        await client.restore(make_session())
+
+        assert client._cache is not None
+        cache = client._cache
+
+        await client.close()
+
+        # After close(), the aiosqlite connection should be closed.
+        # Attempting to use it should raise an error.
+        with pytest.raises((Exception,)):
+            await cache.get_room("!r:example.com")
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(cache_path)

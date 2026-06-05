@@ -24,6 +24,7 @@ dependencies = [
     "matrix-nio[e2e]>=0.25",
     "keyring>=25",
     "platformdirs>=4",
+    "aiosqlite>=0.19",
 ]
 
 [project.urls]

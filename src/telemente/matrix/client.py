@@ -32,6 +32,7 @@ import nio
 
 from telemente.config import Session
 from telemente.matrix.auth import LoginFlows, build_sso_redirect_url, parse_login_flows
+from telemente.matrix.cache import MessageCache
 from telemente.matrix.models import Member, Message, RoomSummary
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ class MatrixClient:
         store_path: str | None = None,
         device_name: str = "telemente",
         nio_client: nio.AsyncClient | None = None,
+        cache_path: str | None = None,
     ) -> None:
         logger.debug(
             "MatrixClient.__init__: homeserver=%s store_path=%s device_name=%s",
@@ -112,6 +114,8 @@ class MatrixClient:
         self._homeserver = homeserver
         self._device_name = device_name
         self._store_path = store_path
+        self._cache_path = cache_path
+        self._cache: MessageCache | None = MessageCache() if cache_path is not None else None
         self._handlers: list[EventHandler] = []
         self._task: asyncio.Task[None] | None = None
         self._rooms_poll_task: asyncio.Task[None] | None = None
@@ -191,7 +195,7 @@ class MatrixClient:
         response = await self._client.login(token=token, device_name=self._device_name)
         if isinstance(response, nio.LoginError):
             raise LoginError(str(response))
-        return self._finalize_login(response)
+        return await self._finalize_login(response)
 
     async def login(self, user: str, password: str) -> Session:
         """Login to the homeserver with user/password credentials.
@@ -212,9 +216,9 @@ class MatrixClient:
         response = await self._client.login(password, device_name=self._device_name)
         if isinstance(response, nio.LoginError):
             raise LoginError(str(response))
-        return self._finalize_login(response)
+        return await self._finalize_login(response)
 
-    def _finalize_login(self, response: object) -> Session:
+    async def _finalize_login(self, response: object) -> Session:
         """Shared post-login bookkeeping: build Session, set state, load store.
 
         Called by both ``login()`` and ``login_with_token()``.
@@ -233,6 +237,7 @@ class MatrixClient:
         )
         self._logged_in = True
         self._load_store()
+        await self._open_cache()
         self._register_callbacks()
         return session
 
@@ -250,6 +255,7 @@ class MatrixClient:
         )
         self._logged_in = True
         self._load_store()
+        await self._open_cache()
         self._register_callbacks()
 
     async def logout(self) -> None:
@@ -331,6 +337,9 @@ class MatrixClient:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
         await self._client.close()
+        if self._cache is not None:
+            await self._cache.close()
+            self._cache = None
 
     # ------------------------------------------------------------------
     # Queries
@@ -410,7 +419,10 @@ class MatrixClient:
         return result
 
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]:
-        """Fetch recent messages for a room via backfill.
+        """Fetch recent messages for a room, cache-first.
+
+        Warm room (cached) → returns from SQLite immediately.
+        Cold room → HTTP backfill, populate cache, return.
 
         Returns Message dataclasses. Undecryptable encrypted events are
         returned as placeholder messages so the UI can inform the user.
@@ -418,6 +430,12 @@ class MatrixClient:
         logger.info("messages: fetching up to %d messages for room=%s", limit, room_id)
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in to fetch messages")
+
+        # Cache-first: serve warm rooms from SQLite without a network call.
+        if self._cache is not None and not await self._cache.is_cold(room_id):
+            logger.debug("messages: cache hit for room=%s", room_id)
+            return await self._cache.get_room(room_id, limit)
+
         response = await self._client.room_messages(room_id, limit=limit)
         if not isinstance(response, nio.RoomMessagesResponse):
             logger.warning("room_messages failed for %s: %s", room_id, response)
@@ -519,6 +537,10 @@ class MatrixClient:
             newest_ts = result[-1].timestamp
             if newest_ts > self._last_activity.get(room_id, datetime.min.replace(tzinfo=UTC)):
                 self._last_activity[room_id] = newest_ts
+        # Populate the cache with this backfill result.
+        if self._cache is not None and result:
+            await self._cache.put_many(result)
+            await self._cache.evict_old(room_id)
         logger.info("messages: returning %d messages for room=%s", len(result), room_id)
         return result
 
@@ -722,6 +744,20 @@ class MatrixClient:
         except Exception as exc:
             logger.warning("load_store() failed (encryption may be unavailable): %s", exc)
 
+    async def _open_cache(self) -> None:
+        """Open the message cache if a cache_path is configured.
+
+        On failure, logs a warning and disables the cache for this session.
+        """
+        if self._cache is None or self._cache_path is None:
+            return
+        try:
+            await self._cache.open(self._cache_path)
+            logger.debug("MessageCache opened at %s", self._cache_path)
+        except Exception as exc:
+            logger.warning("MessageCache.open() failed — cache disabled: %s", exc)
+            self._cache = None
+
     def _tofu_trust_room(self, room_id: str) -> None:
         """Mark all devices in the room as verified (TOFU policy).
 
@@ -781,6 +817,8 @@ class MatrixClient:
             body=event.body,
             timestamp=ts,
         )
+        if self._cache is not None:
+            await self._cache.put(message)
         await self._emit(NewMessage(message=message))
 
     async def _on_room_media(self, room: nio.MatrixRoom, event: nio.RoomMessageMedia) -> None:
@@ -799,6 +837,8 @@ class MatrixClient:
             media_url=http_url,
             media_type=media_type,
         )
+        if self._cache is not None:
+            await self._cache.put(message)
         await self._emit(NewMessage(message=message))
 
     async def _on_megolm_event(self, room: nio.MatrixRoom, event: nio.MegolmEvent) -> None:
@@ -827,6 +867,8 @@ class MatrixClient:
             body="\U0001f512 Unable to decrypt",
             timestamp=ts,
         )
+        if self._cache is not None:
+            await self._cache.put(placeholder)
         await self._emit(NewMessage(message=placeholder))
 
     async def _poll_rooms_during_sync(self) -> None:
