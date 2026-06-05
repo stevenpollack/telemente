@@ -6,12 +6,25 @@ Typed ``stub_*`` helpers wrap ``aioresponses`` for a clean Pyright LSP.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import re
+import time
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any, Protocol, cast
+from datetime import UTC, datetime
+from pathlib import Path
+from re import Pattern
+from typing import Any, Literal, Protocol, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from telemente.config import Session
 from telemente.matrix.client import MatrixClient
+from telemente.matrix.models import RoomSummary
+
+FIXTURES_ROOT = Path(__file__).resolve().parent.parent / "fixtures" / "nio"
+SYNTHETIC_DIR = FIXTURES_ROOT / "synthetic"
+RECORDED_DIR = FIXTURES_ROOT / "recorded"
+FixtureTier = Literal["synthetic", "recorded"]
 
 HOMESERVER = "https://matrix.example.com"
 USER = "@alice:example.com"
@@ -28,11 +41,12 @@ class HttpMocker(Protocol):
 
     def get(
         self,
-        url: str,
+        url: str | Pattern[str],
         *,
         payload: dict[str, Any] | None = ...,
         status: int = ...,
         body: str = ...,
+        repeat: bool = ...,
     ) -> None: ...
 
     def post(
@@ -70,19 +84,23 @@ def http_stub_count(m: HttpMocker) -> int:
 
 def stub_get(
     m: HttpMocker,
-    url: str,
+    url: str | Pattern[str],
     *,
     payload: dict[str, Any] | None = None,
     status: int = 200,
     body: str | None = None,
+    repeat: bool = False,
 ) -> None:
     """Register a stubbed GET response on an ``aioresponses`` context."""
+    kwargs: dict[str, Any] = {"status": status}
+    if repeat:
+        kwargs["repeat"] = True
     if body is not None:
-        m.get(url, body=body, status=status)
+        m.get(url, body=body, **kwargs)
     elif payload is not None:
-        m.get(url, payload=payload, status=status)
+        m.get(url, payload=payload, **kwargs)
     else:
-        m.get(url, status=status)
+        m.get(url, **kwargs)
 
 
 def stub_post(
@@ -321,3 +339,142 @@ def response_callback_for(
         if call.args[1] == response_type:
             return cast(Callable[..., Awaitable[None]], call.args[0])
     raise AssertionError(f"No add_response_callback registration for {response_type!r}")
+
+
+def fixture_dir(*, tier: FixtureTier = "synthetic") -> Path:
+    """Return the directory for a fixture tier."""
+    return SYNTHETIC_DIR if tier == "synthetic" else RECORDED_DIR
+
+
+def recorded_fixtures_available() -> bool:
+    """True when local ``recorded/`` fixtures exist (login + initial sync)."""
+    login_ok = (RECORDED_DIR / "login.json").is_file()
+    sync_ok = (RECORDED_DIR / "sync_initial.json").is_file()
+    return login_ok and sync_ok
+
+
+def load_fixture(name: str, *, tier: FixtureTier = "synthetic") -> dict[str, Any]:
+    """Load a JSON cassette from ``synthetic/`` (default) or ``recorded/``."""
+    path = fixture_dir(tier=tier) / name
+    return cast(dict[str, Any], json.loads(path.read_text()))
+
+
+def load_recorded_meta() -> dict[str, Any]:
+    """Load ``recorded/meta.json`` written by the recording script."""
+    return load_fixture("meta.json", tier="recorded")
+
+
+def max_timeline_message_ts_by_room(sync: dict[str, Any]) -> dict[str, int]:
+    """Map joined room_id → newest ``origin_server_ts`` from timeline text messages."""
+    result: dict[str, int] = {}
+    join = sync.get("rooms", {}).get("join", {})
+    if not isinstance(join, dict):
+        return result
+    for room_id, info in join.items():
+        if not isinstance(info, dict):
+            continue
+        timeline = info.get("timeline", {})
+        events = timeline.get("events", []) if isinstance(timeline, dict) else []
+        timestamps: list[int] = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") != "m.room.message":
+                continue
+            ts = event.get("origin_server_ts")
+            if isinstance(ts, int):
+                timestamps.append(ts)
+        if timestamps:
+            result[str(room_id)] = max(timestamps)
+    return result
+
+
+def sync_url_pattern(homeserver: str = HOMESERVER) -> Pattern[str]:
+    """Regex matching Matrix ``/sync`` requests (nio adds query params)."""
+    return re.compile(rf"^{re.escape(homeserver)}/_matrix/client/v3/sync(\?.*)?$")
+
+
+def room_messages_url_pattern(
+    room_id: str,
+    *,
+    homeserver: str = HOMESERVER,
+) -> Pattern[str]:
+    """Regex matching ``/rooms/{id}/messages`` backfill requests."""
+    escaped_room = re.escape(room_id)
+    return re.compile(
+        rf"^{re.escape(homeserver)}/_matrix/client/v3/rooms/{escaped_room}/messages(\?.*)?$"
+    )
+
+
+def stub_sync(
+    m: HttpMocker,
+    payload: dict[str, Any],
+    *,
+    homeserver: str = HOMESERVER,
+    repeat: bool = False,
+) -> None:
+    """Stub a ``GET /sync`` response (matches query-string variants)."""
+    stub_get(m, sync_url_pattern(homeserver), payload=payload, repeat=repeat)
+
+
+def sort_rooms_by_recency(rooms: list[RoomSummary]) -> list[RoomSummary]:
+    """Mirror ``RoomList`` recent sort: newest activity first, then A-Z by name."""
+    rooms_with_dt = [r for r in rooms if r.last_activity is not None]
+    rooms_without_dt = [r for r in rooms if r.last_activity is None]
+
+    def _by_activity(r: RoomSummary) -> datetime:
+        assert r.last_activity is not None
+        return r.last_activity
+
+    rooms_with_dt.sort(key=_by_activity, reverse=True)
+    rooms_without_dt.sort(key=lambda r: r.display_name)
+    return rooms_with_dt + rooms_without_dt
+
+
+async def wait_until(
+    predicate: Callable[[], bool],
+    *,
+    max_wait: float = 2.0,
+    interval: float = 0.02,
+) -> None:
+    """Poll ``predicate`` until it returns True or ``max_wait`` elapses."""
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(interval)
+    raise AssertionError("wait_until: condition not met before timeout")
+
+
+def room_activity_by_id(rooms: list[RoomSummary]) -> dict[str, datetime | None]:
+    """Map room_id → last_activity from ``rooms()`` summaries."""
+    return {r.room_id: r.last_activity for r in rooms}
+
+
+def ts_from_origin_server_ms(ms: int) -> datetime:
+    """Convert Matrix ``origin_server_ts`` milliseconds to UTC ``datetime``."""
+    return datetime.fromtimestamp(ms / 1000, tz=UTC)
+
+
+async def start_sync_with_stubs(
+    client: MatrixClient,
+    m: HttpMocker,
+    *,
+    initial_sync: dict[str, Any],
+    follow_up_sync: dict[str, Any] | None = None,
+    min_rooms: int = 1,
+    close_client: bool = True,
+    homeserver: str = HOMESERVER,
+) -> None:
+    """Drive ``start_sync()`` with stubbed sync responses; optionally ``close()``."""
+    stub_sync(m, initial_sync, homeserver=homeserver)
+    idle = follow_up_sync or {
+        "next_batch": "idle",
+        "rooms": {"join": {}, "invite": {}, "leave": {}},
+    }
+    stub_sync(m, idle, homeserver=homeserver, repeat=True)
+    await client.start_sync()
+    await wait_until(lambda: len(client.rooms()) >= min_rooms)
+    await asyncio.sleep(0)
+    if close_client:
+        await client.close()

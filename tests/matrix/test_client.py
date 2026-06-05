@@ -21,18 +21,28 @@ from matrix.helpers import (
     USER,
     build_nio_mock,
     event_callback_for,
+    load_fixture,
     make_login_response,
     make_media_event,
     make_megolm_event,
     make_nio_room,
     make_reaction_event,
     make_rooms_response,
+    make_session,
     make_text_event,
     response_callback_for,
     restore_client,
+    room_activity_by_id,
+    room_messages_url_pattern,
+    sort_rooms_by_recency,
+    start_sync_with_stubs,
     stub_delete,
+    stub_get,
     stub_post,
     stub_put,
+    stub_sync,
+    ts_from_origin_server_ms,
+    wait_until,
 )
 from telemente.matrix.client import (
     LoginError,
@@ -260,25 +270,181 @@ async def test_login_forbidden_integration() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cassette integration tests (real nio + aioresponses fixtures, plan 0016)
+# ---------------------------------------------------------------------------
+
+ROOM_A = "!room_a:example.com"
+ROOM_B = "!room_b:example.com"
+ROOM_C = "!room_c:example.com"
+
+
+async def test_login_from_synthetic_fixture(real_nio_client: Any) -> None:
+    """Integration: login parses the synthetic /login cassette (no live server)."""
+    login_url = f"{HOMESERVER}/_matrix/client/v3/login"
+
+    with aioresponses() as m:
+        stub_post(m, login_url, payload=load_fixture("login.json", tier="synthetic"))
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        session = await client.login(USER, PASSWORD)
+
+    assert session.access_token == TOKEN
+    assert session.device_id == DEVICE_ID
+    assert session.user_id == USER
+    assert real_nio_client.access_token == TOKEN
+
+
+async def test_update_last_activity_real_nio_initial_sync(
+    real_nio_client: Any,
+) -> None:
+    """Initial sync through real nio populates last_activity on rooms()."""
+    with aioresponses() as m:
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        await client.restore(make_session())
+        await start_sync_with_stubs(
+            client,
+            m,
+            initial_sync=load_fixture("sync_initial.json"),
+            min_rooms=3,
+        )
+
+    activity = room_activity_by_id(client.rooms())
+    ts_c = activity[ROOM_C]
+    ts_a = activity[ROOM_A]
+    assert ts_c is not None and ts_a is not None
+    assert ts_c > ts_a
+    assert activity.get(ROOM_B) is None
+
+
+async def test_update_last_activity_real_nio_incremental_sync(
+    real_nio_client: Any,
+) -> None:
+    """Incremental sync through real nio updates last_activity for a quiet room."""
+    expected_b = ts_from_origin_server_ms(1_700_000_010_000)
+    idle = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
+
+    with aioresponses() as m:
+        stub_sync(m, load_fixture("sync_initial.json"))
+        stub_sync(m, load_fixture("sync_incremental.json"))
+        stub_sync(m, idle, repeat=True)
+
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        await client.restore(make_session())
+        await client.start_sync()
+        await wait_until(lambda: room_activity_by_id(client.rooms()).get(ROOM_B) == expected_b)
+        await client.close()
+
+    summary = next(s for s in client.rooms() if s.room_id == ROOM_B)
+    assert summary.last_activity == expected_b
+
+
+async def test_rooms_sorted_by_recency_after_real_sync(
+    real_nio_client: Any,
+) -> None:
+    """Recent sort (RoomList contract): newest activity first, then A-Z for the rest."""
+    with aioresponses() as m:
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        await client.restore(make_session())
+        await start_sync_with_stubs(
+            client,
+            m,
+            initial_sync=load_fixture("sync_initial.json"),
+            min_rooms=3,
+        )
+
+    sorted_ids = [r.room_id for r in sort_rooms_by_recency(client.rooms())]
+    assert sorted_ids == [ROOM_C, ROOM_A, ROOM_B]
+
+
+async def test_rooms_recency_sort_c_before_b_before_a(
+    real_nio_client: Any,
+) -> None:
+    """When alpha order is a,b,c but activity is c > b > a, recent sort yields c,b,a."""
+    from datetime import UTC, datetime
+
+    ts_a = datetime(2024, 1, 1, tzinfo=UTC)
+    ts_b = datetime(2024, 6, 1, tzinfo=UTC)
+    ts_c = datetime(2024, 12, 1, tzinfo=UTC)
+
+    rooms = [
+        RoomSummary(room_id="!a:example.com", display_name="Alpha", last_activity=ts_a),
+        RoomSummary(room_id="!b:example.com", display_name="Beta", last_activity=ts_b),
+        RoomSummary(room_id="!c:example.com", display_name="Charlie", last_activity=ts_c),
+    ]
+    assert [r.room_id for r in sort_rooms_by_recency(rooms)] == [
+        "!c:example.com",
+        "!b:example.com",
+        "!a:example.com",
+    ]
+
+
+async def test_messages_backfill_seeds_last_activity_real_nio(
+    real_nio_client: Any,
+) -> None:
+    """messages() backfill through real nio seeds last_activity on rooms()."""
+    expected = ts_from_origin_server_ms(1_700_000_006_000)
+    idle = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
+
+    with aioresponses() as m:
+        stub_sync(m, load_fixture("sync_initial.json"))
+        stub_sync(m, idle, repeat=True)
+        stub_get(
+            m,
+            room_messages_url_pattern(ROOM_B),
+            payload=load_fixture("room_messages.json"),
+        )
+
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        await client.restore(make_session())
+        await client.start_sync()
+        await wait_until(lambda: len(client.rooms()) >= 3)
+        await client.messages(ROOM_B)
+        await client.close()
+
+    summary = next(s for s in client.rooms() if s.room_id == ROOM_B)
+    assert summary.last_activity == expected
+
+
+async def test_matrix_room_has_no_timeline_attribute() -> None:
+    """MatrixRoom has no .timeline — guard against reintroducing the dead fallback."""
+    import nio
+
+    room = nio.MatrixRoom("!r:example.com", "@me:example.com")
+    assert not hasattr(room, "timeline"), (
+        "nio.MatrixRoom gained a .timeline attribute — "
+        "review _update_last_activity and remove this guard if intentional"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Unit tests — messages()
 # ---------------------------------------------------------------------------
 
 
-async def test_messages_returns_text_events() -> None:
-    """messages() returns Message objects for RoomMessageText events."""
+async def test_messages_returns_text_events(real_nio_client: Any) -> None:
+    """messages() returns Message objects parsed by real nio from a JSON fixture."""
+    idle = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
 
-    text_ev = make_text_event(body="hello world")
-    nio_mock = build_nio_mock()
-    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
-    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
+    with aioresponses() as m:
+        stub_sync(m, load_fixture("sync_initial.json"))
+        stub_sync(m, idle, repeat=True)
+        stub_get(
+            m,
+            room_messages_url_pattern(ROOM_B),
+            payload=load_fixture("room_messages.json"),
+        )
 
-    client = await restore_client(nio_mock)
-    msgs = await client.messages("!r:example.com")
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        await client.restore(make_session())
+        await client.start_sync()
+        await wait_until(lambda: ROOM_B in real_nio_client.rooms)
+        msgs = await client.messages(ROOM_B)
+        await client.close()
 
-    assert len(msgs) == 1
-    assert msgs[0].body == "hello world"
-    assert msgs[0].media_url is None
-    assert msgs[0].media_type is None
+    assert len(msgs) == 2
+    bodies = {m.body for m in msgs}
+    assert "backfill message" in bodies
+    assert "newer backfill" in bodies
+    assert all(m.media_url is None and m.media_type is None for m in msgs)
 
 
 async def test_messages_includes_media_events() -> None:
@@ -600,26 +766,35 @@ async def test_seed_last_activity_pre_seeds_missing_entries() -> None:
     assert by_id["!b:example.com"].last_activity == ts_b
 
 
-async def test_seed_last_activity_does_not_overwrite_existing() -> None:
+async def test_seed_last_activity_does_not_overwrite_existing(
+    real_nio_client: Any,
+) -> None:
     """seed_last_activity() must not overwrite last_activity set by messages() backfill."""
     from datetime import UTC, datetime
 
-    ts_sync = datetime(2024, 7, 1, 0, 0, 0, tzinfo=UTC)
     ts_seed = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
-    ts_sync_ms = int(ts_sync.timestamp() * 1000)
+    expected = ts_from_origin_server_ms(1_700_000_006_000)
+    idle = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
 
-    text_ev = make_text_event(server_timestamp=ts_sync_ms)
-    nio_mock = build_nio_mock()
-    nio_mock.room_messages.return_value = make_rooms_response([text_ev])
-    nio_mock.rooms = {"!r:example.com": make_nio_room("!r:example.com")}
+    with aioresponses() as m:
+        stub_sync(m, load_fixture("sync_initial.json"))
+        stub_sync(m, idle, repeat=True)
+        stub_get(
+            m,
+            room_messages_url_pattern(ROOM_B),
+            payload=load_fixture("room_messages.json"),
+        )
 
-    client = await restore_client(nio_mock)
-    await client.messages("!r:example.com")
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        await client.restore(make_session())
+        await client.start_sync()
+        await wait_until(lambda: ROOM_B in real_nio_client.rooms)
+        await client.messages(ROOM_B)
+        client.seed_last_activity({ROOM_B: ts_seed})
+        await client.close()
 
-    client.seed_last_activity({"!r:example.com": ts_seed})
-
-    summary = next(s for s in client.rooms() if s.room_id == "!r:example.com")
-    assert summary.last_activity == ts_sync
+    summary = next(s for s in client.rooms() if s.room_id == ROOM_B)
+    assert summary.last_activity == expected
 
 
 async def test_leave_room_hides_room_immediately_and_after_stale_sync() -> None:
@@ -655,33 +830,6 @@ async def test_leave_room_hides_room_immediately_and_after_stale_sync() -> None:
     # Simulate stale sync: nio still has the room in its dict (hasn't pruned yet).
     # rooms() must still hide it.
     assert not any(r.room_id == room_id for r in client.rooms())
-
-
-async def test_update_last_activity_populates_cache() -> None:
-    """Sync response updates last_activity exposed by rooms()."""
-    from datetime import UTC, datetime
-
-    import nio
-
-    ts_ms = 1_717_243_200_000  # 2024-06-01 12:00:00 UTC in milliseconds
-    expected = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
-
-    fake_event = SimpleNamespace(server_timestamp=ts_ms)
-    fake_timeline = SimpleNamespace(events=[fake_event])
-    fake_room_info = SimpleNamespace(timeline=fake_timeline)
-    fake_response = cast(
-        nio.SyncResponse,
-        SimpleNamespace(rooms=SimpleNamespace(join={"!r:example.com": fake_room_info})),
-    )
-
-    nio_mock = build_nio_mock(rooms={"!r:example.com": make_nio_room("!r:example.com")})
-    client = await restore_client(nio_mock)
-
-    on_sync = response_callback_for(nio_mock, nio.SyncResponse)
-    await on_sync(fake_response)
-
-    summary = next(s for s in client.rooms() if s.room_id == "!r:example.com")
-    assert summary.last_activity == expected
 
 
 async def test_on_sync_skips_rooms_changed_when_nothing_changed() -> None:

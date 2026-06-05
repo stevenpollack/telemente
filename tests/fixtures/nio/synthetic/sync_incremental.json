@@ -1,0 +1,26 @@
+{
+  "next_batch": "s2_incremental",
+  "rooms": {
+    "join": {
+      "!room_b:example.com": {
+        "timeline": {
+          "events": [
+            {
+              "type": "m.room.message",
+              "event_id": "$ev3:example.com",
+              "sender": "@carol:example.com",
+              "origin_server_ts": 1700000010000,
+              "content": { "msgtype": "m.text", "body": "now b is active" }
+            }
+          ],
+          "limited": false,
+          "prev_batch": "p2"
+        },
+        "state": { "events": [] },
+        "account_data": { "events": [] }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

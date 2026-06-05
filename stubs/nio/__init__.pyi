@@ -122,6 +122,13 @@ class MatrixRoom:
     power_levels: PowerLevelsEvent
     tags: dict[str, dict[str, float] | None]
 
+    def __init__(
+        self,
+        room_id: str,
+        own_user_id: str,
+        encrypted: bool = False,
+    ) -> None: ...
+
 class MatrixUser:
     user_id: str
     display_name: str | None

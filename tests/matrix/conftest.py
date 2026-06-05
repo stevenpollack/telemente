@@ -8,15 +8,19 @@ aioresponses 0.7.8 predates this change; this shim fills the gap.
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import Mock
 
 import aiohttp.hdrs as hdrs
+import nio
 import pytest
 from aiohttp import ClientResponse
 from aiohttp.helpers import TimerNoop
 from multidict import CIMultiDict, CIMultiDictProxy
 from yarl import URL
+
+from matrix.helpers import HOMESERVER, USER
 
 
 def _patched_build_response(
@@ -103,3 +107,11 @@ def patch_aioresponses_build(monkeypatch: pytest.MonkeyPatch) -> None:
     import aioresponses.core as core
 
     monkeypatch.setattr(core.RequestMatch, "_build_response", _patched_build_response)
+
+
+@pytest.fixture
+async def real_nio_client() -> AsyncGenerator[nio.AsyncClient, None]:
+    """Real ``nio.AsyncClient`` with in-memory store; no live homeserver."""
+    client = nio.AsyncClient(HOMESERVER, USER)
+    yield client
+    await client.close()

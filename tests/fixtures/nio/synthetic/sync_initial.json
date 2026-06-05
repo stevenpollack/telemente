@@ -1,0 +1,49 @@
+{
+  "next_batch": "s1_initial",
+  "rooms": {
+    "join": {
+      "!room_a:example.com": {
+        "timeline": {
+          "events": [
+            {
+              "type": "m.room.message",
+              "event_id": "$ev1:example.com",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1700000001000,
+              "content": { "msgtype": "m.text", "body": "hello" }
+            }
+          ],
+          "limited": false,
+          "prev_batch": "p1"
+        },
+        "state": { "events": [] },
+        "account_data": { "events": [] },
+        "unread_notifications": { "notification_count": 1, "highlight_count": 0 }
+      },
+      "!room_b:example.com": {
+        "timeline": { "events": [], "limited": false },
+        "state": { "events": [] },
+        "account_data": { "events": [] }
+      },
+      "!room_c:example.com": {
+        "timeline": {
+          "events": [
+            {
+              "type": "m.room.message",
+              "event_id": "$ev2:example.com",
+              "sender": "@bob:example.com",
+              "origin_server_ts": 1700000003000,
+              "content": { "msgtype": "m.text", "body": "newer" }
+            }
+          ],
+          "limited": false,
+          "prev_batch": "p3"
+        },
+        "state": { "events": [] },
+        "account_data": { "events": [] }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}

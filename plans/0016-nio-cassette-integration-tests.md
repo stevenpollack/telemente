@@ -1,5 +1,7 @@
 # 0016 — nio Cassette Integration Tests
 
+**Status: done**
+
 ## Goal
 
 Replace `MagicMock(spec=nio.AsyncClient)` unit tests with **real-nio integration
@@ -37,12 +39,19 @@ The `_last_activity` sort bug survived review and unit tests because:
 tests/
   fixtures/
     nio/
-      sync_initial.json        # full-state sync response, 3 rooms, 1 with timeline event
-      sync_incremental.json    # incremental sync, 1 room with new message
-      room_messages.json       # room_messages() response, 3 messages
+      README.md
+      synthetic/               # committed — deterministic CI cassettes
+        sync_initial.json
+        sync_incremental.json
+        room_messages.json
+        login.json
+      recorded/                # gitignored — live captures via record_nio_fixtures.py
   matrix/
-    test_client.py             # extend: replace _build_nio_mock tests with real-nio equivalents
-    conftest.py                # add real_nio_client fixture
+    test_client.py             # synthetic cassette tests
+    test_recorded_fixtures.py  # @pytest.mark.recorded smoke tests (skip when absent)
+    conftest.py                # real_nio_client fixture
+scripts/
+  record_nio_fixtures.py       # writes sanitized JSON to recorded/
 ```
 
 ## Fixture format
