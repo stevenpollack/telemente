@@ -143,6 +143,53 @@ async def test_recorded_initial_sync_sets_last_activity_from_timeline() -> None:
         assert matched >= 1
 
 
+async def test_recorded_login_fixture_is_nio_loginresponse() -> None:
+    """Recorded login fixture round-trips through nio as a LoginResponse, not a dict."""
+    _require_recorded()
+    homeserver = _recorded_homeserver()
+    login = load_fixture("login.json", tier="recorded")
+    login_url = f"{homeserver}/_matrix/client/v3/login"
+
+    async with _recorded_nio_client() as nio_client:
+        with aioresponses() as m:
+            stub_post(m, login_url, payload=login)
+            resp = await nio_client.login("unused-password", device_name="test")
+
+    assert isinstance(resp, nio.LoginResponse), (
+        f"Expected LoginResponse, got {type(resp).__name__}: {resp}"
+    )
+    assert resp.user_id == login["user_id"]
+    assert resp.device_id == login["device_id"]
+
+
+async def test_recorded_sync_fixture_has_known_rooms() -> None:
+    """After replaying the recorded sync, client.rooms matches meta.json room_ids."""
+    _require_recorded()
+    homeserver = _recorded_homeserver()
+    meta = load_recorded_meta()
+    room_ids: list[str] = list(meta.get("room_ids", []))
+    if not room_ids:
+        pytest.skip("meta.json has no room_ids (re-record with updated script)")
+
+    sync = load_fixture("sync_initial.json", tier="recorded")
+
+    async with _recorded_nio_client() as nio_client:
+        with aioresponses() as m:
+            client = MatrixClient(homeserver, nio_client=nio_client)
+            await client.restore(_recorded_session())
+            await start_sync_with_stubs(
+                client,
+                m,
+                initial_sync=sync,
+                min_rooms=1,
+                homeserver=homeserver,
+            )
+
+        actual_ids = {r.room_id for r in client.rooms()}
+        for room_id in room_ids:
+            assert room_id in actual_ids, f"Expected room {room_id!r} missing from client.rooms()"
+
+
 async def test_recorded_incremental_sync_parses_when_present() -> None:
     """Recorded incremental sync replays without error when captured."""
     _require_recorded()

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Record Matrix HTTP responses into tests/fixtures/nio/recorded/ (local only).
+"""Record Matrix fixtures by driving a real nio.AsyncClient (plan 0018).
+
+Uses aiohttp TraceConfig injection so recorded fixtures are guaranteed
+parseable by the same nio version that captured them.
 
 Reads credentials from ``.env.local`` (copy from ``.env.local.example``).
 Tokens are sanitized before write. CI never runs this — replay uses aioresponses.
@@ -10,16 +13,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import aiohttp
+import nio
 
 ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "tests" / "fixtures" / "nio" / "recorded"
 ENV_FILE = ROOT / ".env.local"
 PLACEHOLDER_TOKEN = "RECORDED_PLACEHOLDER_TOKEN"
+
+_log = logging.getLogger(__name__)
 
 
 def _load_env_local() -> dict[str, str]:
@@ -39,66 +46,100 @@ def _load_env_local() -> dict[str, str]:
     return values
 
 
-def _sanitize_login(body: dict[str, Any]) -> dict[str, Any]:
-    """Strip secrets from a login response before persisting."""
-    sanitized = dict(body)
-    if "access_token" in sanitized:
-        sanitized["access_token"] = PLACEHOLDER_TOKEN
-    if "refresh_token" in sanitized:
-        sanitized["refresh_token"] = PLACEHOLDER_TOKEN
-    return sanitized
+class _Recorder:
+    """Captures aiohttp requests/responses via TraceConfig."""
+
+    def __init__(self) -> None:
+        self._log: list[dict[str, Any]] = []
+
+    def trace_config(self) -> aiohttp.TraceConfig:
+        tc = aiohttp.TraceConfig()
+        tc.on_request_end.append(self._on_request_end)
+        return tc
+
+    async def _on_request_end(
+        self,
+        _session: aiohttp.ClientSession,
+        _ctx: Any,
+        params: aiohttp.TraceRequestEndParams,
+    ) -> None:
+        # Read and cache the body so nio can still read it downstream.
+        body_bytes = await params.response.read()
+        try:
+            payload: Any = json.loads(body_bytes)
+        except Exception:
+            payload = body_bytes.decode()
+        self._log.append(
+            {
+                "method": params.method,
+                "url": str(params.url),
+                "status": params.response.status,
+                "body": payload,
+            }
+        )
+
+    def last_body_for(self, url_fragment: str) -> dict[str, Any]:
+        for entry in reversed(self._log):
+            if url_fragment in entry["url"]:
+                body = entry["body"]
+                if not isinstance(body, dict):
+                    raise TypeError(
+                        f"Response body for {url_fragment!r} is not a JSON object: {body!r}"
+                    )
+                return cast(dict[str, Any], body)
+        raise KeyError(f"No recorded response matching {url_fragment!r}")
 
 
 async def _record(homeserver: str, user: str, password: str, *, full_sync: bool) -> None:
+    recorder = _Recorder()
+    nio_client = nio.AsyncClient(homeserver, user)
+    nio_client.client_session = aiohttp.ClientSession(trace_configs=[recorder.trace_config()])
+
+    try:
+        resp = await nio_client.login(password, device_name="telemente-recorder")
+        if not isinstance(resp, nio.LoginResponse):
+            raise SystemExit(f"Login failed: {resp}")
+
+        sync_resp = await nio_client.sync(timeout=0, full_state=full_sync)
+        if not isinstance(sync_resp, nio.SyncResponse):
+            raise SystemExit(f"Sync failed: {sync_resp}")
+    finally:
+        await nio_client.close()
+
+    login_body = recorder.last_body_for("/_matrix/client/")
+    # Sanitise secrets.
+    login_body["access_token"] = PLACEHOLDER_TOKEN
+    login_body.pop("refresh_token", None)
+
+    sync_body = recorder.last_body_for("/_matrix/client/v3/sync")
+    sync_name = "sync_initial.json" if full_sync else "sync_incremental.json"
+
     RECORDED.mkdir(parents=True, exist_ok=True)
-    base = homeserver.rstrip("/")
-    login_url = f"{base}/_matrix/client/v3/login"
-    sync_url = f"{base}/_matrix/client/v3/sync"
+    login_path = RECORDED / "login.json"
+    sync_path = RECORDED / sync_name
+    meta_path = RECORDED / "meta.json"
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            login_url,
-            json={
-                "type": "m.login.password",
-                "identifier": {"type": "m.id.user", "user": user},
-                "password": password,
-            },
-        ) as resp:
-            login_body = await resp.json()
-            if resp.status != 200:
-                raise SystemExit(f"login failed ({resp.status}): {login_body}")
+    login_path.write_text(json.dumps(login_body, indent=2) + "\n")
+    sync_path.write_text(json.dumps(sync_body, indent=2) + "\n")
 
-        login_path = RECORDED / "login.json"
-        login_path.write_text(json.dumps(_sanitize_login(login_body), indent=2) + "\n")
+    meta: dict[str, Any] = {
+        "homeserver": homeserver.rstrip("/"),
+        "user_id": login_body.get("user_id", user),
+        "device_id": login_body.get("device_id"),
+        "recorded_at": datetime.now(tz=UTC).isoformat(),
+        "full_sync": full_sync,
+        "nio_version": getattr(nio, "__version__", "unknown"),
+        "room_ids": list(sync_resp.rooms.join.keys()),
+    }
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n")
 
-        token = str(login_body["access_token"])
-        params: dict[str, str | int] = {"timeout": 0}
-        if full_sync:
-            params["full_state"] = "true"
-        headers = {"Authorization": f"Bearer {token}"}
-        async with session.get(sync_url, params=params, headers=headers) as resp:
-            sync_body = await resp.json()
-            if resp.status != 200:
-                raise SystemExit(f"sync failed ({resp.status}): {sync_body}")
-
-        sync_name = "sync_initial.json" if full_sync else "sync_incremental.json"
-        (RECORDED / sync_name).write_text(json.dumps(sync_body, indent=2) + "\n")
-
-        meta = {
-            "homeserver": base,
-            "user_id": login_body.get("user_id", user),
-            "device_id": login_body.get("device_id"),
-            "recorded_at": datetime.now(tz=UTC).isoformat(),
-            "full_sync": full_sync,
-        }
-        (RECORDED / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
-
-    print(f"Wrote {login_path}")
-    print(f"Wrote {RECORDED / sync_name}")
-    print(f"Wrote {RECORDED / 'meta.json'}")
+    _log.info("Wrote %s", login_path)
+    _log.info("Wrote %s", sync_path)
+    _log.info("Wrote %s", meta_path)
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(
         description="Record Matrix fixtures from a live homeserver into recorded/."
     )
