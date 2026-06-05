@@ -224,7 +224,9 @@ mocks unless a small JSON fixture clearly helps.
 | Date | Phase | Commit | Notes |
 |------|-------|--------|-------|
 | 2026-06-05 | — | `00d8168` | Plan written |
-| 2026-06-05 | 1–3 | (this commit) | All phases implemented in one pass |
+| 2026-06-05 | 1 | `30122ac` | `helpers.py`, `restore_client()`, `FakeMatrixClient.set_homeserver()` |
+| 2026-06-05 | 2–3 | `5cb3728` | Callback capture + `start_sync()`/`close()` lifecycle in `test_client.py` |
+| 2026-06-05 | docs | `71c82c7` | `AGENTS.md` rule; plan marked done |
 
 ---
 
