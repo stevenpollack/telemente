@@ -35,6 +35,7 @@ class AsyncClient:
     access_token: str
     homeserver: str
     olm: Olm | None
+    client_session: Any
 
     @property
     def should_upload_keys(self) -> bool: ...
