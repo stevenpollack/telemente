@@ -98,7 +98,7 @@ def dev() -> None:
     from pathlib import Path
 
     src = str(Path(__file__).parent)
-    cmd = f"{sys.executable} -m textual run --dev telemente.tui.app:TelementeApp"
+    cmd = f"{sys.executable} -m textual_dev run --dev telemente.tui.app:TelementeApp"
     subprocess.run([sys.executable, "-m", "watchfiles", cmd, src])
 
 
@@ -107,7 +107,7 @@ def console() -> None:
     import subprocess
     import sys
 
-    subprocess.run([sys.executable, "-m", "textual", "console"])
+    subprocess.run([sys.executable, "-m", "textual_dev", "console"])
 
 
 if __name__ == "__main__":
