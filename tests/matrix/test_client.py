@@ -803,6 +803,9 @@ async def test_update_last_activity_populates_cache() -> None:
     """_update_last_activity() reads the newest event timestamp from each joined room."""
     from datetime import UTC, datetime
     from types import SimpleNamespace
+    from typing import cast
+
+    import nio
 
     ts_ms = 1_717_243_200_000  # 2024-06-01 12:00:00 UTC in milliseconds
     expected = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
@@ -810,7 +813,10 @@ async def test_update_last_activity_populates_cache() -> None:
     fake_event = SimpleNamespace(server_timestamp=ts_ms)
     fake_timeline = SimpleNamespace(events=[fake_event])
     fake_room_info = SimpleNamespace(timeline=fake_timeline)
-    fake_response = SimpleNamespace(rooms=SimpleNamespace(join={"!r:example.com": fake_room_info}))
+    fake_response = cast(
+        nio.SyncResponse,
+        SimpleNamespace(rooms=SimpleNamespace(join={"!r:example.com": fake_room_info})),
+    )
 
     nio_mock = _build_nio_mock()
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
@@ -823,6 +829,9 @@ async def test_update_last_activity_populates_cache() -> None:
 async def test_on_sync_skips_rooms_changed_when_nothing_changed() -> None:
     """_on_sync must NOT emit RoomsChanged when room list is identical to last emit."""
     from types import SimpleNamespace
+    from typing import cast
+
+    import nio
 
     room_id = "!stable:example.com"
     nio_mock = _build_nio_mock(
@@ -837,8 +846,13 @@ async def test_on_sync_skips_rooms_changed_when_nothing_changed() -> None:
     emitted: list[object] = []
     client.subscribe(lambda e: emitted.append(e))
 
-    fake_response = SimpleNamespace(
-        rooms=SimpleNamespace(join={room_id: SimpleNamespace(timeline=SimpleNamespace(events=[]))})
+    fake_response = cast(
+        nio.SyncResponse,
+        SimpleNamespace(
+            rooms=SimpleNamespace(
+                join={room_id: SimpleNamespace(timeline=SimpleNamespace(events=[]))}
+            )
+        ),
     )
 
     # First call — should emit (establishes baseline).
@@ -1100,6 +1114,9 @@ async def test_remove_room_tag_http_error_raises() -> None:
 async def test_on_sync_uploads_keys_when_needed() -> None:
     """_on_sync() calls keys_upload() when should_upload_keys is True."""
     from types import SimpleNamespace
+    from typing import cast
+
+    import nio
 
     nio_mock = _build_nio_mock()
     nio_mock.should_upload_keys = True
@@ -1109,7 +1126,7 @@ async def test_on_sync_uploads_keys_when_needed() -> None:
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
     client._logged_in = True
 
-    fake_response = SimpleNamespace(rooms=SimpleNamespace(join={}))
+    fake_response = cast(nio.SyncResponse, SimpleNamespace(rooms=SimpleNamespace(join={})))
     await client._on_sync(fake_response)
     nio_mock.keys_upload.assert_awaited_once()
 
@@ -1117,6 +1134,9 @@ async def test_on_sync_uploads_keys_when_needed() -> None:
 async def test_on_sync_queries_keys_when_needed() -> None:
     """_on_sync() calls keys_query() when should_query_keys is True."""
     from types import SimpleNamespace
+    from typing import cast
+
+    import nio
 
     nio_mock = _build_nio_mock()
     nio_mock.should_upload_keys = False
@@ -1126,7 +1146,7 @@ async def test_on_sync_queries_keys_when_needed() -> None:
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
     client._logged_in = True
 
-    fake_response = SimpleNamespace(rooms=SimpleNamespace(join={}))
+    fake_response = cast(nio.SyncResponse, SimpleNamespace(rooms=SimpleNamespace(join={})))
     await client._on_sync(fake_response)
     nio_mock.keys_query.assert_awaited_once()
 
@@ -1134,6 +1154,9 @@ async def test_on_sync_queries_keys_when_needed() -> None:
 async def test_on_sync_keys_upload_error_does_not_propagate() -> None:
     """_on_sync() suppresses keys_upload() failures gracefully."""
     from types import SimpleNamespace
+    from typing import cast
+
+    import nio
 
     nio_mock = _build_nio_mock()
     nio_mock.should_upload_keys = True
@@ -1143,7 +1166,7 @@ async def test_on_sync_keys_upload_error_does_not_propagate() -> None:
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
     client._logged_in = True
 
-    fake_response = SimpleNamespace(rooms=SimpleNamespace(join={}))
+    fake_response = cast(nio.SyncResponse, SimpleNamespace(rooms=SimpleNamespace(join={})))
     # Should not raise
     await client._on_sync(fake_response)
 

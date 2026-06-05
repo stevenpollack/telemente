@@ -61,9 +61,13 @@ packages = ["src/telemente"]
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+extend-exclude = ["stubs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"stubs/**/*.pyi" = ["ASYNC109"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -73,10 +77,14 @@ python_version = "3.11"
 strict = true
 files = ["src", "tests"]
 pretty = true
+mypy_path = "stubs"
 
 [[tool.mypy.overrides]]
-module = ["nio.*", "aioresponses.*"]
+module = ["aioresponses.*"]
 ignore_missing_imports = true
+
+[tool.pyright]
+stubPath = "stubs"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

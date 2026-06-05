@@ -1,5 +1,7 @@
 # 0015 — Partial nio Type Stubs
 
+**Status: done**
+
 ## Goal
 
 Write inline partial stubs for `matrix-nio` covering exactly the API surface
@@ -240,11 +242,11 @@ Expected errors that may surface and their fixes:
 
 ## Done-when
 
-- `uv run mypy` passes with 0 errors and the `nio.*` `ignore_missing_imports`
+- [x] `uv run mypy` passes with 0 errors and the `nio.*` `ignore_missing_imports`
   override removed.
-- Pyright reports 0 `reportArgumentType` / `reportAttributeAccessIssue` errors
+- [x] Pyright reports 0 `reportArgumentType` / `reportAttributeAccessIssue` errors
   in `client.py`.
-- `uv run pytest -n auto` still passes.
+- [x] `uv run pytest -n auto` still passes.
 
 ## Maintenance note (add to AGENTS.md)
 

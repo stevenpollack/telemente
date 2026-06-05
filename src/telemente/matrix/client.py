@@ -29,7 +29,6 @@ from datetime import UTC, datetime
 
 # nio imports are ONLY in this module (matrix/ package)
 import nio
-import nio.responses
 
 from telemente.config import Session
 from telemente.matrix.auth import LoginFlows, build_sso_redirect_url, parse_login_flows
@@ -364,7 +363,7 @@ class MatrixClient:
             if hasattr(room, "tags") and room.tags:
                 for tag_name, tag_data in room.tags.items():
                     order: float | None = None
-                    if tag_data and isinstance(tag_data, dict):
+                    if tag_data:
                         raw_order = tag_data.get("order")
                         if isinstance(raw_order, (int, float)):
                             order = float(raw_order)
@@ -855,7 +854,7 @@ class MatrixClient:
             if hasattr(room, "tags") and room.tags:
                 for tag_name, tag_data in room.tags.items():
                     order: float | None = None
-                    if tag_data and isinstance(tag_data, dict):
+                    if tag_data:
                         raw_order = tag_data.get("order")
                         if isinstance(raw_order, (int, float)):
                             order = float(raw_order)

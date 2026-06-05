@@ -74,7 +74,8 @@ uv run pre-commit install --install-hooks
 # Fast feedback loop
 uv run ruff check .          # lint
 uv run ruff format .         # format
-uv run mypy                  # strict type check
+uv run mypy                  # strict type check (mypy)
+npx pyright src/             # strict type check (Pyright; validates nio stubs)
 uv run pytest                # tests
 
 # Run a single test
@@ -94,6 +95,7 @@ and per-feature specifications.
 src/telemente/      Application code
   matrix/           Async wrapper around matrix-nio (the only network layer)
   tui/              Textual screens & widgets
+stubs/nio/          Partial type stubs for matrix-nio (used by mypy + Pyright)
 tests/              Test suite (mirrors the package layout)
 plans/              Detailed, per-feature implementation plans
 ```

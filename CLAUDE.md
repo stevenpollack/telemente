@@ -15,7 +15,9 @@ invariants, TDD workflow, testing/mocking rules, and the `plans/` process.
   cases), then implement. Never hit a real homeserver — use `aioresponses` or
   `tests/fakes.py::FakeMatrixClient`.
 - Fast feedback: `uv run ruff check .` · `uv run ruff format .` ·
-  `uv run mypy` · `uv run pytest`.
-- `mypy --strict` must pass; no `print` (use `logging`).
+  `uv run mypy` · `npx pyright src/` · `uv run pytest`.
+- `mypy --strict` and Pyright must pass; partial nio stubs live in `stubs/nio/`
+  (keep in sync on matrix-nio upgrades — see AGENTS.md).
+- No `print` (use `logging`).
 - Feature specs live in [`plans/`](plans/); implement them in order.
 - E2EE needs system **libolm** (see [`README.md`](README.md)).

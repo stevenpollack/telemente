@@ -98,6 +98,7 @@ async def test_store_persists_across_restart(tmp_path: Any) -> None:
     )
 
     # load_store is called during restore when store_path is set
+    assert nio_client1.olm is not None
     identity_keys_1 = nio_client1.olm.account.identity_keys
 
     # Assert the store file was created
@@ -122,6 +123,7 @@ async def test_store_persists_across_restart(tmp_path: Any) -> None:
         )
     )
 
+    assert nio_client2.olm is not None
     identity_keys_2 = nio_client2.olm.account.identity_keys
 
     assert identity_keys_1 == identity_keys_2, (

@@ -21,6 +21,7 @@ config.py         XDG paths, settings, secure credential storage.
 matrix/
   client.py       MatrixClient: the ONLY code that talks to matrix-nio.
   models.py       Plain dataclasses (RoomSummary, Message, Member) — no nio types leak out.
+stubs/nio/        Partial inline type stubs for matrix-nio (plan 0015).
 tui/
   app.py          TelementeApp(App): owns the MatrixClient, routes events.
   screens/        login.py, main.py
@@ -75,6 +76,7 @@ ruff + mypy clean.** Each `plans/*.md` document lists its test cases first.
 uv run ruff check .      # lint  (also runs on commit via pre-commit)
 uv run ruff format .     # format
 uv run mypy              # strict types (runs on commit)
+npx pyright src/         # strict Pyright (validates nio stubs against client.py)
 uv run pytest            # tests, parallel workers auto-detected (-n auto is the default)
 uv run pytest --cov=telemente --cov-report=term-missing  # coverage (opt-in, slow)
 ```
@@ -95,7 +97,7 @@ Mocking strategy · Done-when · Dependencies.** When implementing a plan:
 4. Run the full fast-feedback loop.
 5. Update the plan's status / check off the Done-when list.
 
-Plan order: `0001 → 0002 → 0003 → 0004 → 0005 → 0006/0007/0008 → 0009 → 0010 → 0011 → 0012`.
+Plan order: `0001 → … → 0012 → 0015 (nio stubs) → …`.
 
 ## Dependencies
 
@@ -104,6 +106,23 @@ Dev: `pytest(+asyncio,+cov)`, `aioresponses`, `ruff`, `mypy`, `pre-commit`,
 `textual-dev`.
 
 E2EE requires the system library **libolm** (see README for install commands).
+
+### matrix-nio type stubs (plan 0015)
+
+`matrix-nio` ships no `py.typed` marker.  Partial stubs in `stubs/nio/` cover
+exactly the API surface `matrix/client.py` uses so mypy and Pyright catch
+wrong attribute access at write-time (e.g. `MatrixRoom.timeline`, which lives
+on `RoomInfo` in sync responses, not on the in-memory room object).
+
+When upgrading `matrix-nio`, audit API changes and update the stubs:
+
+```bash
+uv run python -c "import nio; help(nio.MatrixRoom)"
+uv run python -c "import nio; help(nio.SyncResponse)"
+uv run mypy && npx pyright src/telemente/matrix/client.py
+```
+
+Do not add `# type: ignore` for nio types — extend the stubs instead.
 
 ## Performance guidelines
 
