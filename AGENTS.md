@@ -144,10 +144,18 @@ on `RoomInfo` in sync responses, not on the in-memory room object).
 When upgrading `matrix-nio`, audit API changes and update the stubs:
 
 ```bash
-uv run python -c "import nio; help(nio.MatrixRoom)"
-uv run python -c "import nio; help(nio.SyncResponse)"
 uv run mypy && npx pyright src/telemente/matrix/client.py
 ```
+
+To inspect dependency source — signatures, docstrings, internal behaviour —
+**read the files directly** under `.venv/`:
+
+```
+.venv/lib/python*/site-packages/nio/
+```
+
+Use the `Read` tool (or `grep`/`find` via Bash) on those paths. No need to
+write a Python helper script just to call `help()` or `inspect`.
 
 Do not add `# type: ignore` for nio types — extend the stubs instead.
 
