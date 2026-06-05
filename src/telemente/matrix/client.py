@@ -104,6 +104,12 @@ class MatrixClient:
         device_name: str = "telemente",
         nio_client: nio.AsyncClient | None = None,
     ) -> None:
+        logger.debug(
+            "MatrixClient.__init__: homeserver=%s store_path=%s device_name=%s",
+            homeserver,
+            store_path,
+            device_name,
+        )
         self._homeserver = homeserver
         self._device_name = device_name
         self._store_path = store_path
@@ -197,6 +203,11 @@ class MatrixClient:
         ``login()`` call so nio knows which user to authenticate.  Previously
         this was silently omitted, causing real password logins to fail.
         """
+        logger.info(
+            "login: attempting password login for user=%s homeserver=%s",
+            user,
+            self._homeserver,
+        )
         # Fix: set the user on the nio client BEFORE calling login()
         self._client.user = user
         response = await self._client.login(password, device_name=self._device_name)
@@ -216,6 +227,11 @@ class MatrixClient:
             device_id=getattr(response, "device_id", ""),
             access_token=getattr(response, "access_token", ""),
         )
+        logger.info(
+            "_finalize_login: session created user_id=%s device_id=%s",
+            session.user_id,
+            session.device_id,
+        )
         self._logged_in = True
         self._load_store()
         self._register_callbacks()
@@ -223,6 +239,11 @@ class MatrixClient:
 
     async def restore(self, session: Session) -> None:
         """Restore a previously saved session without re-authenticating."""
+        logger.info(
+            "restore: restoring session for user_id=%s homeserver=%s",
+            session.user_id,
+            self._homeserver,
+        )
         self._client.restore_login(
             user_id=session.user_id,
             device_id=session.device_id,
@@ -234,6 +255,7 @@ class MatrixClient:
 
     async def logout(self) -> None:
         """Logout from the homeserver and close the client."""
+        logger.info("logout: logging out")
         await self.close()
         self._logged_in = False
 
@@ -254,6 +276,7 @@ class MatrixClient:
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in before starting sync")
         if self._task is not None and not self._task.done():
+            logger.info("start_sync: already running, skipping")
             return
         logger.info("Starting sync")
         self._task = asyncio.create_task(self._sync_loop())
@@ -275,7 +298,7 @@ class MatrixClient:
         self._rooms_poll_task = asyncio.create_task(self._poll_rooms_during_sync())
         try:
             full_state = not bool(cached_rooms)
-            logger.debug("Initial sync (full_state=%s)...", full_state)
+            logger.info("Initial sync (full_state=%s)...", full_state)
             resp = await self._client.sync(timeout=30000, full_state=full_state)
             if isinstance(resp, nio.SyncResponse):
                 self._initial_sync_done = True
@@ -289,11 +312,12 @@ class MatrixClient:
             self._initial_sync_done = True
 
         # Now run incremental sync forever.
-        logger.debug("Starting sync_forever (incremental)")
+        logger.info("Starting sync_forever (incremental)")
         await self._client.sync_forever(timeout=30000)
 
     async def close(self) -> None:
         """Cancel the sync task and close the nio client."""
+        logger.info("close: cancelling sync task")
         if self._rooms_poll_task is not None and not self._rooms_poll_task.done():
             self._rooms_poll_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -367,6 +391,7 @@ class MatrixClient:
         Returns Message dataclasses. Undecryptable encrypted events are
         returned as placeholder messages so the UI can inform the user.
         """
+        logger.info("messages: fetching up to %d messages for room=%s", limit, room_id)
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in to fetch messages")
         response = await self._client.room_messages(room_id, limit=limit)
@@ -461,6 +486,7 @@ class MatrixClient:
 
         # Backfill returns newest-first; reverse to chronological order.
         result.reverse()
+        logger.info("messages: returning %d messages for room=%s", len(result), room_id)
         return result
 
     # ------------------------------------------------------------------
@@ -603,6 +629,8 @@ class MatrixClient:
 
         WARNING — TOFU is NOT MITM-safe (see module docstring).
         """
+        logger.info("send_text: room=%s reply_to=%s", room_id, None)
+        logger.debug("send_text: body preview room=%s body=%.60r", room_id, body)
         if not self._logged_in:
             raise NotLoggedInError("Must be logged in to send messages")
 
@@ -679,7 +707,7 @@ class MatrixClient:
                 try:
                     self._client.verify_device(device)
                 except Exception as exc:
-                    logger.debug("verify_device failed for %s: %s", device, exc)
+                    logger.warning("verify_device failed for %s: %s", device, exc)
 
     def _register_callbacks(self) -> None:
         self._client.add_event_callback(self._on_room_message, nio.RoomMessageText)
@@ -693,6 +721,7 @@ class MatrixClient:
 
     async def _emit(self, event: ClientEvent) -> None:
         """Deliver an event to all subscribed handlers."""
+        logger.debug("_emit: %s to %d handlers", type(event).__name__, len(self._handlers))
         for handler in list(self._handlers):
             result = handler(event)
             if asyncio.iscoroutine(result):
@@ -700,6 +729,12 @@ class MatrixClient:
 
     async def _on_room_message(self, room: nio.MatrixRoom, event: nio.RoomMessageText) -> None:
         """nio callback: a new text message arrived."""
+        logger.debug(
+            "_on_room_message: room=%s sender=%s event_id=%s",
+            room.room_id,
+            event.sender,
+            event.event_id,
+        )
         sender_display_name = _get_display_name(room, event.sender)
         ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
         message = Message(
@@ -736,7 +771,7 @@ class MatrixClient:
         Requests the room key from the sender and surfaces a placeholder
         message so the user knows something arrived.
         """
-        logger.debug(
+        logger.warning(
             "Undecryptable MegolmEvent in %s from %s (session %s) — requesting key",
             room.room_id,
             event.sender,
@@ -840,15 +875,15 @@ class MatrixClient:
 
         # Upload device keys if needed (first sync after login/account creation).
         if self._client.should_upload_keys:
-            logger.debug("Uploading device keys")
+            logger.info("Uploading device keys")
             try:
                 await self._client.keys_upload()
             except Exception as exc:
-                logger.warning("keys_upload() failed: %s", exc)
+                logger.error("keys_upload() failed: %s", exc)
 
         # Query keys for users whose device lists have changed.
         if self._client.should_query_keys:
-            logger.debug("Querying device keys")
+            logger.info("Querying device keys")
             try:
                 await self._client.keys_query()
             except Exception as exc:

@@ -164,6 +164,7 @@ class RoomList(Widget):
 
     def set_rooms(self, rooms: list[RoomSummary]) -> None:
         """Replace the full room list and rebuild the visible view."""
+        logger.debug("set_rooms: %d rooms total", len(rooms))
         self._all_rooms = list(rooms)
         if not self._has_loaded and rooms:
             self._has_loaded = True
@@ -295,6 +296,7 @@ class RoomList(Widget):
         """Live-filter rooms as the user types in #room-search (debounced 150ms)."""
         if event.input.id != "room-search":
             return
+        logger.debug("on_input_changed: filter=%r", event.value)
         self._pending_filter = event.value
         if self._filter_timer is not None:
             self._filter_timer.stop()
@@ -322,5 +324,5 @@ class RoomList(Widget):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Translate ListView.Selected into RoomList.RoomSelected."""
         if isinstance(event.item, _RoomItem):
-            logger.debug("Room selected: %s", event.item.room.room_id)
+            logger.info("Room selected: %s", event.item.room.room_id)
             self.post_message(RoomList.RoomSelected(event.item.room.room_id))

@@ -105,6 +105,7 @@ class TelementeApp(App[None]):
         self._credential_store = credential_store or CredentialStore(paths)
         self._room_cache = RoomCache(paths)
         self._default_homeserver = default_homeserver or settings.homeserver
+        logger.info("TelementeApp.__init__: homeserver=%s", self._default_homeserver)
 
         # Client may be injected (tests) or lazily created per homeserver.
         self._client: MatrixClient = client or MatrixClient(
@@ -134,6 +135,7 @@ class TelementeApp(App[None]):
                 exit_on_error=False,
             )
         else:
+            logger.info("on_mount: no saved session, showing login screen")
             paths = Paths.default().ensure()
             settings_path = paths.config_dir / "settings.toml"
             settings = Settings.load(settings_path)
@@ -257,9 +259,10 @@ class TelementeApp(App[None]):
                 self._room_cache.save(self._cached_user_id, event.rooms)
             self.post_message(_ClientRoomsChanged(event))
         elif isinstance(event, NewMessage):
-            logger.debug(
-                "ClientEvent: NewMessage room=%s event_id=%s",
+            logger.info(
+                "ClientEvent: NewMessage room=%s sender=%s event_id=%s",
                 event.message.room_id,
+                event.message.sender,
                 event.message.event_id,
             )
             self.post_message(_ClientNewMessage(event))
@@ -273,18 +276,24 @@ class TelementeApp(App[None]):
 
     def on__client_rooms_changed(self, message: _ClientRoomsChanged) -> None:
         screen = self.screen
-        if isinstance(screen, MainScreen):
-            screen.handle_rooms_changed(message.event)
+        if not isinstance(screen, MainScreen):
+            logger.debug("on__client_rooms_changed: no MainScreen active, discarding")
+            return
+        screen.handle_rooms_changed(message.event)
 
     def on__client_new_message(self, message: _ClientNewMessage) -> None:
         screen = self.screen
-        if isinstance(screen, MainScreen):
-            screen.handle_new_message(message.event)
+        if not isinstance(screen, MainScreen):
+            logger.debug("on__client_new_message: no MainScreen active, discarding")
+            return
+        screen.handle_new_message(message.event)
 
     def on__client_members_changed(self, message: _ClientMembersChanged) -> None:
         screen = self.screen
-        if isinstance(screen, MainScreen):
-            screen.handle_members_changed(message.event)
+        if not isinstance(screen, MainScreen):
+            logger.debug("on__client_members_changed: no MainScreen active, discarding")
+            return
+        screen.handle_members_changed(message.event)
 
     # ------------------------------------------------------------------
     # App-level actions

@@ -316,9 +316,11 @@ class MessageView(Widget):
 
     async def load_room(self, room_id: str) -> None:
         """Fetch message history for *room_id* and render it."""
+        logger.info("load_room: room_id=%s", room_id)
         self._current_room_id = room_id
         self.clear()
         messages = await self._client.messages(room_id)
+        logger.info("load_room: fetched %d messages room_id=%s", len(messages), room_id)
         timeline = self.query_one("#message-timeline", VerticalScroll)
         self._render_messages(timeline, messages)
         self._scroll_to_bottom()
@@ -494,7 +496,7 @@ class MessageView(Widget):
         self, room_id: str, body: str, *, reply_to_event_id: str | None = None
     ) -> None:
         """Send a message and echo it immediately into the local timeline."""
-        logger.debug("Sending to %s: %s", room_id, body)
+        logger.debug("Sending to %s: %.60r", room_id, body)
         user_id, display_name = self._client.me()
         event_id = await self._client.send_text(room_id, body, reply_to_event_id=reply_to_event_id)
         if not event_id:

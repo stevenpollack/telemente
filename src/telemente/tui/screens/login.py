@@ -172,6 +172,7 @@ class LoginScreen(Screen[None]):
         yield LoadingIndicator(id="loading")
 
     def on_mount(self) -> None:
+        logger.info("LoginScreen mounted homeserver=%s", self._default_homeserver)
         # Hide dynamic widgets initially
         self.query_one("#loading", LoadingIndicator).display = False
         self.query_one("#error", Static).display = False
@@ -347,6 +348,7 @@ class LoginScreen(Screen[None]):
             self._show_error("All fields are required.")
             return
 
+        logger.info("_attempt_login: user=%s homeserver=%s", username, homeserver)
         self._clear_error()
         self._set_form_enabled(False)
         self.query_one("#loading", LoadingIndicator).display = True
@@ -366,7 +368,7 @@ class LoginScreen(Screen[None]):
         try:
             session = await client.login(username, password)
         except LoginError as exc:
-            logger.warning("Login failed: %s", exc)
+            logger.info("Login failed: %s", exc)
             self._on_login_failure(str(exc))
             return
         except Exception as exc:
@@ -545,12 +547,14 @@ class LoginScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def _on_login_success(self, session: Session) -> None:
+        logger.info("_on_login_success: user_id=%s", session.user_id)
         self._set_form_enabled(True)
         self._set_all_controls_enabled(True)
         self.query_one("#loading", LoadingIndicator).display = False
         self.post_message(LoginScreen.LoggedIn(session))
 
     def _on_login_failure(self, message: str) -> None:
+        logger.warning("_on_login_failure: %s", message)
         self._set_form_enabled(True)
         self._set_all_controls_enabled(True)
         self.query_one("#loading", LoadingIndicator).display = False

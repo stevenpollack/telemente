@@ -107,6 +107,7 @@ class MemberList(Widget):
 
     def load_room(self, room_id: str) -> None:
         """Pull members from the client for *room_id* and render them."""
+        logger.info("load_room: room_id=%s", room_id)
         self._current_room_id = room_id
         members = self._client.members(room_id)
         logger.debug("Loaded %d members for room %s", len(members), room_id)

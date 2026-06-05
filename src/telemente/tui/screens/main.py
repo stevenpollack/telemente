@@ -115,10 +115,10 @@ class MainScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        logger.debug("MainScreen mounted")
+        logger.info("MainScreen mounted")
         rooms = self._client.rooms()
         if rooms:
-            logger.debug("MainScreen.on_mount: pre-loading %d rooms from client", len(rooms))
+            logger.info("MainScreen.on_mount: pre-loading %d rooms from client", len(rooms))
             self.query_one(RoomList).set_rooms(rooms)
 
     # ------------------------------------------------------------------
@@ -149,6 +149,7 @@ class MainScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def handle_rooms_changed(self, event: RoomsChanged) -> None:
+        logger.info("handle_rooms_changed: %d rooms", len(event.rooms))
         incoming_ids = {r.room_id for r in event.rooms}
         rooms_with_unread = [
             RoomSummary(
@@ -170,6 +171,12 @@ class MainScreen(Screen[None]):
     def handle_new_message(self, event: NewMessage) -> None:
         msg = event.message
         active_room = self.active_room_id
+        logger.info(
+            "handle_new_message: room=%s sender=%s active=%s",
+            msg.room_id,
+            msg.sender,
+            msg.room_id == active_room,
+        )
         if msg.room_id == active_room:
             # Route to the active tab's MessageView
             view = self._message_view_for(msg.room_id)
@@ -196,6 +203,11 @@ class MainScreen(Screen[None]):
                 )
 
     def handle_members_changed(self, event: MembersChanged) -> None:
+        logger.debug(
+            "handle_members_changed: room=%s members=%d",
+            event.room_id,
+            len(event.members),
+        )
         if event.room_id == self.active_room_id:
             self.query_one(MemberList).set_members(event.members)
 
@@ -215,6 +227,7 @@ class MainScreen(Screen[None]):
 
     def on_room_list_room_selected(self, message: RoomList.RoomSelected) -> None:
         room_id = message.room_id
+        logger.info("on_room_list_room_selected: room_id=%s", room_id)
         tid = _tab_id(room_id)
         tc = self.query_one(TabbedContent)
 
