@@ -3,7 +3,8 @@
 Keep in sync when upgrading matrix-nio (see AGENTS.md).
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from enum import StrEnum
 from typing import Any, TypeVar
 
 _E = TypeVar("_E", bound="Event")
@@ -91,6 +92,14 @@ class AsyncClient:
         reason: str = ...,
         tx_id: str | None = ...,
     ) -> RoomRedactResponse | ErrorResponse: ...
+    def room_get_event_relations(
+        self,
+        room_id: str,
+        event_id: str,
+        rel_type: RelationshipType | None = ...,
+        event_type: str | None = ...,
+        limit: int | None = ...,
+    ) -> AsyncIterator[Event]: ...
     async def room_leave(self, room_id: str) -> RoomLeaveResponse | RoomLeaveError: ...
     async def keys_query(self) -> KeysQueryResponse | KeysQueryError: ...
     async def keys_upload(self) -> KeysUploadResponse | KeysUploadError: ...
@@ -246,6 +255,21 @@ class RoomMessagesResponse(Response):
     chunk: list[Event]
     start: str
     end: str | None
+
+class RelationshipType(StrEnum):
+    replacement = "m.replace"
+    annotation = "m.annotation"
+    thread = "m.thread"
+    reference = "m.reference"
+
+class RoomEventRelationsResponse(Response):
+    room_id: str
+    parent_event_id: str
+    events: list[Event]
+    prev_batch: str | None
+    next_batch: str | None
+
+class RoomEventRelationsError(ErrorResponse): ...
 
 class RoomSendResponse(Response):
     event_id: str

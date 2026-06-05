@@ -138,7 +138,7 @@ class FakeMatrixClient:
         self.login_called: bool = False
         self.start_sync_called: bool = False
         self.close_called: bool = False
-        self.sent_messages: list[tuple[str, str, str | None]] = []
+        self.sent_messages: list[tuple[str, str, str | None, str | None]] = []
         self.sent_reactions: list[tuple[str, str, str]] = []
         self.edited_messages: list[tuple[str, str, str]] = []
         self.redacted_messages: list[tuple[str, str]] = []
@@ -177,6 +177,9 @@ class FakeMatrixClient:
         # §2.3.6 Subscription counters (plan 0018)
         self.subscribe_count: int = 0
         self.unsubscribe_count: int = 0
+
+        # Thread messages: (room_id, root_event_id) → (messages, has_more) (plan 0023)
+        self.thread_messages: dict[tuple[str, str], tuple[list[Message], bool]] = {}
 
     # ------------------------------------------------------------------
     # Scripting helpers
@@ -376,12 +379,18 @@ class FakeMatrixClient:
             return True
         return self.can_redact_results.get((room_id, target_sender), False)
 
-    async def send_text(self, room_id: str, body: str, reply_to_event_id: str | None = None) -> str:
+    async def send_text(
+        self,
+        room_id: str,
+        body: str,
+        reply_to_event_id: str | None = None,
+        thread_root_event_id: str | None = None,
+    ) -> str:
         if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self._check_fail("send_text")
         await self._maybe_block("send_text")
-        self.sent_messages.append((room_id, body, reply_to_event_id))
+        self.sent_messages.append((room_id, body, reply_to_event_id, thread_root_event_id))
         event_id = f"$fake_sent_{len(self.sent_messages)}:matrix.org"
         if self.auto_emit_sent_messages:
             from datetime import UTC, datetime
@@ -397,9 +406,17 @@ class FakeMatrixClient:
                 body=body,
                 timestamp=datetime.now(UTC),
                 reply_to_event_id=reply_to_event_id,
+                thread_root_id=thread_root_event_id,
             )
             await self.emit(NewMessage(message=msg))
         return event_id
+
+    async def get_thread_messages(
+        self, room_id: str, root_event_id: str, limit: int = 50
+    ) -> tuple[list[Message], bool]:
+        self._check_fail("get_thread_messages")
+        await self._maybe_block("get_thread_messages")
+        return self.thread_messages.get((room_id, root_event_id), ([], False))
 
     async def send_reaction(self, room_id: str, event_id: str, emoji: str) -> None:
         if not self.logged_in:

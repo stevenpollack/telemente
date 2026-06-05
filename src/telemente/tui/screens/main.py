@@ -43,6 +43,7 @@ from telemente.tui.widgets.log_panel import LogPanel
 from telemente.tui.widgets.member_list import MemberList
 from telemente.tui.widgets.message_view import MessageView
 from telemente.tui.widgets.room_list import RoomList
+from telemente.tui.widgets.thread_panel import ThreadPanel
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +65,16 @@ class _MainClient(Protocol):
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]: ...
 
     async def send_text(
-        self, room_id: str, body: str, reply_to_event_id: str | None = None
+        self,
+        room_id: str,
+        body: str,
+        reply_to_event_id: str | None = None,
+        thread_root_event_id: str | None = None,
     ) -> str: ...
+
+    async def get_thread_messages(
+        self, room_id: str, root_event_id: str, limit: int = 50
+    ) -> tuple[list[Message], bool]: ...
 
     async def send_reaction(self, room_id: str, event_id: str, emoji: str) -> None: ...
 
@@ -111,6 +120,7 @@ class MainScreen(Screen[None]):
     rooms_visible: reactive[bool] = reactive(True)
     members_visible: reactive[bool] = reactive(True)
     log_visible: reactive[bool] = reactive(False)
+    thread_visible: reactive[bool] = reactive(False)
 
     @property
     def app(self) -> TelementeApp:  # type: ignore[override]
@@ -157,6 +167,7 @@ class MainScreen(Screen[None]):
             yield RoomList(id="rooms-panel")
             with TabbedContent(id="message-panel"):
                 pass
+            yield ThreadPanel(self._client, id="thread-panel")
             yield MemberList(self._client, id="members-panel")
         yield LogPanel(self._log_file, id="log-panel")
         yield Footer()
@@ -181,6 +192,9 @@ class MainScreen(Screen[None]):
     def watch_log_visible(self, visible: bool) -> None:
         self.query_one("#log-panel").display = visible
 
+    def watch_thread_visible(self, visible: bool) -> None:
+        self.query_one("#thread-panel").display = visible
+
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
@@ -203,6 +217,22 @@ class MainScreen(Screen[None]):
 
     def on_log_panel_close_requested(self, _: LogPanel.CloseRequested) -> None:
         self.log_visible = False
+
+    def on_thread_panel_close_requested(self, _: ThreadPanel.CloseRequested) -> None:
+        self.close_thread()
+
+    def on_message_view_open_thread(self, event: MessageView.OpenThread) -> None:
+        self.open_thread(event.room_id, event.root_event_id)
+
+    def open_thread(self, room_id: str, root_event_id: str) -> None:
+        """Show the thread panel and load the given thread."""
+        panel = self.query_one(ThreadPanel)
+        panel.load_thread(room_id, root_event_id)
+        self.thread_visible = True
+
+    def close_thread(self) -> None:
+        """Hide the thread panel."""
+        self.thread_visible = False
 
     # ------------------------------------------------------------------
     # Context menu infrastructure (plan 0020)
@@ -440,6 +470,12 @@ class MainScreen(Screen[None]):
             msg.sender,
             msg.room_id == active_room,
         )
+        # Forward matching thread messages to the open ThreadPanel.
+        if self.thread_visible and msg.thread_root_id is not None:
+            panel = self.query_one(ThreadPanel)
+            if msg.thread_root_id == panel._root_event_id and msg.room_id == panel._room_id:  # pyright: ignore[reportPrivateUsage]
+                panel.append_message(msg)
+
         if msg.room_id == active_room:
             # Route to the active tab's MessageView
             view = self.message_view_for(msg.room_id)

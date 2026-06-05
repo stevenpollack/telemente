@@ -43,7 +43,11 @@ class _MessageViewClient(Protocol):
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]: ...
 
     async def send_text(
-        self, room_id: str, body: str, reply_to_event_id: str | None = None
+        self,
+        room_id: str,
+        body: str,
+        reply_to_event_id: str | None = None,
+        thread_root_event_id: str | None = None,
     ) -> str: ...
 
     async def send_reaction(self, room_id: str, event_id: str, emoji: str) -> None: ...
@@ -314,6 +318,14 @@ class MessageView(Widget):
             self.screen_x = screen_x
             self.screen_y = screen_y
 
+    class OpenThread(TextualMessage):
+        """Requests the parent screen to open the thread panel for a thread root."""
+
+        def __init__(self, room_id: str, root_event_id: str) -> None:
+            super().__init__()
+            self.room_id = room_id
+            self.root_event_id = root_event_id
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("G", "scroll_latest", "Latest"),
         Binding("ctrl+f", "open_search", "Search"),
@@ -539,12 +551,20 @@ class MessageView(Widget):
         def _delete() -> None:
             self.post_message(MessageRow.DeleteRequest(msg))
 
+        thread_root_id = msg.thread_root_id
+
+        def _view_thread() -> None:
+            if thread_root_id is not None:
+                self.post_message(MessageView.OpenThread(room_id, thread_root_id))
+
         items: list[MenuEntry] = [MenuItem("Reply", _reply)]
         if msg.sender == my_user_id:
             items.append(MenuItem("Edit", _edit))
         items.append(MenuItem("React", _react))
         can_delete = msg.sender == my_user_id or self._client.can_redact(room_id, msg.sender)
         items.append(MenuItem("Delete", _delete, enabled=can_delete))
+        if thread_root_id is not None:
+            items.append(MenuItem("View thread", _view_thread))
         self.post_message(MessageView.ShowContextMenu(items, event.screen_x, event.screen_y))
 
     def on_input_changed(self, event: Input.Changed) -> None:

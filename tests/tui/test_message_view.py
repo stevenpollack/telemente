@@ -563,7 +563,7 @@ async def test_reply_binding_sends_reply() -> None:
 
         # sent_messages should have the reply
         assert len(fake.sent_messages) == 1
-        room_id, body, reply_to = fake.sent_messages[0]
+        room_id, body, reply_to, _ = fake.sent_messages[0]
         assert room_id == "!r:s"
         assert body == "reply"
         assert reply_to == "$parent"

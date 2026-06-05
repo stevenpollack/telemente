@@ -40,6 +40,8 @@ class Message:
     reactions: dict[str, list[str]] = field(default_factory=lambda: {})
     # Set when this message is a reply — the event_id of the parent message.
     reply_to_event_id: str | None = None
+    # Set when this message is a thread reply — the event_id of the thread root.
+    thread_root_id: str | None = None
     # True when this message was redacted (deleted). Body is the tombstone string.
     redacted: bool = False
 

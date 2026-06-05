@@ -177,6 +177,42 @@ MessageRow.-redacted {
 }
 
 /* -------------------------------------------------------------------------
+   Thread panel — ThreadPanel widget (plan 0023)
+   ------------------------------------------------------------------------- */
+
+#thread-panel {
+    width: 40;
+    border: solid $accent;
+    border-title-color: $text;
+    display: none;
+}
+
+#thread-header {
+    height: 1;
+    background: $surface;
+    layout: horizontal;
+}
+
+#thread-title {
+    width: 1fr;
+    text-style: bold;
+}
+
+#thread-close {
+    width: 3;
+    min-width: 3;
+}
+
+#thread-messages {
+    height: 1fr;
+}
+
+#thread-composer {
+    height: 3;
+    border-top: solid $primary;
+}
+
+/* -------------------------------------------------------------------------
    In-room message search — search bar and match highlights (plan 0024)
    ------------------------------------------------------------------------- */
 

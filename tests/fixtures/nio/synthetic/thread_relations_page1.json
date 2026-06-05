@@ -1,0 +1,34 @@
+{
+  "chunk": [
+    {
+      "type": "m.room.message",
+      "event_id": "$reply2:example.com",
+      "room_id": "!r:s",
+      "sender": "@carol:example.com",
+      "origin_server_ts": 1700000004000,
+      "content": {
+        "msgtype": "m.text",
+        "body": "Second reply",
+        "m.relates_to": {
+          "rel_type": "m.thread",
+          "event_id": "$root:example.com"
+        }
+      }
+    },
+    {
+      "type": "m.room.message",
+      "event_id": "$reply1:example.com",
+      "room_id": "!r:s",
+      "sender": "@bob:example.com",
+      "origin_server_ts": 1700000002000,
+      "content": {
+        "msgtype": "m.text",
+        "body": "First reply",
+        "m.relates_to": {
+          "rel_type": "m.thread",
+          "event_id": "$root:example.com"
+        }
+      }
+    }
+  ]
+}

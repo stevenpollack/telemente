@@ -30,6 +30,9 @@ from datetime import UTC, datetime
 
 # nio imports are ONLY in this module (matrix/ package)
 import nio
+from nio.api import (  # type: ignore[import-untyped]  # nio has no py.typed
+    RelationshipType as _NioRelationshipType,
+)
 
 from telemente.config import Session
 from telemente.matrix.auth import LoginFlows, build_sso_redirect_url, parse_login_flows
@@ -541,16 +544,15 @@ class MatrixClient:
                     )
                 )
             elif isinstance(event, nio.RoomMessageText):
-                rel_type = event.source.get("content", {}).get("m.relates_to", {}).get("rel_type")
-                if rel_type == "m.replace":
+                backfill_rel = event.source.get("content", {}).get("m.relates_to", {})
+                backfill_rel_type = backfill_rel.get("rel_type")
+                if backfill_rel_type == "m.replace":
                     continue
                 sender_display_name = _get_display_name(room, event.sender)
                 ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
-                reply_to: str | None = (
-                    event.source.get("content", {})
-                    .get("m.relates_to", {})
-                    .get("m.in_reply_to", {})
-                    .get("event_id")
+                reply_to: str | None = backfill_rel.get("m.in_reply_to", {}).get("event_id")
+                backfill_thread_root: str | None = (
+                    backfill_rel.get("event_id") if backfill_rel_type == "m.thread" else None
                 )
                 raw_messages.append(
                     Message(
@@ -561,6 +563,7 @@ class MatrixClient:
                         body=event.body,
                         timestamp=ts,
                         reply_to_event_id=reply_to,
+                        thread_root_id=backfill_thread_root,
                     )
                 )
             elif isinstance(event, nio.RoomMessageMedia):
@@ -800,7 +803,121 @@ class MatrixClient:
             return []
         return await self._cache.search_room(room_id, query)
 
-    async def send_text(self, room_id: str, body: str, reply_to_event_id: str | None = None) -> str:
+    async def get_thread_messages(
+        self,
+        room_id: str,
+        root_event_id: str,
+        limit: int = 50,
+    ) -> tuple[list[Message], bool]:
+        """Fetch messages in a thread rooted at root_event_id.
+
+        Returns (messages_chronological, has_more).
+        On server error returns ([], False) with a warning log — graceful
+        degradation for servers without MSC3440 support.
+        """
+        if not self._logged_in:
+            raise NotLoggedInError("Must be logged in to fetch thread messages")
+        try:
+            events: list[nio.Event] = []
+            # _NioRelationshipType.thread is the runtime value; the stub treats the
+            # parameter as nio.RelationshipType — same underlying enum, different import path.
+            gen = self._client.room_get_event_relations(
+                room_id,
+                root_event_id,
+                rel_type=_NioRelationshipType.thread,  # pyright: ignore[reportArgumentType]
+                limit=limit + 1,
+            )
+            async for event in gen:
+                events.append(event)
+                if len(events) == limit + 1:
+                    # Collected limit+1 events — there are more pages.
+                    with contextlib.suppress(Exception):
+                        await gen.aclose()  # type: ignore[attr-defined]
+                    break
+        except Exception as exc:
+            logger.warning("get_thread_messages failed for %s %s: %s", room_id, root_event_id, exc)
+            return [], False
+
+        has_more = len(events) == limit + 1
+        events = events[:limit]
+
+        room = self._client.rooms.get(room_id)
+        messages: list[Message] = []
+        for event in events:
+            if isinstance(event, nio.RoomMessageText):
+                rel_ev = event.source.get("content", {}).get("m.relates_to", {})
+                rel_type_ev = rel_ev.get("rel_type")
+                if rel_type_ev == "m.replace":
+                    continue
+                sender_display_name = _get_display_name(room, event.sender)
+                ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+                reply_to: str | None = (
+                    event.source.get("content", {})
+                    .get("m.relates_to", {})
+                    .get("m.in_reply_to", {})
+                    .get("event_id")
+                )
+                messages.append(
+                    Message(
+                        event_id=event.event_id,
+                        room_id=room_id,
+                        sender=event.sender,
+                        sender_display_name=sender_display_name,
+                        body=event.body,
+                        timestamp=ts,
+                        reply_to_event_id=reply_to,
+                        thread_root_id=root_event_id,
+                    )
+                )
+            elif isinstance(event, nio.RoomMessageMedia):
+                sender_display_name = _get_display_name(room, event.sender)
+                ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+                media_type = _media_type_label(event)
+                messages.append(
+                    Message(
+                        event_id=event.event_id,
+                        room_id=room_id,
+                        sender=event.sender,
+                        sender_display_name=sender_display_name,
+                        body=event.body or media_type,
+                        timestamp=ts,
+                        media_type=media_type,
+                        thread_root_id=root_event_id,
+                    )
+                )
+            elif isinstance(event, nio.MegolmEvent):
+                sender_display_name = _get_display_name(room, event.sender)
+                ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+                messages.append(
+                    Message(
+                        event_id=event.event_id,
+                        room_id=room_id,
+                        sender=event.sender,
+                        sender_display_name=sender_display_name,
+                        body="\U0001f512 Unable to decrypt",
+                        timestamp=ts,
+                        thread_root_id=root_event_id,
+                    )
+                )
+
+        # Generator yields newest-first; reverse to chronological order.
+        messages.reverse()
+        logger.info(
+            "get_thread_messages: returning %d messages for room=%s root=%s has_more=%s",
+            len(messages),
+            room_id,
+            root_event_id,
+            has_more,
+        )
+        return messages, has_more
+
+    async def send_text(
+        self,
+        room_id: str,
+        body: str,
+        reply_to_event_id: str | None = None,
+        thread_root_event_id: str | None = None,
+    ) -> str:
         """Send a plain-text message to a room. Returns the server-assigned event_id.
 
         When reply_to_event_id is set, includes m.in_reply_to in the content.
@@ -817,7 +934,16 @@ class MatrixClient:
             raise NotLoggedInError("Must be logged in to send messages")
 
         content: dict[str, object] = {"msgtype": "m.text", "body": body}
-        if reply_to_event_id is not None:
+        if thread_root_event_id is not None:
+            content["m.relates_to"] = {
+                "rel_type": "m.thread",
+                "event_id": thread_root_event_id,
+                "m.in_reply_to": {
+                    "event_id": reply_to_event_id or thread_root_event_id,
+                },
+                "is_falling_back": reply_to_event_id is None,
+            }
+        elif reply_to_event_id is not None:
             content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to_event_id}}
 
         room = self._client.rooms.get(room_id)
@@ -933,11 +1059,14 @@ class MatrixClient:
             event.sender,
             event.event_id,
         )
-        rel_type = event.source.get("content", {}).get("m.relates_to", {}).get("rel_type")
+        rel = event.source.get("content", {}).get("m.relates_to", {})
+        rel_type = rel.get("rel_type")
         if rel_type == "m.replace":
             return
         sender_display_name = _get_display_name(room, event.sender)
         ts = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC)
+        reply_to: str | None = rel.get("m.in_reply_to", {}).get("event_id")
+        thread_root: str | None = rel.get("event_id") if rel_type == "m.thread" else None
         message = Message(
             event_id=event.event_id,
             room_id=room.room_id,
@@ -945,6 +1074,8 @@ class MatrixClient:
             sender_display_name=sender_display_name,
             body=event.body,
             timestamp=ts,
+            reply_to_event_id=reply_to,
+            thread_root_id=thread_root,
         )
         if self._cache is not None:
             await self._cache.put(message)

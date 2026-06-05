@@ -1,0 +1,37 @@
+{
+  "next_batch": "s1_thread",
+  "rooms": {
+    "join": {
+      "!r:s": {
+        "timeline": {
+          "events": [
+            {
+              "type": "m.room.message",
+              "event_id": "$thread_reply:example.com",
+              "sender": "@bob:example.com",
+              "origin_server_ts": 1700000010000,
+              "content": {
+                "msgtype": "m.text",
+                "body": "Thread reply message",
+                "m.relates_to": {
+                  "rel_type": "m.thread",
+                  "event_id": "$root:example.com",
+                  "m.in_reply_to": {
+                    "event_id": "$root:example.com"
+                  },
+                  "is_falling_back": true
+                }
+              }
+            }
+          ],
+          "limited": false,
+          "prev_batch": "p1"
+        },
+        "state": { "events": [] },
+        "account_data": { "events": [] }
+      }
+    },
+    "invite": {},
+    "leave": {}
+  }
+}
