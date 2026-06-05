@@ -98,6 +98,33 @@ tests/              Test suite (mirrors the package layout)
 plans/              Detailed, per-feature implementation plans
 ```
 
+## Logging
+
+telemente logs to a rotating file — never to stdout (Textual owns the terminal).
+
+| Item | Default |
+|------|---------|
+| Log file | `~/.local/share/telemente/telemente.log` |
+| Max size | 5 MB (3 backups kept) |
+| Default level | `INFO` |
+| Format | `2026-01-02 15:04:05 INFO     telemente.tui.app: message` |
+
+Override with CLI flags:
+
+```bash
+uv run telemente --log-level DEBUG
+uv run telemente --log-file /tmp/tele.log --log-level DEBUG
+```
+
+At `DEBUG`, third-party loggers (`nio`, `h11`, `h2`, `httpcore`) stay at
+`WARNING`; `peewee` and `nio.responses` are capped at `INFO` to keep file
+sizes sane.
+
+```bash
+# Tail the log while the app is running
+tail -f ~/.local/share/telemente/telemente.log
+```
+
 ## License
 
 [MIT](LICENSE)

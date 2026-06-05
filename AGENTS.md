@@ -123,6 +123,35 @@ snappy by following these patterns (already in place — don't regress them):
 - **Next target (plan 0012):** replace `ListView` with `OptionList` to get
   `replace_option_prompt` for zero-teardown option updates.
 
+## Logging
+
+telemente logs to a rotating file (never stdout — Textual owns the terminal).
+Configuration lives in `cli.py::_configure_logging`.
+
+| Item | Value |
+|------|-------|
+| Default log file | `~/.local/share/telemente/telemente.log` |
+| Max size | 5 MB, 3 backups (`RotatingFileHandler`) |
+| Default level | `INFO` |
+| Override | `--log-level DEBUG` / `--log-file PATH` |
+
+Level conventions:
+
+- `DEBUG` — internal state, per-event noise, message body previews (truncated
+  to ~60 chars). Never log full message bodies, tokens, or passwords at any
+  level.
+- `INFO` — user-visible transitions: login, sync start/stop, room selected,
+  message sent, session restored.
+- `WARNING` — degraded but recoverable: failed network call, cache miss.
+- `ERROR` — user-facing failures that require action.
+
+**When debugging, always read the log first.** Before adding print statements
+or guessing at root causes, run the app with `--log-level DEBUG` and
+`tail -f ~/.local/share/telemente/telemente.log`. The log records every sync
+event, room change, message dispatch, and worker lifecycle — most bugs are
+immediately visible there. Only add new `logger.*` calls if the relevant code
+path has no coverage; do not add them as a temporary debugging aid.
+
 ## Commits & PRs
 
 - Keep commits focused; do not commit if ruff/mypy/pytest fail.
