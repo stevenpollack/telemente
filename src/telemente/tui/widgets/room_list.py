@@ -279,11 +279,35 @@ class RoomList(Widget):
         self._sync_clear_button()
 
     def _refresh_list(self) -> None:
-        """Rebuild the ListView DOM to match _visible_rooms."""
+        """Sync the ListView DOM to match _visible_rooms with minimal mutation.
+
+        If room order and membership are unchanged, patch each item in-place
+        (no DOM churn). Otherwise do a full clear+rebuild wrapped in
+        batch_update so Textual repaints exactly once.
+        """
         list_view = self.query_one("#room-list-view", ListView)
-        list_view.clear()
-        for room in self._visible_rooms:
-            list_view.append(RoomItem(room, active=self._active_room_id == room.room_id))
+        current_items = list(list_view.query(RoomItem))
+        new_rooms = self._visible_rooms
+
+        # Fast path: same rooms in the same order — just patch data in-place.
+        if len(current_items) == len(new_rooms) and all(
+            item.room.room_id == room.room_id
+            for item, room in zip(current_items, new_rooms, strict=True)
+        ):
+            for item, room in zip(current_items, new_rooms, strict=True):
+                item.update_room(room)
+                if self._active_room_id == room.room_id:
+                    item.add_class("-highlight")
+                else:
+                    item.remove_class("-highlight")
+            self._sync_empty_state()
+            return
+
+        # Slow path: order or membership changed — rebuild once without flicker.
+        with self.app.batch_update():
+            list_view.clear()
+            for room in new_rooms:
+                list_view.append(RoomItem(room, active=self._active_room_id == room.room_id))
         self._sync_empty_state()
 
     def _apply_active_highlight(self) -> None:
