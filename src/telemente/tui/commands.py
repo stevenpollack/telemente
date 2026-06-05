@@ -94,29 +94,29 @@ class TelementeCommands(Provider):
         shows as a type error rather than a silent AttributeError at runtime.
         """
         return [
-            ("Search rooms", self._cmd_search_rooms, "Focus the room search bar"),
-            ("Toggle members pane", self._cmd_toggle_members, "Show/hide the members panel"),
-            ("Toggle log viewer", self._cmd_toggle_log, "Show/hide the log tail panel"),
-            ("Close tab", self._cmd_close_tab, "Close the active room's tab"),
+            ("Search rooms", self.cmd_search_rooms, "Focus the room search bar"),
+            ("Toggle members pane", self.cmd_toggle_members, "Show/hide the members panel"),
+            ("Toggle log viewer", self.cmd_toggle_log, "Show/hide the log tail panel"),
+            ("Close tab", self.cmd_close_tab, "Close the active room's tab"),
             (
                 "Sort: Recent activity",
-                self._cmd_sort_recent,
+                self.cmd_sort_recent,
                 "Sort room list by newest message first",
             ),
-            ("Sort: Alphabetical", self._cmd_sort_alpha, "Sort room list A-Z by name"),
-            ("Toggle favourite ★", self._cmd_toggle_favourite, "Add or remove the m.favourite tag"),
+            ("Sort: Alphabetical", self.cmd_sort_alpha, "Sort room list A-Z by name"),
+            ("Toggle favourite ★", self.cmd_toggle_favourite, "Add or remove the m.favourite tag"),
             (
                 "Toggle low priority ↓",
-                self._cmd_toggle_lowpriority,
+                self.cmd_toggle_lowpriority,
                 "Add or remove the m.lowpriority tag",
             ),
-            ("Toggle mute 🔕", self._cmd_toggle_mute, "Add or remove the m.mute tag"),
+            ("Toggle mute 🔕", self.cmd_toggle_mute, "Add or remove the m.mute tag"),
             (
                 "Leave room",
-                self._cmd_leave_room,
+                self.cmd_leave_room,
                 "Leave the currently selected room (asks for confirmation)",
             ),
-            ("Logout", self._cmd_logout, "Log out and return to the login screen"),
+            ("Logout", self.cmd_logout, "Log out and return to the login screen"),
         ]
 
     async def discover(self) -> Hits:
@@ -134,7 +134,7 @@ class TelementeCommands(Provider):
     # Navigation / layout
     # ------------------------------------------------------------------
 
-    def _cmd_search_rooms(self) -> None:
+    def cmd_search_rooms(self) -> None:
         from textual.widgets import Input
 
         from telemente.tui.screens.main import MainScreen
@@ -146,21 +146,21 @@ class TelementeCommands(Provider):
             except Exception:
                 logger.debug("_cmd_search_rooms: #room-search not found")
 
-    def _cmd_toggle_members(self) -> None:
+    def cmd_toggle_members(self) -> None:
         from telemente.tui.screens.main import MainScreen
 
         screen = self.app.screen
         if isinstance(screen, MainScreen):
             screen.action_toggle_members()
 
-    def _cmd_toggle_log(self) -> None:
+    def cmd_toggle_log(self) -> None:
         from telemente.tui.screens.main import MainScreen
 
         screen = self.app.screen
         if isinstance(screen, MainScreen):
             screen.action_toggle_log()
 
-    def _cmd_close_tab(self) -> None:
+    def cmd_close_tab(self) -> None:
         """Close the currently active room tab."""
         from telemente.tui.screens.main import MainScreen
 
@@ -177,7 +177,7 @@ class TelementeCommands(Provider):
     # Sort
     # ------------------------------------------------------------------
 
-    def _cmd_sort_recent(self) -> None:
+    def cmd_sort_recent(self) -> None:
         from telemente.tui.screens.main import MainScreen
         from telemente.tui.widgets.room_list import RoomList
 
@@ -189,7 +189,7 @@ class TelementeCommands(Provider):
         else:
             logger.warning("_cmd_sort_recent: screen is not MainScreen, sort skipped")
 
-    def _cmd_sort_alpha(self) -> None:
+    def cmd_sort_alpha(self) -> None:
         from telemente.tui.screens.main import MainScreen
         from telemente.tui.widgets.room_list import RoomList
 
@@ -205,13 +205,13 @@ class TelementeCommands(Provider):
     # Tags
     # ------------------------------------------------------------------
 
-    def _cmd_toggle_favourite(self) -> None:
+    def cmd_toggle_favourite(self) -> None:
         self._toggle_tag("m.favourite")
 
-    def _cmd_toggle_lowpriority(self) -> None:
+    def cmd_toggle_lowpriority(self) -> None:
         self._toggle_tag("m.lowpriority")
 
-    def _cmd_toggle_mute(self) -> None:
+    def cmd_toggle_mute(self) -> None:
         self._toggle_tag("m.mute")
 
     def _toggle_tag(self, tag: str) -> None:
@@ -239,7 +239,7 @@ class TelementeCommands(Provider):
         app = self.app
         if not isinstance(app, TelementeApp):
             return
-        client = app._client
+        client = app.client
 
         is_tagged = False
         screen = app.screen
@@ -274,7 +274,7 @@ class TelementeCommands(Provider):
     # Room / session
     # ------------------------------------------------------------------
 
-    def _cmd_leave_room(self) -> None:
+    def cmd_leave_room(self) -> None:
         from telemente.tui.screens.main import MainScreen
 
         screen = self.app.screen
@@ -312,7 +312,7 @@ class TelementeCommands(Provider):
             if not isinstance(app, TelementeApp):
                 return
             try:
-                await app._client.leave_room(rid)
+                await app.client.leave_room(rid)
                 app.notify(f"Left {display_name}", severity="information")
             except Exception as exc:
                 logger.warning("leave_room failed for %s: %s", rid, exc)
@@ -323,7 +323,7 @@ class TelementeCommands(Provider):
             _on_confirmed,
         )
 
-    def _cmd_logout(self) -> None:
+    def cmd_logout(self) -> None:
         from telemente.tui.app import TelementeApp
 
         app = self.app

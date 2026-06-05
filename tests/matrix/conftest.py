@@ -3,6 +3,11 @@
 Patches aioresponses to work with aiohttp >= 3.10 which added the
 ``stream_writer`` required keyword argument to ``ClientResponse.__init__``.
 aioresponses 0.7.8 predates this change; this shim fills the gap.
+
+When upgrading aioresponses: verify whether the upstream release includes its own
+aiohttp 3.10+ compat fix. If it does, delete ``_patched_build_response`` and the
+``patch_aioresponses_build`` fixture and pin to the newer version.
+Track at: https://github.com/pnuckowski/aioresponses/issues
 """
 
 from __future__ import annotations
@@ -90,7 +95,7 @@ def _patched_build_response(
         resp.cookies.load(hdr)
 
     resp._headers = _headers  # type: ignore[assignment]
-    resp._raw_headers = raw_headers
+    resp._raw_headers = raw_headers  # pyright: ignore[reportPrivateUsage]  # aiohttp compat shim
     resp.status = status
     resp.reason = reason
 

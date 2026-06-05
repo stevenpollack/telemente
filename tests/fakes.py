@@ -124,9 +124,9 @@ class FakeMatrixClient:
         self.homeserver: str = "https://matrix.org"
 
         # In-memory data
-        self._rooms: list[RoomSummary] = []
-        self._members: dict[str, list[Member]] = {}
-        self._messages: dict[str, list[Message]] = {}
+        self.rooms_data: list[RoomSummary] = []
+        self.members_data: dict[str, list[Member]] = {}
+        self.messages_data: dict[str, list[Message]] = {}
 
         # Subscriptions
         self._handlers: list[EventHandler] = []
@@ -142,7 +142,7 @@ class FakeMatrixClient:
         self.left_rooms: list[str] = []
         self.set_tags: list[tuple[str, str, float | None]] = []
         self.removed_tags: list[tuple[str, str]] = []
-        self._logged_in: bool = False
+        self.logged_in: bool = False
 
         # SSO spies (plan 0011)
         self.login_with_token_called: bool = False
@@ -187,7 +187,7 @@ class FakeMatrixClient:
         self.login_with_token_token = token
         if self.login_with_token_should_fail:
             raise LoginError("Scripted token login failure")
-        self._logged_in = True
+        self.logged_in = True
         return Session(
             homeserver=self._fake_homeserver,
             user_id="@sso_user:matrix.org",
@@ -206,7 +206,7 @@ class FakeMatrixClient:
             await self._login_event.wait()
         if self.login_should_fail:
             raise LoginError("Scripted login failure")
-        self._logged_in = True
+        self.logged_in = True
         return Session(
             homeserver="https://matrix.org",
             user_id=user,
@@ -215,10 +215,10 @@ class FakeMatrixClient:
         )
 
     async def restore(self, session: Session) -> None:
-        self._logged_in = True
+        self.logged_in = True
 
     async def logout(self) -> None:
-        self._logged_in = False
+        self.logged_in = False
         await self.close()
 
     # ------------------------------------------------------------------
@@ -226,7 +226,7 @@ class FakeMatrixClient:
     # ------------------------------------------------------------------
 
     async def start_sync(self) -> None:
-        if not self._logged_in:
+        if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self.start_sync_called = True
 
@@ -238,13 +238,13 @@ class FakeMatrixClient:
     # ------------------------------------------------------------------
 
     def rooms(self) -> list[RoomSummary]:
-        return list(self._rooms)
+        return list(self.rooms_data)
 
     def members(self, room_id: str) -> list[Member]:
-        return list(self._members.get(room_id, []))
+        return list(self.members_data.get(room_id, []))
 
     async def messages(self, room_id: str, limit: int = 50) -> list[Message]:
-        return list(self._messages.get(room_id, []))
+        return list(self.messages_data.get(room_id, []))
 
     # ------------------------------------------------------------------
     # Actions
@@ -254,40 +254,40 @@ class FakeMatrixClient:
         return "@fake:matrix.org", "Fake User"
 
     async def send_text(self, room_id: str, body: str, reply_to_event_id: str | None = None) -> str:
-        if not self._logged_in:
+        if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self.sent_messages.append((room_id, body, reply_to_event_id))
         return f"$fake_sent_{len(self.sent_messages)}:matrix.org"
 
     async def send_reaction(self, room_id: str, event_id: str, emoji: str) -> None:
-        if not self._logged_in:
+        if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self.sent_reactions.append((room_id, event_id, emoji))
 
     async def edit_message(self, room_id: str, event_id: str, new_body: str) -> str:
-        if not self._logged_in:
+        if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self.edited_messages.append((room_id, event_id, new_body))
         return f"$fake_edit_{len(self.edited_messages)}:matrix.org"
 
     async def redact_message(self, room_id: str, event_id: str, reason: str = "") -> None:
-        if not self._logged_in:
+        if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self.redacted_messages.append((room_id, event_id))
 
     async def leave_room(self, room_id: str) -> None:
-        if not self._logged_in:
+        if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self.left_rooms.append(room_id)
-        self._rooms = [r for r in self._rooms if r.room_id != room_id]
+        self.rooms_data = [r for r in self.rooms_data if r.room_id != room_id]
 
     async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None:
-        if not self._logged_in:
+        if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self.set_tags.append((room_id, tag, order))
 
     async def remove_room_tag(self, room_id: str, tag: str) -> None:
-        if not self._logged_in:
+        if not self.logged_in:
             raise NotLoggedInError("Not logged in")
         self.removed_tags.append((room_id, tag))
 

@@ -118,6 +118,10 @@ class TelementeApp(App[None]):
         self._unsubscribe: Callable[[], None] | None = None
         self._cached_user_id: str | None = None
 
+    @property
+    def client(self) -> MatrixClient:
+        return self._client
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static("", id="placeholder")
@@ -208,7 +212,7 @@ class TelementeApp(App[None]):
                 if isinstance(r, RoomSummary) and r.last_activity is not None
             }
             self._client.seed_last_activity(activities)
-        self._start_sync_and_subscribe()
+        self.start_sync_and_subscribe()
 
     def on_login_screen_logged_in(self, message: LoginScreen.LoggedIn) -> None:
         """Persist the session and navigate to the main screen after successful login.
@@ -244,13 +248,13 @@ class TelementeApp(App[None]):
         await self._client.restore(session)
         # Push the screen FIRST (same ordering fix as _restore_session).
         self.push_screen(MainScreen(self._client))
-        self._start_sync_and_subscribe()
+        self.start_sync_and_subscribe()
 
     # ------------------------------------------------------------------
     # Sync lifecycle (plan 0009)
     # ------------------------------------------------------------------
 
-    def _start_sync_and_subscribe(self) -> None:
+    def start_sync_and_subscribe(self) -> None:
         """Subscribe to client events and start sync as a Textual worker."""
         logger.info("Starting sync and subscribing to client events")
         # Subscribe before starting sync so no events are missed.
@@ -280,7 +284,7 @@ class TelementeApp(App[None]):
                 event.message.event_id,
             )
             self.post_message(_ClientNewMessage(event))
-        elif isinstance(event, MembersChanged):
+        else:
             logger.debug("ClientEvent: MembersChanged room=%s", event.room_id)
             self.post_message(_ClientMembersChanged(event))
 

@@ -253,7 +253,7 @@ def test_roomcache_load_corrupt_returns_empty(tmp_store: Path) -> None:
     paths = _make_paths(tmp_store).ensure()
     cache = RoomCache(paths)
     user_id = "@alice:matrix.org"
-    cache._path(user_id).write_text("not json {{{{")
+    cache._path(user_id).write_text("not json {{{{")  # pyright: ignore[reportPrivateUsage]  # RoomCache internal
     assert cache.load(user_id) == []
 
 

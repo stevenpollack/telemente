@@ -10,7 +10,10 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, date, datetime
-from typing import ClassVar, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol, cast
+
+if TYPE_CHECKING:
+    from telemente.tui.app import TelementeApp
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -76,7 +79,7 @@ class _DateSeparator(Static):
     """
 
 
-class _MessageRow(Widget, can_focus=True):
+class MessageRow(Widget, can_focus=True):
     """A single rendered message in the timeline."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
@@ -87,21 +90,21 @@ class _MessageRow(Widget, can_focus=True):
     ]
 
     DEFAULT_CSS = """
-    _MessageRow {
+    MessageRow {
         height: auto;
         padding: 0 1;
         margin-bottom: 1;
     }
-    _MessageRow Static {
+    MessageRow Static {
         height: auto;
         text-wrap: wrap;
     }
-    _MessageRow Link {
+    MessageRow Link {
         height: 1;
         padding: 0;
         margin: 0;
     }
-    _MessageRow:focus {
+    MessageRow:focus {
         border: tall $accent;
     }
     """
@@ -132,6 +135,10 @@ class _MessageRow(Widget, can_focus=True):
         self._reply_quoted = reply_quoted
         # Live reactions dict (updated optimistically)
         self._reactions: dict[str, list[str]] = dict(message.reactions)
+
+    @property
+    def message(self) -> Message:
+        return self._message
 
     def compose(self) -> ComposeResult:
         msg = self._message
@@ -221,22 +228,22 @@ class _MessageRow(Widget, can_focus=True):
 # ---------------------------------------------------------------------------
 
 
-class _ComposerArea(TextArea):
+class ComposerArea(TextArea):
     """Multi-line composer: Enter submits, Shift+Enter inserts a newline."""
 
     class Submitted(TextualMessage):
-        def __init__(self, area: _ComposerArea, value: str) -> None:
+        def __init__(self, area: ComposerArea, value: str) -> None:
             super().__init__()
             self.area = area
             self.value = value
 
     DEFAULT_CSS = """
-    _ComposerArea {
+    ComposerArea {
         height: auto;
         max-height: 10;
         border: tall $border;
     }
-    _ComposerArea:focus {
+    ComposerArea:focus {
         border: tall $accent;
     }
     """
@@ -272,6 +279,10 @@ class MessageView(Widget):
         Binding("G", "scroll_latest", "Latest"),
     ]
 
+    @property
+    def app(self) -> TelementeApp:  # type: ignore[override]
+        return cast("TelementeApp", super().app)  # pyright: ignore[reportUnknownMemberType]
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -300,7 +311,7 @@ class MessageView(Widget):
         yield Static("", id="encryption-notice", classes="encryption-notice")
         yield Static("", id="reply-indicator", classes="reply-banner")
         yield Input(id="emoji-input", placeholder="React…")
-        yield _ComposerArea(id="composer", soft_wrap=True)
+        yield ComposerArea(id="composer", soft_wrap=True)
 
     def on_mount(self) -> None:
         self.query_one("#reply-indicator", Static).display = False
@@ -338,13 +349,13 @@ class MessageView(Widget):
             self._msgs_by_id.get(message.reply_to_event_id) if message.reply_to_event_id else None
         )
         timeline = self.query_one("#message-timeline", VerticalScroll)
-        timeline.mount(_MessageRow(message, reply_quoted=reply_quoted))
+        timeline.mount(MessageRow(message, reply_quoted=reply_quoted))
         self._scroll_to_bottom()
 
     def clear(self) -> None:
         """Remove all rendered message rows and date separators."""
         timeline = self.query_one("#message-timeline", VerticalScroll)
-        for widget in list(timeline.query("_MessageRow, _DateSeparator")):
+        for widget in list(timeline.query("MessageRow, _DateSeparator")):
             widget.remove()
         self._rendered_event_ids.clear()
         self._msgs_by_id.clear()
@@ -356,39 +367,39 @@ class MessageView(Widget):
 
     def action_scroll_latest(self) -> None:
         self._scroll_to_bottom()
-        self.query_one("#composer", _ComposerArea).focus()
+        self.query_one("#composer", ComposerArea).focus()
 
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
-    def on__message_row_react_request(self, event: _MessageRow.ReactRequest) -> None:
+    def on_message_row_react_request(self, event: MessageRow.ReactRequest) -> None:
         self._react_target_event_id = event.event_id
         emoji_input = self.query_one("#emoji-input", Input)
         emoji_input.clear()
         emoji_input.display = True
         emoji_input.focus()
 
-    def on__message_row_reply_request(self, event: _MessageRow.ReplyRequest) -> None:
+    def on_message_row_reply_request(self, event: MessageRow.ReplyRequest) -> None:
         self._replying_to = event.message
         indicator = self.query_one("#reply-indicator", Static)
         msg = event.message
         indicator.update(f"↩ Replying to {msg.sender_display_name}: {msg.body[:40]}")
         indicator.display = True
-        self.query_one("#composer", _ComposerArea).focus()
+        self.query_one("#composer", ComposerArea).focus()
 
-    def on__message_row_edit_request(self, event: _MessageRow.EditRequest) -> None:
+    def on_message_row_edit_request(self, event: MessageRow.EditRequest) -> None:
         """Pre-fill the composer with the message body for editing."""
         my_user_id = self._client.me()[0]
         if event.message.sender != my_user_id:
             return
         self._editing = event.message
-        composer = self.query_one("#composer", _ComposerArea)
+        composer = self.query_one("#composer", ComposerArea)
         composer.clear()
         composer.insert(event.message.body)
         composer.focus()
 
-    def on__message_row_delete_request(self, event: _MessageRow.DeleteRequest) -> None:
+    def on_message_row_delete_request(self, event: MessageRow.DeleteRequest) -> None:
         """Redact the message: confirm with server first, then remove the row."""
         msg = event.message
         room_id = self._current_room_id
@@ -400,7 +411,7 @@ class MessageView(Widget):
         if event.input.id == "emoji-input":
             self._handle_emoji_submitted(event)
 
-    def on__composer_area_submitted(self, event: _ComposerArea.Submitted) -> None:
+    def on_composer_area_submitted(self, event: ComposerArea.Submitted) -> None:
         self._handle_composer_submitted(event)
 
     def on_key(self, event: object) -> None:
@@ -421,7 +432,7 @@ class MessageView(Widget):
             return
         if self._editing is not None:
             self._editing = None
-            self.query_one("#composer", _ComposerArea).clear()
+            self.query_one("#composer", ComposerArea).clear()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -437,13 +448,13 @@ class MessageView(Widget):
         if emoji and room_id and target_event_id:
             # Optimistic local update on the target row
             my_user_id = self._client.me()[0]
-            for row in self.query(_MessageRow):
-                if row._message.event_id == target_event_id:
+            for row in self.query(MessageRow):
+                if row.message.event_id == target_event_id:
                     row.update_reaction(emoji, my_user_id)
                     break
             self.run_worker(self._do_react(room_id, target_event_id, emoji), exclusive=False)
 
-    def _handle_composer_submitted(self, event: _ComposerArea.Submitted) -> None:
+    def _handle_composer_submitted(self, event: ComposerArea.Submitted) -> None:
         text = event.value.strip()
         if not text or self._current_room_id is None:
             return
@@ -471,8 +482,8 @@ class MessageView(Widget):
         logger.debug("Editing %s in %s", original.event_id, room_id)
         await self._client.edit_message(room_id, original.event_id, new_body)
         # Optimistic local update on the row
-        for row in self.query(_MessageRow):
-            if row._message.event_id == original.event_id:
+        for row in self.query(MessageRow):
+            if row.message.event_id == original.event_id:
                 row.update_body(new_body)
                 break
 
@@ -485,8 +496,8 @@ class MessageView(Widget):
             logger.warning("redact_message failed for %s: %s", msg.event_id, exc)
             self.app.notify(f"Could not delete message: {exc}", severity="error")
             return
-        for row in list(self.query(_MessageRow)):
-            if row._message.event_id == msg.event_id:
+        for row in list(self.query(MessageRow)):
+            if row.message.event_id == msg.event_id:
                 row.remove()
                 self._rendered_event_ids.discard(msg.event_id)
                 self._msgs_by_id.pop(msg.event_id, None)
@@ -526,7 +537,7 @@ class MessageView(Widget):
             reply_quoted = (
                 self._msgs_by_id.get(msg.reply_to_event_id) if msg.reply_to_event_id else None
             )
-            timeline.mount(_MessageRow(msg, reply_quoted=reply_quoted))
+            timeline.mount(MessageRow(msg, reply_quoted=reply_quoted))
 
     @staticmethod
     def _format_date(d: date) -> str:

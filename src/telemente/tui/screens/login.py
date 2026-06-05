@@ -669,4 +669,4 @@ class LoginScreen(Screen[None]):
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Log worker state changes for debugging."""
         if event.state == WorkerState.ERROR:
-            logger.error("Login worker errored: %s", event.worker)
+            logger.error("Login worker errored: %s", event.worker)  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]

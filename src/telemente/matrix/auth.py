@@ -15,8 +15,8 @@ Security notes:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 
@@ -39,10 +39,10 @@ class LoginFlows:
     password: bool
     sso: bool
     token: bool  # m.login.token (required for SSO exchange)
-    identity_providers: list[IdentityProvider] = field(default_factory=list)
+    identity_providers: list[IdentityProvider] = field(default_factory=lambda: [])
 
 
-def parse_login_flows(payload: Mapping[str, object]) -> LoginFlows:
+def parse_login_flows(payload: dict[str, Any]) -> LoginFlows:
     """Parse a ``GET /login`` JSON payload into a ``LoginFlows`` dataclass.
 
     Parameters
@@ -50,9 +50,8 @@ def parse_login_flows(payload: Mapping[str, object]) -> LoginFlows:
     payload:
         The raw JSON dict from the homeserver (must contain a ``"flows"`` list).
     """
-    flows_list = payload.get("flows", [])
-    if not isinstance(flows_list, list):
-        flows_list = []
+    flows_raw = payload.get("flows", [])
+    flows_list: list[Any] = cast(list[Any], flows_raw) if isinstance(flows_raw, list) else []  # type: ignore[redundant-cast]
 
     has_password = False
     has_sso = False
@@ -62,27 +61,31 @@ def parse_login_flows(payload: Mapping[str, object]) -> LoginFlows:
     for flow in flows_list:
         if not isinstance(flow, dict):
             continue
-        flow_type = flow.get("type", "")
+        flow_typed: dict[str, Any] = cast(dict[str, Any], flow)
+        flow_type = flow_typed.get("type", "")
         if flow_type == "m.login.password":
             has_password = True
         elif flow_type == "m.login.sso":
             has_sso = True
-            raw_idps = flow.get("identity_providers", [])
-            if isinstance(raw_idps, list):
-                for idp in raw_idps:
-                    if not isinstance(idp, dict):
-                        continue
-                    idp_id = idp.get("id", "")
-                    idp_name = idp.get("name", "")
-                    idp_icon = idp.get("icon")
-                    if isinstance(idp_id, str) and isinstance(idp_name, str):
-                        idps.append(
-                            IdentityProvider(
-                                id=idp_id,
-                                name=idp_name,
-                                icon=str(idp_icon) if idp_icon is not None else None,
-                            )
+            raw_idps_val = flow_typed.get("identity_providers", [])
+            raw_idps: list[Any] = (
+                cast(list[Any], raw_idps_val) if isinstance(raw_idps_val, list) else []  # type: ignore[redundant-cast]
+            )
+            for idp in raw_idps:
+                if not isinstance(idp, dict):
+                    continue
+                idp_typed: dict[str, Any] = cast(dict[str, Any], idp)
+                idp_id = idp_typed.get("id", "")
+                idp_name = idp_typed.get("name", "")
+                idp_icon = idp_typed.get("icon")
+                if isinstance(idp_id, str) and isinstance(idp_name, str):
+                    idps.append(
+                        IdentityProvider(
+                            id=idp_id,
+                            name=idp_name,
+                            icon=str(idp_icon) if idp_icon is not None else None,
                         )
+                    )
         elif flow_type == "m.login.token":
             has_token = True
 

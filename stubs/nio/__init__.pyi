@@ -121,6 +121,8 @@ class MatrixRoom:
     users: dict[str, MatrixUser]
     power_levels: PowerLevelsEvent
     tags: dict[str, dict[str, float] | None]
+    unread_notifications: int
+    unread_highlights: int
 
     def __init__(
         self,

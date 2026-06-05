@@ -57,7 +57,7 @@ class HostApp(App[None]):
 @pytest.mark.asyncio
 async def test_load_room_renders_members() -> None:
     fake = FakeMatrixClient()
-    fake._members["!room:s"] = [
+    fake.members_data["!room:s"] = [
         _member("@alice:s", "Alice"),
         _member("@bob:s", "Bob"),
         _member("@carol:s", "Carol"),
@@ -85,7 +85,7 @@ async def test_load_room_renders_members() -> None:
 @pytest.mark.asyncio
 async def test_sorted_by_power_then_name() -> None:
     fake = FakeMatrixClient()
-    fake._members["!room:s"] = [
+    fake.members_data["!room:s"] = [
         _member("@charlie:s", "Charlie", power_level=0),
         _member("@alice:s", "Alice", power_level=100),
         _member("@bob:s", "Bob", power_level=50),
@@ -123,7 +123,7 @@ async def test_sorted_by_power_then_name() -> None:
 @pytest.mark.asyncio
 async def test_power_level_marker() -> None:
     fake = FakeMatrixClient()
-    fake._members["!room:s"] = [
+    fake.members_data["!room:s"] = [
         _member("@admin:s", "AdminUser", power_level=100),
         _member("@mod:s", "ModUser", power_level=50),
         _member("@user:s", "RegularUser", power_level=0),
@@ -155,11 +155,11 @@ async def test_power_level_marker() -> None:
 @pytest.mark.asyncio
 async def test_switching_rooms_updates_list() -> None:
     fake = FakeMatrixClient()
-    fake._members["!roomA:s"] = [
+    fake.members_data["!roomA:s"] = [
         _member("@alice:s", "Alice"),
         _member("@bob:s", "Bob"),
     ]
-    fake._members["!roomB:s"] = [
+    fake.members_data["!roomB:s"] = [
         _member("@carol:s", "Carol"),
         _member("@dave:s", "Dave"),
         _member("@eve:s", "Eve"),
@@ -196,7 +196,7 @@ async def test_switching_rooms_updates_list() -> None:
 @pytest.mark.asyncio
 async def test_set_members_updates_render() -> None:
     fake = FakeMatrixClient()
-    fake._members["!room:s"] = [
+    fake.members_data["!room:s"] = [
         _member("@alice:s", "Alice"),
         _member("@bob:s", "Bob"),
     ]

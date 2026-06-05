@@ -148,7 +148,7 @@ async def test_encrypted_room_uses_ignore_unverified() -> None:
     nio_mock = _build_nio_mock(rooms={"!enc:example.com": enc_room})
 
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client._logged_in = True  # pyright: ignore[reportPrivateUsage]
 
     await client.send_text("!enc:example.com", "secret message")
 
@@ -174,7 +174,7 @@ async def test_unencrypted_room_send_unchanged() -> None:
     nio_mock = _build_nio_mock(rooms={"!plain:example.com": plain_room})
 
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client._logged_in = True  # pyright: ignore[reportPrivateUsage]
 
     await client.send_text("!plain:example.com", "plaintext message")
 
@@ -202,11 +202,11 @@ async def test_keys_uploaded_after_sync() -> None:
     nio_mock.should_query_keys = False
 
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client._logged_in = True  # pyright: ignore[reportPrivateUsage]
 
     # Simulate a sync response arriving
     fake_sync = MagicMock(spec=nio.SyncResponse)
-    await client._on_sync(fake_sync)
+    await client._on_sync(fake_sync)  # pyright: ignore[reportPrivateUsage]
 
     nio_mock.keys_upload.assert_awaited_once()
 
@@ -225,7 +225,7 @@ async def test_megolm_undecryptable_requests_key() -> None:
     nio_mock = _build_nio_mock()
 
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client._logged_in = True  # pyright: ignore[reportPrivateUsage]
 
     received: list[Any] = []
 
@@ -244,7 +244,7 @@ async def test_megolm_undecryptable_requests_key() -> None:
 
     fake_room = _make_nio_room(room_id="!enc:example.com", encrypted=True)
 
-    await client._on_megolm_event(fake_room, megolm_event)
+    await client._on_megolm_event(fake_room, megolm_event)  # pyright: ignore[reportPrivateUsage]
 
     # request_room_key must have been called
     nio_mock.request_room_key.assert_awaited_once_with(megolm_event)
@@ -284,7 +284,7 @@ async def test_tofu_trusts_room_devices_before_send() -> None:
     nio_mock.verify_device.return_value = True
 
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
+    client._logged_in = True  # pyright: ignore[reportPrivateUsage]
 
     await client.send_text("!enc:example.com", "hello")
 

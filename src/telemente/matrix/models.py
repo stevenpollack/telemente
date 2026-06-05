@@ -18,7 +18,7 @@ class RoomSummary:
     unread_count: int = 0
     last_activity: datetime | None = None
     encrypted: bool = False
-    tags: dict[str, float | None] = field(default_factory=dict)
+    tags: dict[str, float | None] = field(default_factory=lambda: {})
     # e.g. {"m.favourite": 0.5, "m.lowpriority": None}
 
 
@@ -37,7 +37,7 @@ class Message:
     # Human-readable media type label, e.g. "image", "video", "audio", "file"
     media_type: str | None = None
     # Aggregated reactions: emoji -> [sender_user_id, ...]
-    reactions: dict[str, list[str]] = field(default_factory=dict)
+    reactions: dict[str, list[str]] = field(default_factory=lambda: {})
     # Set when this message is a reply — the event_id of the parent message.
     reply_to_event_id: str | None = None
 

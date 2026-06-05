@@ -7,7 +7,6 @@ substring filtering, unread badges, and encryption indicators.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import ClassVar
 
 from textual.app import ComposeResult
@@ -20,22 +19,23 @@ from textual.widget import Widget
 from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from telemente.matrix.models import RoomSummary
+from telemente.matrix.sort import sort_rooms_by_recency
 
 logger = logging.getLogger(__name__)
 
 
-class _RoomItem(ListItem):
+class RoomItem(ListItem):
     """A single room entry in the ListView."""
 
     DEFAULT_CSS = """
-    _RoomItem {
+    RoomItem {
         height: auto;
         padding: 0 1;
     }
-    _RoomItem:hover {
+    RoomItem:hover {
         background: $boost;
     }
-    _RoomItem.-highlight {
+    RoomItem.-highlight {
         background: $accent 20%;
     }
     """
@@ -135,7 +135,7 @@ class RoomList(Widget):
         self._active_room_id: str | None = None
         self._sort_mode: str = "recent"  # "recent" | "alpha"
         self._filter_timer: Timer | None = None
-        self._pending_filter: str = ""
+        self.pending_filter: str = ""
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="search-bar"):
@@ -171,7 +171,7 @@ class RoomList(Widget):
         self._rebuild()
 
     def set_active_room(self, room_id: str | None) -> None:
-        """Highlight the _RoomItem matching room_id; survives list rebuilds."""
+        """Highlight the RoomItem matching room_id; survives list rebuilds."""
         self._active_room_id = room_id
         self._apply_active_highlight()
 
@@ -189,7 +189,7 @@ class RoomList(Widget):
     def update_unread(self, room_id: str, count: int) -> None:
         """Update the unread count for a single room without a full list rebuild.
 
-        Mutates the matching _RoomItem in place and updates _all_rooms and
+        Mutates the matching RoomItem in place and updates _all_rooms and
         _visible_rooms so the count survives the next set_rooms() call.
         """
 
@@ -210,8 +210,8 @@ class RoomList(Widget):
 
         self._all_rooms = _patch(self._all_rooms)
         self._visible_rooms = _patch(self._visible_rooms)
-        for item in self.query(_RoomItem):
-            if item._room.room_id == room_id:
+        for item in self.query(RoomItem):
+            if item.room.room_id == room_id:
                 updated = next(r for r in self._all_rooms if r.room_id == room_id)
                 item.update_room(updated)
                 break
@@ -241,17 +241,7 @@ class RoomList(Widget):
         if self._sort_mode == "alpha":
             self._visible_rooms = sorted(filtered, key=lambda r: r.display_name.casefold())
         else:
-            # "recent": rooms with a timestamp newest-first, then no-timestamp A-Z.
-            rooms_with_dt = [r for r in filtered if r.last_activity is not None]
-            rooms_without_dt = [r for r in filtered if r.last_activity is None]
-
-            def _by_activity(r: RoomSummary) -> datetime:
-                assert r.last_activity is not None
-                return r.last_activity
-
-            rooms_with_dt.sort(key=_by_activity, reverse=True)
-            rooms_without_dt.sort(key=lambda r: r.display_name)
-            self._visible_rooms = rooms_with_dt + rooms_without_dt
+            self._visible_rooms = sort_rooms_by_recency(filtered)
 
         self.call_after_refresh(self._refresh_list)
         self._sync_loading_state()
@@ -262,12 +252,12 @@ class RoomList(Widget):
         list_view = self.query_one("#room-list-view", ListView)
         list_view.clear()
         for room in self._visible_rooms:
-            list_view.append(_RoomItem(room, active=self._active_room_id == room.room_id))
+            list_view.append(RoomItem(room, active=self._active_room_id == room.room_id))
         self._sync_empty_state()
 
     def _apply_active_highlight(self) -> None:
         """Re-apply -highlight to the active room (used by set_active_room)."""
-        for item in self.query(_RoomItem):
+        for item in self.query(RoomItem):
             if self._active_room_id is not None and item.room.room_id == self._active_room_id:
                 item.add_class("-highlight")
             else:
@@ -298,14 +288,14 @@ class RoomList(Widget):
         if event.input.id != "room-search":
             return
         logger.debug("on_input_changed: filter=%r", event.value)
-        self._pending_filter = event.value
+        self.pending_filter = event.value
         if self._filter_timer is not None:
             self._filter_timer.stop()
-        self._filter_timer = self.set_timer(0.15, self._apply_pending_filter)
+        self._filter_timer = self.set_timer(0.15, self.apply_pending_filter)
 
-    def _apply_pending_filter(self) -> None:
+    def apply_pending_filter(self) -> None:
         self._filter_timer = None
-        self.apply_filter(self._pending_filter)
+        self.apply_filter(self.pending_filter)
 
     def on_key(self, event: Key) -> None:
         """ESC in the search input clears the filter."""
@@ -324,6 +314,6 @@ class RoomList(Widget):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Translate ListView.Selected into RoomList.RoomSelected."""
-        if isinstance(event.item, _RoomItem):
+        if isinstance(event.item, RoomItem):
             logger.info("Room selected: %s", event.item.room.room_id)
             self.post_message(RoomList.RoomSelected(event.item.room.room_id))

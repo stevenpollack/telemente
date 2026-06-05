@@ -14,7 +14,10 @@ import logging
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import ClassVar, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol, cast
+
+if TYPE_CHECKING:
+    from telemente.tui.app import TelementeApp
 
 from textual.app import ComposeResult
 from textual.binding import BindingType
@@ -86,6 +89,10 @@ class MainScreen(Screen[None]):
     members_visible: reactive[bool] = reactive(True)
     log_visible: reactive[bool] = reactive(False)
 
+    @property
+    def app(self) -> TelementeApp:  # type: ignore[override]
+        return cast("TelementeApp", super().app)  # pyright: ignore[reportUnknownMemberType]
+
     def __init__(
         self,
         client: _MainClient,
@@ -96,9 +103,9 @@ class MainScreen(Screen[None]):
         self._client = client
         self._log_file: Path = log_file or (Paths.default().data_dir / "telemente.log")
         # LRU-ordered dict: room_id -> display_name; oldest first.
-        self._open_tabs: OrderedDict[str, str] = OrderedDict()
+        self.open_tabs: OrderedDict[str, str] = OrderedDict()
         # Track unread counts by room_id.
-        self._unread: dict[str, int] = {}
+        self.unread: dict[str, int] = {}
 
     @property
     def active_room_id(self) -> str | None:
@@ -110,7 +117,7 @@ class MainScreen(Screen[None]):
         active = tc.active
         if not active:
             return None
-        for room_id in self._open_tabs:
+        for room_id in self.open_tabs:
             if _tab_id(room_id) == active:
                 return room_id
         return None
@@ -183,7 +190,7 @@ class MainScreen(Screen[None]):
             RoomSummary(
                 room_id=r.room_id,
                 display_name=r.display_name,
-                unread_count=self._unread.get(r.room_id, r.unread_count),
+                unread_count=self.unread.get(r.room_id, r.unread_count),
                 last_activity=r.last_activity,
                 encrypted=r.encrypted,
                 tags=r.tags,
@@ -192,7 +199,7 @@ class MainScreen(Screen[None]):
         ]
         self.query_one(RoomList).set_rooms(rooms_with_unread)
         # Close tabs for rooms that are no longer in the list (leave/kick/ban).
-        departed = [rid for rid in list(self._open_tabs) if rid not in incoming_ids]
+        departed = [rid for rid in list(self.open_tabs) if rid not in incoming_ids]
         for rid in departed:
             self.run_worker(self.close_tab(rid), exclusive=False)
 
@@ -207,22 +214,22 @@ class MainScreen(Screen[None]):
         )
         if msg.room_id == active_room:
             # Route to the active tab's MessageView
-            view = self._message_view_for(msg.room_id)
+            view = self.message_view_for(msg.room_id)
             if view is not None:
                 view.append_message(msg)
         else:
             # Bump unread counter and patch the room-list item in place —
             # no full rebuild needed for a single unread count change.
-            self._unread[msg.room_id] = self._unread.get(msg.room_id, 0) + 1
+            self.unread[msg.room_id] = self.unread.get(msg.room_id, 0) + 1
             room_list = self.query_one(RoomList)
-            room_list.update_unread(msg.room_id, self._unread[msg.room_id])
+            room_list.update_unread(msg.room_id, self.unread[msg.room_id])
             # Resolve display_name for the toast (cheaply, from cached all_rooms).
             display_name = next(
                 (r.display_name for r in room_list.all_rooms if r.room_id == msg.room_id),
                 msg.room_id,
             )
             # Toast only when the room is in an open (but non-active) tab
-            if msg.room_id in self._open_tabs:
+            if msg.room_id in self.open_tabs:
                 self.app.notify(
                     f"{msg.sender_display_name}: {msg.body[:60]}",
                     title=display_name,
@@ -250,7 +257,7 @@ class MainScreen(Screen[None]):
         ``handle_new_message``) and the RoomList widget so that any unread
         count carried in the last ``set_rooms`` payload is also zeroed.
         """
-        self._unread.pop(room_id, None)
+        self.unread.pop(room_id, None)
         self.query_one(RoomList).update_unread(room_id, 0)
 
     def on_room_list_room_selected(self, message: RoomList.RoomSelected) -> None:
@@ -259,9 +266,9 @@ class MainScreen(Screen[None]):
         tid = _tab_id(room_id)
         tc = self.query_one(TabbedContent)
 
-        if room_id in self._open_tabs:
+        if room_id in self.open_tabs:
             # Tab exists — just focus it and refresh the highlight
-            self._open_tabs.move_to_end(room_id)
+            self.open_tabs.move_to_end(room_id)
             tc.active = tid
             self._clear_unread(room_id)
             self._sync_room_highlight()
@@ -269,10 +276,10 @@ class MainScreen(Screen[None]):
 
         # Determine eviction before mutating state.
         evict_tid: str | None = None
-        if len(self._open_tabs) >= TAB_CAP:
-            oldest_room_id, _ = next(iter(self._open_tabs.items()))
+        if len(self.open_tabs) >= TAB_CAP:
+            oldest_room_id, _ = next(iter(self.open_tabs.items()))
             evict_tid = _tab_id(oldest_room_id)
-            del self._open_tabs[oldest_room_id]
+            del self.open_tabs[oldest_room_id]
 
         # Find display name from room list
         room_list = self.query_one(RoomList)
@@ -280,7 +287,7 @@ class MainScreen(Screen[None]):
             (r.display_name for r in room_list.all_rooms if r.room_id == room_id),
             room_id,
         )
-        self._open_tabs[room_id] = display_name
+        self.open_tabs[room_id] = display_name
 
         room_list.set_active_room(room_id)
         self._clear_unread(room_id)
@@ -308,10 +315,10 @@ class MainScreen(Screen[None]):
 
     async def close_tab(self, room_id: str) -> None:
         """Close the tab for room_id (no-op if not open)."""
-        if room_id not in self._open_tabs:
+        if room_id not in self.open_tabs:
             return
         tid = _tab_id(room_id)
-        del self._open_tabs[room_id]
+        del self.open_tabs[room_id]
         tc = self.query_one(TabbedContent)
         await tc.remove_pane(tid)
         self._sync_room_highlight()
@@ -342,7 +349,7 @@ class MainScreen(Screen[None]):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _message_view_for(self, room_id: str) -> MessageView | None:
+    def message_view_for(self, room_id: str) -> MessageView | None:
         tid = _tab_id(room_id)
         try:
             return self.query_one(f"#mv-{tid}", MessageView)

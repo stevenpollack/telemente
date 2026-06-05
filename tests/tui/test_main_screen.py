@@ -194,9 +194,9 @@ async def test_selecting_room_opens_tab() -> None:
     from telemente.tui.widgets.room_list import RoomList
 
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
+    fake.logged_in = True
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
     app = HostApp(fake)
 
     async with app.run_test() as pilot:
@@ -230,9 +230,9 @@ async def test_selecting_same_room_reuses_tab() -> None:
     from telemente.tui.widgets.room_list import RoomList
 
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
+    fake.logged_in = True
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
     app = HostApp(fake)
 
     async with app.run_test() as pilot:
@@ -268,10 +268,10 @@ async def test_tab_cap_evicts_oldest() -> None:
     from telemente.tui.widgets.room_list import RoomList
 
     fake = FakeMatrixClient()
-    fake._logged_in = True
+    fake.logged_in = True
     for i in range(9):
-        fake._messages[f"!r{i}:h"] = []
-        fake._members[f"!r{i}:h"] = []
+        fake.messages_data[f"!r{i}:h"] = []
+        fake.members_data[f"!r{i}:h"] = []
     app = HostApp(fake)
 
     async with app.run_test() as pilot:
@@ -293,9 +293,9 @@ async def test_tab_cap_evicts_oldest() -> None:
         tc = screen.query_one(TabbedContent)
         assert tc.tab_count == 8
         # First room's tab should have been evicted — not in open tabs
-        assert "!r0:h" not in screen._open_tabs
+        assert "!r0:h" not in screen.open_tabs
         # Last room's tab should be present and active
-        assert "!r8:h" in screen._open_tabs
+        assert "!r8:h" in screen.open_tabs
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +313,9 @@ async def test_close_tab_removes_tab() -> None:
     from telemente.tui.widgets.room_list import RoomList
 
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
+    fake.logged_in = True
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
     app = HostApp(fake)
 
     async with app.run_test() as pilot:
@@ -331,13 +331,13 @@ async def test_close_tab_removes_tab() -> None:
 
         tc = screen.query_one(TabbedContent)
         assert tc.tab_count == 1
-        assert "!a:h" in screen._open_tabs
+        assert "!a:h" in screen.open_tabs
 
         await screen.close_tab("!a:h")
         await pilot.pause()
 
         assert tc.tab_count == 0
-        assert "!a:h" not in screen._open_tabs
+        assert "!a:h" not in screen.open_tabs
 
 
 # ---------------------------------------------------------------------------
@@ -360,10 +360,10 @@ def _make_sync_app() -> tuple[TelementeApp, FakeMatrixClient]:
         store_dir=tmp_dir / "store",
     )
     fake = FakeMatrixClient()
-    fake._logged_in = True
+    fake.logged_in = True
     store = CredentialStore(paths, service="telemente-test-main")
     tapp = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
-    tapp._start_sync_and_subscribe()
+    tapp.start_sync_and_subscribe()
     return tapp, fake
 
 
@@ -383,10 +383,10 @@ async def test_unread_clears_on_reselect_existing_tab() -> None:
     from telemente.tui.widgets.room_list import RoomList
 
     tapp, fake = _make_sync_app()
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
-    fake._messages["!b:h"] = []
-    fake._members["!b:h"] = []
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
+    fake.messages_data["!b:h"] = []
+    fake.members_data["!b:h"] = []
 
     async with tapp.run_test() as pilot:
         tapp.push_screen(MS(fake))
@@ -426,7 +426,7 @@ async def test_unread_clears_on_reselect_existing_tab() -> None:
         await pilot.pause()
 
         # Room A should now have unread count 1
-        assert screen._unread.get("!a:h", 0) == 1
+        assert screen.unread.get("!a:h", 0) == 1
 
         # Re-select room A (tab already open)
         room_list.post_message(RoomList.RoomSelected("!a:h"))
@@ -434,7 +434,7 @@ async def test_unread_clears_on_reselect_existing_tab() -> None:
         await pilot.pause()
 
         # Unread must be cleared
-        assert screen._unread.get("!a:h", 0) == 0
+        assert screen.unread.get("!a:h", 0) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -455,10 +455,10 @@ async def test_unread_clears_on_tab_bar_switch() -> None:
     from telemente.tui.widgets.room_list import RoomList
 
     tapp, fake = _make_sync_app()
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
-    fake._messages["!b:h"] = []
-    fake._members["!b:h"] = []
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
+    fake.messages_data["!b:h"] = []
+    fake.members_data["!b:h"] = []
 
     async with tapp.run_test() as pilot:
         tapp.push_screen(MS(fake))
@@ -495,7 +495,7 @@ async def test_unread_clears_on_tab_bar_switch() -> None:
         await fake.emit(NewMessage(message=msg))
         await pilot.pause()
 
-        assert screen._unread.get("!a:h", 0) == 1
+        assert screen.unread.get("!a:h", 0) == 1
 
         # Manually switch tab bar to room A's tab
         tc = screen.query_one(TabbedContent)
@@ -504,4 +504,4 @@ async def test_unread_clears_on_tab_bar_switch() -> None:
         await pilot.pause()
 
         # Unread must be cleared
-        assert screen._unread.get("!a:h", 0) == 0
+        assert screen.unread.get("!a:h", 0) == 0

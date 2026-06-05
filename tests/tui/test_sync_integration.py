@@ -13,6 +13,7 @@ import logging
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -89,16 +90,16 @@ def _make_app() -> tuple[TelementeApp, FakeMatrixClient]:
     client events is established (mirrors what happens post-login/restore).
 
     Uses an isolated credential store so the real user session is never
-    loaded, preventing a second _start_sync_and_subscribe() call on mount
+    loaded, preventing a second start_sync_and_subscribe() call on mount
     that would cause duplicate event delivery.
     """
     tmp_dir = Path(tempfile.mkdtemp())
     fake = FakeMatrixClient()
-    fake._logged_in = True
+    fake.logged_in = True
     store = _make_isolated_store(tmp_dir)
     app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
     # Set up the client→app event bridge (normally done after login/restore).
-    app._start_sync_and_subscribe()
+    app.start_sync_and_subscribe()
     return app, fake
 
 
@@ -124,7 +125,7 @@ async def test_rooms_changed_updates_room_list() -> None:
         await fake.emit(RoomsChanged(rooms=rooms))
         await pilot.pause()
 
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
         room_list = screen.query_one(RoomList)
         assert len(room_list.visible_rooms) == 3
@@ -139,14 +140,14 @@ async def test_rooms_changed_updates_room_list() -> None:
 async def test_new_message_appends_to_active_room() -> None:
     """Select room A; emit NewMessage in A → message appears in MessageView."""
     app, fake = _make_app()
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
 
     async with app.run_test() as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
 
         # Open room A via RoomSelected (opens a tab and loads messages)
@@ -156,7 +157,7 @@ async def test_new_message_appends_to_active_room() -> None:
         await pilot.pause()
         await pilot.pause()
 
-        msg_view = screen._message_view_for("!a:h")
+        msg_view = screen.message_view_for("!a:h")
         assert msg_view is not None
         assert msg_view.current_room_id == "!a:h"
 
@@ -166,9 +167,9 @@ async def test_new_message_appends_to_active_room() -> None:
         await pilot.pause()
 
         # The message should be in the timeline
-        from telemente.tui.widgets.message_view import _MessageRow
+        from telemente.tui.widgets.message_view import MessageRow
 
-        rows = list(screen.query(_MessageRow))
+        rows = list(screen.query(MessageRow))
         assert len(rows) == 1
 
 
@@ -181,17 +182,17 @@ async def test_new_message_appends_to_active_room() -> None:
 async def test_new_message_other_room_bumps_unread() -> None:
     """Active room A; emit NewMessage for room B → MessageView unchanged, B unread +1."""
     app, fake = _make_app()
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
 
     rooms_ab = [_room("!a:h", "General"), _room("!b:h", "Random")]
-    fake._rooms = list(rooms_ab)
+    fake.rooms_data = list(rooms_ab)
 
     async with app.run_test() as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
 
         # Open room A via RoomSelected (makes it active)
@@ -201,7 +202,7 @@ async def test_new_message_other_room_bumps_unread() -> None:
         await pilot.pause()
         await pilot.pause()
 
-        msg_view = screen._message_view_for("!a:h")
+        msg_view = screen.message_view_for("!a:h")
         assert msg_view is not None
         assert msg_view.current_room_id == "!a:h"
 
@@ -211,10 +212,10 @@ async def test_new_message_other_room_bumps_unread() -> None:
         await pilot.pause()
 
         # MessageView for A still has no rows (only initial empty load)
-        from telemente.tui.widgets.message_view import _MessageRow
+        from telemente.tui.widgets.message_view import MessageRow
 
         assert msg_view.current_room_id == "!a:h"
-        rows = list(msg_view.query(_MessageRow))
+        rows = list(msg_view.query(MessageRow))
         assert len(rows) == 0
 
         # Room B should have unread count bumped in the room list
@@ -233,14 +234,14 @@ async def test_new_message_other_room_bumps_unread() -> None:
 async def test_members_changed_updates_active_room() -> None:
     """Active room A; emit MembersChanged(A, [...]) → MemberList re-renders."""
     app, fake = _make_app()
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
 
     async with app.run_test() as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
         # Open room A (makes it the active tab)
         room_list = screen.query_one(RoomList)
@@ -271,14 +272,14 @@ async def test_members_changed_updates_active_room() -> None:
 async def test_members_changed_other_room_ignored() -> None:
     """Active room A; emit MembersChanged(B, ...) → MemberList unchanged."""
     app, fake = _make_app()
-    fake._messages["!a:h"] = []
-    fake._members["!a:h"] = []
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
 
     async with app.run_test() as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
         # Open room A (makes it the active tab)
         room_list = screen.query_one(RoomList)
@@ -310,17 +311,17 @@ async def test_members_changed_other_room_ignored() -> None:
 async def test_room_selected_loads_messages_and_members() -> None:
     """Post RoomSelected(B) → MessageView.current_room_id == B, MemberList shows B's members."""
     app, fake = _make_app()
-    fake._messages["!b:h"] = [_msg("!b:h", "hello from b")]
-    fake._members["!b:h"] = [_member("@bob:h", "Bob")]
+    fake.messages_data["!b:h"] = [_msg("!b:h", "hello from b")]
+    fake.members_data["!b:h"] = [_member("@bob:h", "Bob")]
 
     rooms = [_room("!a:h", "General"), _room("!b:h", "Random", unread_count=2)]
-    fake._rooms = list(rooms)
+    fake.rooms_data = list(rooms)
 
     async with app.run_test() as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
         room_list = screen.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -331,7 +332,7 @@ async def test_room_selected_loads_messages_and_members() -> None:
         await pilot.pause()
         await pilot.pause()
 
-        msg_view = screen._message_view_for("!b:h")
+        msg_view = screen.message_view_for("!b:h")
         assert msg_view is not None
         assert msg_view.current_room_id == "!b:h"
 
@@ -374,7 +375,7 @@ async def test_rooms_appear_after_session_restore() -> None:
     """Regression test for the 'rooms disappear on restart' bug.
 
     Reproduces the original ordering bug: _restore_session() used to call
-    _start_sync_and_subscribe() BEFORE push_screen(MainScreen), so the first
+    start_sync_and_subscribe() BEFORE push_screen(MainScreen), so the first
     RoomsChanged event was emitted while MainScreen was not yet mounted and
     was silently dropped.
 
@@ -389,9 +390,9 @@ async def test_rooms_appear_after_session_restore() -> None:
     # Build a FakeMatrixClient with pre-loaded rooms (simulating rooms already
     # known to the client after restore_login, as they would be from nio store).
     fake = FakeMatrixClient()
-    fake._logged_in = True
+    fake.logged_in = True
     fake.homeserver = "https://matrix.example.org"
-    fake._rooms = [
+    fake.rooms_data = [
         RoomSummary(room_id="!general:h", display_name="General"),
         RoomSummary(room_id="!random:h", display_name="Random"),
     ]
@@ -423,7 +424,7 @@ async def test_rooms_appear_after_session_restore() -> None:
         await pilot.pause()
 
         # After restore, the app should have pushed MainScreen.
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen), (
             f"Expected MainScreen after restore, got {type(screen).__name__}"
         )
@@ -446,8 +447,8 @@ async def test_rooms_appear_after_session_restore() -> None:
 async def test_leave_room_removes_from_list_and_closes_tab() -> None:
     """RoomsChanged without room B → B disappears from the list and its tab closes."""
     app, fake = _make_app()
-    fake._messages["!b:h"] = []
-    fake._members["!b:h"] = []
+    fake.messages_data["!b:h"] = []
+    fake.members_data["!b:h"] = []
 
     rooms_ab = [_room("!a:h", "General"), _room("!b:h", "Random")]
 
@@ -455,7 +456,7 @@ async def test_leave_room_removes_from_list_and_closes_tab() -> None:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
 
         room_list = screen.query_one(RoomList)
@@ -465,8 +466,8 @@ async def test_leave_room_removes_from_list_and_closes_tab() -> None:
         await pilot.pause()
         await pilot.pause()
 
-        assert screen._message_view_for("!b:h") is not None
-        assert "!b:h" in screen._open_tabs
+        assert screen.message_view_for("!b:h") is not None
+        assert "!b:h" in screen.open_tabs
 
         # Simulate leave: emit RoomsChanged without room B
         await fake.emit(RoomsChanged(rooms=[_room("!a:h", "General")]))
@@ -478,8 +479,8 @@ async def test_leave_room_removes_from_list_and_closes_tab() -> None:
         assert "!b:h" not in visible_ids
 
         # Tab for B should be closed
-        assert "!b:h" not in screen._open_tabs
-        assert screen._message_view_for("!b:h") is None
+        assert "!b:h" not in screen.open_tabs
+        assert screen.message_view_for("!b:h") is None
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +519,7 @@ async def test_action_logout_clears_session_and_shows_login() -> None:
 async def test_on_client_event_saves_rooms_to_cache() -> None:
     """RoomsChanged event triggers room cache save when user_id is known."""
     app, fake = _make_app()
-    app._cached_user_id = "@alice:matrix.org"
+    app._cached_user_id = "@alice:matrix.org"  # pyright: ignore[reportPrivateUsage]
 
     async with app.run_test() as pilot:
         app.push_screen(MainScreen(fake))
@@ -529,7 +530,7 @@ async def test_on_client_event_saves_rooms_to_cache() -> None:
         await pilot.pause()
 
         # Room cache should have saved the rooms for this user
-        cached = app._room_cache.load("@alice:matrix.org")
+        cached = app._room_cache.load("@alice:matrix.org")  # pyright: ignore[reportPrivateUsage]
         assert cached is not None
         assert len(cached) == 2
 
@@ -547,7 +548,7 @@ async def test_restore_session_rebuilds_client_for_different_homeserver() -> Non
     from telemente.config import CredentialStore, Paths, Session
 
     fake = FakeMatrixClient()
-    fake._logged_in = True
+    fake.logged_in = True
     # fake.homeserver is "https://matrix.org" (default in FakeMatrixClient)
 
     tmp_dir = Path(_tempfile.mkdtemp())
@@ -574,7 +575,7 @@ async def test_restore_session_rebuilds_client_for_different_homeserver() -> Non
         await pilot.pause()
 
         # The app should have pushed MainScreen after restore
-        screen = app.screen
+        screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
         # The client should have been rebuilt for the session's homeserver
-        assert app._client.homeserver == "https://other.matrix.example.org"
+        assert app.client.homeserver == "https://other.matrix.example.org"

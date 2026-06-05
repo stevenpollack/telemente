@@ -44,10 +44,10 @@ def _make_app_with_main() -> tuple[TelementeApp, FakeMatrixClient]:
     """Create a TelementeApp+FakeMatrixClient wired for command testing."""
     tmp_dir = Path(tempfile.mkdtemp())
     fake = FakeMatrixClient()
-    fake._logged_in = True
+    fake.logged_in = True
     store = _make_isolated_store(tmp_dir)
     app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
-    app._start_sync_and_subscribe()
+    app.start_sync_and_subscribe()
     return app, fake
 
 
@@ -158,7 +158,7 @@ async def test_cmd_sort_alpha_sets_alpha_mode() -> None:
         from telemente.tui.commands import TelementeCommands
 
         provider = TelementeCommands(screen)
-        provider._cmd_sort_alpha()
+        provider.cmd_sort_alpha()
         await pilot.pause()
 
         visible = room_list.visible_rooms
@@ -204,7 +204,7 @@ async def test_cmd_sort_recent_sets_recent_mode() -> None:
         from telemente.tui.commands import TelementeCommands
 
         provider = TelementeCommands(screen)
-        provider._cmd_sort_recent()
+        provider.cmd_sort_recent()
         await pilot.pause()
 
         visible = room_list.visible_rooms
@@ -232,7 +232,7 @@ async def test_cmd_search_rooms_focuses_input() -> None:
         from telemente.tui.commands import TelementeCommands
 
         provider = TelementeCommands(screen)
-        provider._cmd_search_rooms()
+        provider.cmd_search_rooms()
         await pilot.pause()
 
         assert app.focused is not None
@@ -260,7 +260,7 @@ async def test_cmd_toggle_members_toggles_panel() -> None:
         from telemente.tui.commands import TelementeCommands
 
         provider = TelementeCommands(screen)
-        provider._cmd_toggle_members()
+        provider.cmd_toggle_members()
         await pilot.pause()
 
         assert screen.members_visible is False
@@ -289,7 +289,7 @@ async def test_cmd_close_tab_no_active_room_notifies() -> None:
 
         provider = TelementeCommands(screen)
         with patch.object(app, "notify", MagicMock()) as mock_notify:
-            provider._cmd_close_tab()
+            provider.cmd_close_tab()
             await pilot.pause()
             assert mock_notify.called
 
@@ -315,7 +315,7 @@ async def test_cmd_leave_room_no_active_room_notifies() -> None:
 
         provider = TelementeCommands(screen)
         with patch.object(app, "notify", MagicMock()) as mock_notify:
-            provider._cmd_leave_room()
+            provider.cmd_leave_room()
             await pilot.pause()
             assert mock_notify.called
 
@@ -342,7 +342,7 @@ async def test_cmd_logout_triggers_app_logout() -> None:
         from telemente.tui.commands import TelementeCommands
 
         provider = TelementeCommands(screen)
-        provider._cmd_logout()
+        provider.cmd_logout()
         # Worker needs time to complete
         await pilot.pause()
         await pilot.pause()

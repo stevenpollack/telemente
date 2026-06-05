@@ -7,7 +7,7 @@ homeserver base URL used by MatrixClient and SSO redirects.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import aiohttp
@@ -55,9 +55,10 @@ def parse_server_name(value: str) -> str:
 
 
 def _parse_well_known_base_url(payload: dict[str, Any]) -> str | None:
-    homeserver = payload.get("m.homeserver")
-    if not isinstance(homeserver, dict):
+    homeserver_raw = payload.get("m.homeserver")
+    if not isinstance(homeserver_raw, dict):
         return None
+    homeserver: dict[str, Any] = cast(dict[str, Any], homeserver_raw)
     base_url = homeserver.get("base_url")
     if not isinstance(base_url, str) or not base_url.strip():
         return None

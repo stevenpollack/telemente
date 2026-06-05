@@ -292,6 +292,7 @@ class MatrixClient:
         if cached_rooms:
             logger.info("Emitting %d cached rooms from store before sync", len(cached_rooms))
             self._initial_sync_done = True
+            self._last_rooms_fingerprint = self._rooms_fingerprint(cached_rooms)
             await self._emit(RoomsChanged(rooms=cached_rooms))
 
         self._rooms_poll_task = asyncio.create_task(self._poll_rooms_during_sync())
@@ -358,6 +359,7 @@ class MatrixClient:
             # last_activity is populated by _on_sync via _update_last_activity()
             # or pre-seeded at startup via seed_last_activity().
             last_activity: datetime | None = self._last_activity.get(room_id)
+            unread_count = int(room.unread_notifications)
 
             # Extract room tags (m.favourite, m.lowpriority, etc.).
             tags: dict[str, float | None] = {}
@@ -376,6 +378,7 @@ class MatrixClient:
                     display_name=room.display_name or room_id,
                     encrypted=bool(room.encrypted),
                     last_activity=last_activity,
+                    unread_count=unread_count,
                     tags=tags,
                 )
             )
@@ -871,7 +874,11 @@ class MatrixClient:
         return summaries
 
     def _update_last_activity(self, response: nio.SyncResponse) -> None:
-        """Scan the sync response's joined-room timelines to update _last_activity."""
+        """Scan the sync response's joined-room timelines to update _last_activity.
+
+        nio delivers timeline.events oldest-first; reversed() gives newest-first so
+        the first event we find with server_timestamp is the most recent one.
+        """
         try:
             join = response.rooms.join
         except AttributeError:

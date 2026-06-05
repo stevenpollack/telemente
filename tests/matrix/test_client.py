@@ -34,7 +34,6 @@ from matrix.helpers import (
     restore_client,
     room_activity_by_id,
     room_messages_url_pattern,
-    sort_rooms_by_recency,
     start_sync_with_stubs,
     stub_delete,
     stub_get,
@@ -51,6 +50,7 @@ from telemente.matrix.client import (
     NotLoggedInError,
 )
 from telemente.matrix.models import RoomSummary
+from telemente.matrix.sort import sort_rooms_by_recency
 
 # ---------------------------------------------------------------------------
 # Unit tests
@@ -238,17 +238,16 @@ async def test_login_integration_aioresponses() -> None:
     }
     login_url = f"{HOMESERVER}/_matrix/client/v3/login"
 
+    real_nio = nio.AsyncClient(HOMESERVER, "@intuser:example.com")
     with aioresponses() as m:
         stub_post(m, login_url, payload=login_json)
-        real_nio = nio.AsyncClient(HOMESERVER, "@intuser:example.com")
         client = MatrixClient(HOMESERVER, nio_client=real_nio)
         session = await client.login("@intuser:example.com", "password")
+        await real_nio.close()
 
     assert session.access_token == "integration_token"
     assert session.device_id == "INTDEVICE"
     assert session.user_id == "@intuser:example.com"
-
-    await real_nio.close()
 
 
 async def test_login_forbidden_integration() -> None:
@@ -258,15 +257,15 @@ async def test_login_forbidden_integration() -> None:
     error_json = {"errcode": "M_FORBIDDEN", "error": "Invalid password"}
     login_url = f"{HOMESERVER}/_matrix/client/v3/login"
 
+    real_nio = nio.AsyncClient(HOMESERVER, USER)
     with aioresponses() as m:
         stub_post(m, login_url, payload=error_json, status=403)
-        real_nio = nio.AsyncClient(HOMESERVER, USER)
         client = MatrixClient(HOMESERVER, nio_client=real_nio)
 
         with pytest.raises(LoginError):
             await client.login(USER, PASSWORD)
 
-    await real_nio.close()
+        await real_nio.close()
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +319,7 @@ async def test_update_last_activity_real_nio_incremental_sync(
 ) -> None:
     """Incremental sync through real nio updates last_activity for a quiet room."""
     expected_b = ts_from_origin_server_ms(1_700_000_010_000)
-    idle = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
+    idle: dict[str, Any] = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
 
     with aioresponses() as m:
         stub_sync(m, load_fixture("sync_initial.json"))
@@ -355,9 +354,7 @@ async def test_rooms_sorted_by_recency_after_real_sync(
     assert sorted_ids == [ROOM_C, ROOM_A, ROOM_B]
 
 
-async def test_rooms_recency_sort_c_before_b_before_a(
-    real_nio_client: Any,
-) -> None:
+async def test_rooms_recency_sort_c_before_b_before_a() -> None:
     """When alpha order is a,b,c but activity is c > b > a, recent sort yields c,b,a."""
     from datetime import UTC, datetime
 
@@ -377,12 +374,30 @@ async def test_rooms_recency_sort_c_before_b_before_a(
     ]
 
 
+async def test_rooms_unread_count_from_sync(real_nio_client: Any) -> None:
+    """rooms() populates unread_count from nio's unread_notifications after sync."""
+    with aioresponses() as m:
+        client = MatrixClient(HOMESERVER, nio_client=real_nio_client)
+        await client.restore(make_session())
+        await start_sync_with_stubs(
+            client,
+            m,
+            initial_sync=load_fixture("sync_initial.json"),
+            min_rooms=3,
+        )
+
+    by_id = {r.room_id: r for r in client.rooms()}
+    # sync_initial.json has unread_notifications: {notification_count: 1} for room_a
+    assert by_id[ROOM_A].unread_count == 1
+    assert by_id[ROOM_C].unread_count == 0
+
+
 async def test_messages_backfill_seeds_last_activity_real_nio(
     real_nio_client: Any,
 ) -> None:
     """messages() backfill through real nio seeds last_activity on rooms()."""
     expected = ts_from_origin_server_ms(1_700_000_006_000)
-    idle = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
+    idle: dict[str, Any] = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
 
     with aioresponses() as m:
         stub_sync(m, load_fixture("sync_initial.json"))
@@ -422,7 +437,7 @@ async def test_matrix_room_has_no_timeline_attribute() -> None:
 
 async def test_messages_returns_text_events(real_nio_client: Any) -> None:
     """messages() returns Message objects parsed by real nio from a JSON fixture."""
-    idle = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
+    idle: dict[str, Any] = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
 
     with aioresponses() as m:
         stub_sync(m, load_fixture("sync_initial.json"))
@@ -774,7 +789,7 @@ async def test_seed_last_activity_does_not_overwrite_existing(
 
     ts_seed = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
     expected = ts_from_origin_server_ms(1_700_000_006_000)
-    idle = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
+    idle: dict[str, Any] = {"next_batch": "idle", "rooms": {"join": {}, "invite": {}, "leave": {}}}
 
     with aioresponses() as m:
         stub_sync(m, load_fixture("sync_initial.json"))

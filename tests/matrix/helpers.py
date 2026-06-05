@@ -7,6 +7,7 @@ Typed ``stub_*`` helpers wrap ``aioresponses`` for a clean Pyright LSP.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import re
 import time
@@ -20,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock
 from telemente.config import Session
 from telemente.matrix.client import MatrixClient
 from telemente.matrix.models import RoomSummary
+from telemente.matrix.sort import sort_rooms_by_recency
 
 FIXTURES_ROOT = Path(__file__).resolve().parent.parent / "fixtures" / "nio"
 SYNTHETIC_DIR = FIXTURES_ROOT / "synthetic"
@@ -353,6 +355,7 @@ def recorded_fixtures_available() -> bool:
     return login_ok and sync_ok
 
 
+@functools.cache
 def load_fixture(name: str, *, tier: FixtureTier = "synthetic") -> dict[str, Any]:
     """Load a JSON cassette from ``synthetic/`` (default) or ``recorded/``."""
     path = fixture_dir(tier=tier) / name
@@ -364,24 +367,33 @@ def load_recorded_meta() -> dict[str, Any]:
     return load_fixture("meta.json", tier="recorded")
 
 
-def max_timeline_message_ts_by_room(sync: dict[str, Any]) -> dict[str, int]:
-    """Map joined room_id → newest ``origin_server_ts`` from timeline text messages."""
+def max_timeline_event_ts_by_room(sync: dict[str, Any]) -> dict[str, int]:
+    """Map joined room_id → newest ``origin_server_ts`` from any timeline event.
+
+    Matches the semantics of ``_update_last_activity`` in ``MatrixClient``, which
+    takes the most-recent event of any type, not only ``m.room.message``.
+    """
     result: dict[str, int] = {}
-    join = sync.get("rooms", {}).get("join", {})
-    if not isinstance(join, dict):
+    join_raw = sync.get("rooms", {}).get("join", {})
+    if not isinstance(join_raw, dict):
         return result
+    join: dict[str, Any] = cast(dict[str, Any], join_raw)
     for room_id, info in join.items():
         if not isinstance(info, dict):
             continue
-        timeline = info.get("timeline", {})
-        events = timeline.get("events", []) if isinstance(timeline, dict) else []
+        info_typed: dict[str, Any] = cast(dict[str, Any], info)
+        timeline_val = info_typed.get("timeline", {})
+        timeline_raw: dict[str, Any] = (
+            cast(dict[str, Any], timeline_val) if isinstance(timeline_val, dict) else {}
+        )
+        events_raw = timeline_raw.get("events", [])
+        events: list[Any] = cast(list[Any], events_raw) if isinstance(events_raw, list) else []  # type: ignore[redundant-cast]
         timestamps: list[int] = []
         for event in events:
             if not isinstance(event, dict):
                 continue
-            if event.get("type") != "m.room.message":
-                continue
-            ts = event.get("origin_server_ts")
+            event_typed: dict[str, Any] = cast(dict[str, Any], event)
+            ts = event_typed.get("origin_server_ts")
             if isinstance(ts, int):
                 timestamps.append(ts)
         if timestamps:
@@ -417,18 +429,8 @@ def stub_sync(
     stub_get(m, sync_url_pattern(homeserver), payload=payload, repeat=repeat)
 
 
-def sort_rooms_by_recency(rooms: list[RoomSummary]) -> list[RoomSummary]:
-    """Mirror ``RoomList`` recent sort: newest activity first, then A-Z by name."""
-    rooms_with_dt = [r for r in rooms if r.last_activity is not None]
-    rooms_without_dt = [r for r in rooms if r.last_activity is None]
-
-    def _by_activity(r: RoomSummary) -> datetime:
-        assert r.last_activity is not None
-        return r.last_activity
-
-    rooms_with_dt.sort(key=_by_activity, reverse=True)
-    rooms_without_dt.sort(key=lambda r: r.display_name)
-    return rooms_with_dt + rooms_without_dt
+# Re-exported so test imports don't need to know about the production module.
+__all__ = ["sort_rooms_by_recency"]
 
 
 async def wait_until(

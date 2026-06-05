@@ -238,7 +238,7 @@ async def test_selecting_posts_roomselected() -> None:
 @pytest.mark.asyncio
 async def test_unread_badge_rendered() -> None:
     """Unread count is embedded in the room-name label as '(3)'."""
-    from telemente.tui.widgets.room_list import _RoomItem
+    from telemente.tui.widgets.room_list import RoomItem
 
     app = HostApp()
     rooms = [
@@ -251,7 +251,7 @@ async def test_unread_badge_rendered() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         assert len(items) == 1
         rendered = str(items[0].query_one(".room-name").render())
         assert "Busy Room" in rendered
@@ -347,14 +347,14 @@ async def test_set_rooms_while_filtered_preserves_all_rooms() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 11: set_active_room highlights the matching _RoomItem
+# Test 11: set_active_room highlights the matching RoomItem
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_set_active_room_highlights_matching_item() -> None:
-    """set_active_room('!a:h') — matching _RoomItem has -highlight, others don't."""
-    from telemente.tui.widgets.room_list import _RoomItem
+    """set_active_room('!a:h') — matching RoomItem has -highlight, others don't."""
+    from telemente.tui.widgets.room_list import RoomItem
 
     app = HostApp()
     rooms = [
@@ -372,7 +372,7 @@ async def test_set_active_room_highlights_matching_item() -> None:
         room_list.set_active_room("!a:h")
         await pilot.pause()
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         assert len(items) == 3
 
         highlighted = [item for item in items if "-highlight" in item.classes]
@@ -391,8 +391,8 @@ async def test_set_active_room_highlights_matching_item() -> None:
 @pytest.mark.asyncio
 async def test_active_highlight_survives_set_rooms_rebuild() -> None:
     """Regression: calling set_rooms() after set_active_room() must re-apply the
-    highlight — previously the rebuild wiped all classes on new _RoomItem instances."""
-    from telemente.tui.widgets.room_list import _RoomItem
+    highlight — previously the rebuild wiped all classes on new RoomItem instances."""
+    from telemente.tui.widgets.room_list import RoomItem
 
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
@@ -410,7 +410,7 @@ async def test_active_highlight_survives_set_rooms_rebuild() -> None:
         await pilot.pause()
         await pilot.pause()  # second pause lets call_after_refresh fire
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         highlighted = [item for item in items if "-highlight" in item.classes]
         assert len(highlighted) == 1
         assert highlighted[0].room.room_id == "!a:h"
@@ -428,7 +428,7 @@ async def test_switch_active_room_moves_highlight() -> None:
     The bug: set_rooms() was called before set_active_room(), so the rebuild
     used the old _active_room_id and the new selection had no effect until the
     next render cycle."""
-    from telemente.tui.widgets.room_list import _RoomItem
+    from telemente.tui.widgets.room_list import RoomItem
 
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
@@ -451,7 +451,7 @@ async def test_switch_active_room_moves_highlight() -> None:
         await pilot.pause()
         await pilot.pause()
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         highlighted = [item for item in items if "-highlight" in item.classes]
         assert len(highlighted) == 1
         assert highlighted[0].room.room_id == "!b:h"
@@ -474,9 +474,9 @@ async def test_unread_room_name_is_bold() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import _RoomItem
+        from telemente.tui.widgets.room_list import RoomItem
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         assert len(items) == 1
         rendered = str(items[0].query_one(".room-name").render())
         assert "General" in rendered
@@ -500,9 +500,9 @@ async def test_read_room_name_is_plain() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import _RoomItem
+        from telemente.tui.widgets.room_list import RoomItem
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         rendered = str(items[0].query_one(".room-name").render())
         assert "General" in rendered
         assert "(" not in rendered
@@ -531,9 +531,9 @@ async def test_favourite_tag_shows_star() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import _RoomItem
+        from telemente.tui.widgets.room_list import RoomItem
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         rendered = str(items[0].query_one(".room-name").render())
         assert "★" in rendered
 
@@ -561,9 +561,9 @@ async def test_lowpriority_tag_shows_arrow() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import _RoomItem
+        from telemente.tui.widgets.room_list import RoomItem
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         rendered = str(items[0].query_one(".room-name").render())
         assert "↓" in rendered
 
@@ -664,11 +664,11 @@ async def test_debounced_search_does_not_rebuild_per_keystroke() -> None:
         # visible_rooms must NOT yet be filtered — debounce deferred the rebuild.
         assert len(room_list.visible_rooms) == 2
         # _pending_filter must reflect the last value.
-        assert room_list._pending_filter == "rand"
+        assert room_list.pending_filter == "rand"
 
         # Fire the deferred callback manually.
         # _rebuild() is synchronous, so visible_rooms is updated immediately.
-        room_list._apply_pending_filter()
+        room_list.apply_pending_filter()
         assert len(room_list.visible_rooms) == 1
         assert room_list.visible_rooms[0].room_id == "!b:h"
 
@@ -681,8 +681,8 @@ async def test_debounced_search_does_not_rebuild_per_keystroke() -> None:
 @pytest.mark.asyncio
 async def test_update_unread_patches_label_in_place() -> None:
     """update_unread(room_id, count) updates the unread display without
-    a full ListView rebuild — the same _RoomItem instance stays in the DOM."""
-    from telemente.tui.widgets.room_list import _RoomItem
+    a full ListView rebuild — the same RoomItem instance stays in the DOM."""
+    from telemente.tui.widgets.room_list import RoomItem
 
     app = HostApp()
     rooms = [
@@ -696,17 +696,17 @@ async def test_update_unread_patches_label_in_place() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        items_before = list(app.query(_RoomItem))
+        items_before = list(app.query(RoomItem))
         assert len(items_before) == 2
         # Grab identity of the item for room a
-        item_a_before = next(i for i in items_before if i._room.room_id == "!a:h")
+        item_a_before = next(i for i in items_before if i.room.room_id == "!a:h")
 
         room_list.update_unread("!a:h", 5)
         await pilot.pause()
 
-        items_after = list(app.query(_RoomItem))
+        items_after = list(app.query(RoomItem))
         assert len(items_after) == 2
-        item_a_after = next(i for i in items_after if i._room.room_id == "!a:h")
+        item_a_after = next(i for i in items_after if i.room.room_id == "!a:h")
 
         # Same DOM node — no teardown+rebuild.
         assert item_a_before is item_a_after
@@ -739,9 +739,9 @@ async def test_mute_tag_shows_bell() -> None:
         room_list.set_rooms(rooms)
         await pilot.pause()
 
-        from telemente.tui.widgets.room_list import _RoomItem
+        from telemente.tui.widgets.room_list import RoomItem
 
-        items = list(app.query(_RoomItem))
+        items = list(app.query(RoomItem))
         rendered = str(items[0].query_one(".room-name").render())
         assert "🔕" in rendered
 
@@ -775,7 +775,7 @@ async def test_esc_key_clears_search_input() -> None:
         await pilot.press("r", "a", "n")
         await pilot.pause()
         # Manually apply the pending filter (debounce shortcut)
-        room_list._apply_pending_filter()
+        room_list.apply_pending_filter()
         assert len(room_list.visible_rooms) == 1
 
         # ESC should clear the input
@@ -873,7 +873,7 @@ async def test_set_sort_mode_updates_dom_order() -> None:
     alphabetical order after a single pilot.pause()."""
     from textual.widgets import ListView
 
-    from telemente.tui.widgets.room_list import _RoomItem
+    from telemente.tui.widgets.room_list import RoomItem
 
     app = HostApp()
     rooms = [
@@ -893,7 +893,7 @@ async def test_set_sort_mode_updates_dom_order() -> None:
 
         # Verify DOM order matches alphabetical, not just the Python list.
         list_view = room_list.query_one(ListView)
-        dom_items = list(list_view.query(_RoomItem))
+        dom_items = list(list_view.query(RoomItem))
         dom_names = [item.room.display_name for item in dom_items]
         assert dom_names == ["Alpha", "Mango", "Zebra"]
 

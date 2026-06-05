@@ -14,7 +14,7 @@ from textual.widgets import Input, Link, Static
 
 import fakes as fakes_module
 from telemente.matrix.models import Message
-from telemente.tui.widgets.message_view import MessageView, _ComposerArea, _MessageRow
+from telemente.tui.widgets.message_view import ComposerArea, MessageRow, MessageView
 
 FakeMatrixClient = fakes_module.FakeMatrixClient
 
@@ -47,8 +47,8 @@ def _msg(
 
 
 def _rendered_text(view: MessageView) -> str:
-    """Return rendered text from all Static children inside _MessageRow widgets."""
-    rows = view.query(_MessageRow)
+    """Return rendered text from all Static children inside MessageRow widgets."""
+    rows = view.query(MessageRow)
     parts: list[str] = []
     for row in rows:
         for static in row.query(Static):
@@ -80,8 +80,8 @@ class HostApp(App[None]):
 @pytest.mark.asyncio
 async def test_load_room_renders_messages_in_order() -> None:
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [
         _msg("$e1", "!r:s", "first"),
         _msg("$e2", "!r:s", "second"),
         _msg("$e3", "!r:s", "third"),
@@ -111,12 +111,12 @@ async def test_load_room_renders_messages_in_order() -> None:
 @pytest.mark.asyncio
 async def test_switching_rooms_replaces_content() -> None:
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!a:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!a:s"] = [
         _msg("$a1", "!a:s", "alpha one"),
         _msg("$a2", "!a:s", "alpha two"),
     ]
-    fake._messages["!b:s"] = [
+    fake.messages_data["!b:s"] = [
         _msg("$b1", "!b:s", "beta one"),
     ]
 
@@ -146,8 +146,8 @@ async def test_switching_rooms_replaces_content() -> None:
 @pytest.mark.asyncio
 async def test_send_on_enter_calls_send_text_and_clears() -> None:
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = []
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = []
 
     app = HostApp(fake)
     async with app.run_test() as pilot:
@@ -156,7 +156,7 @@ async def test_send_on_enter_calls_send_text_and_clears() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        composer = view.query_one("#composer", _ComposerArea)
+        composer = view.query_one("#composer", ComposerArea)
         composer.focus()
         await pilot.pause()
 
@@ -182,8 +182,8 @@ async def test_send_on_enter_calls_send_text_and_clears() -> None:
 @pytest.mark.asyncio
 async def test_empty_composer_submit_noop() -> None:
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = []
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = []
 
     app = HostApp(fake)
     async with app.run_test() as pilot:
@@ -192,7 +192,7 @@ async def test_empty_composer_submit_noop() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        composer = view.query_one("#composer", _ComposerArea)
+        composer = view.query_one("#composer", ComposerArea)
         composer.focus()
         await pilot.pause()
 
@@ -211,8 +211,8 @@ async def test_empty_composer_submit_noop() -> None:
 @pytest.mark.asyncio
 async def test_append_message_for_current_room() -> None:
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!a:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!a:s"] = [
         _msg("$e1", "!a:s", "existing body"),
     ]
 
@@ -241,8 +241,8 @@ async def test_append_message_for_current_room() -> None:
 @pytest.mark.asyncio
 async def test_append_message_other_room_ignored() -> None:
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!a:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!a:s"] = [
         _msg("$e1", "!a:s", "room A body"),
     ]
 
@@ -271,8 +271,8 @@ async def test_append_message_other_room_ignored() -> None:
 async def test_all_encrypted_room_shows_notice() -> None:
     """When every message is undecryptable, an encryption notice appears."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!enc:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!enc:s"] = [
         _msg("$e1", "!enc:s", "\U0001f512 Unable to decrypt"),
         _msg("$e2", "!enc:s", "\U0001f512 Unable to decrypt"),
     ]
@@ -298,8 +298,8 @@ async def test_all_encrypted_room_shows_notice() -> None:
 async def test_mixed_room_hides_encryption_notice() -> None:
     """When some messages are readable, no encryption notice is shown."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!mix:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!mix:s"] = [
         _msg("$e1", "!mix:s", "\U0001f512 Unable to decrypt"),
         _msg("$e2", "!mix:s", "Hello, world!"),
     ]
@@ -324,11 +324,11 @@ async def test_mixed_room_hides_encryption_notice() -> None:
 async def test_switching_from_encrypted_to_readable_hides_notice() -> None:
     """The notice disappears when switching to a room with readable messages."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!enc:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!enc:s"] = [
         _msg("$e1", "!enc:s", "\U0001f512 Unable to decrypt"),
     ]
-    fake._messages["!clear:s"] = [
+    fake.messages_data["!clear:s"] = [
         _msg("$e2", "!clear:s", "Readable message"),
     ]
 
@@ -364,8 +364,8 @@ async def test_sent_message_appears_immediately_in_timeline() -> None:
     apparently broken.
     """
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [_msg("$e1", "!r:s", "earlier message")]
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [_msg("$e1", "!r:s", "earlier message")]
 
     app = HostApp(fake)
     async with app.run_test() as pilot:
@@ -374,7 +374,7 @@ async def test_sent_message_appears_immediately_in_timeline() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        composer = view.query_one("#composer", _ComposerArea)
+        composer = view.query_one("#composer", ComposerArea)
         composer.focus()
         await pilot.pause()
 
@@ -399,8 +399,8 @@ async def test_sent_message_appears_immediately_in_timeline() -> None:
 async def test_media_message_renders_link_widget() -> None:
     """A message with media_url mounts a Link widget showing the filename."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [
         Message(
             event_id="$m1",
             room_id="!r:s",
@@ -436,8 +436,8 @@ async def test_media_message_renders_link_widget() -> None:
 async def test_message_with_reactions_renders_chips() -> None:
     """A Message with reactions shows a Static containing emoji and count."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [
         Message(
             event_id="$e1",
             room_id="!r:s",
@@ -456,7 +456,7 @@ async def test_message_with_reactions_renders_chips() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        rows = list(view.query(_MessageRow))
+        rows = list(view.query(MessageRow))
         assert len(rows) == 1
         row = rows[0]
         statics = list(row.query(Static))
@@ -471,16 +471,16 @@ async def test_message_with_reactions_renders_chips() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 13: press 'e' on a _MessageRow → emoji-input appears; submit sends reaction
+# Test 13: press 'e' on a MessageRow → emoji-input appears; submit sends reaction
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_react_binding_sends_reaction() -> None:
-    """Focus a _MessageRow, press 'e', type an emoji, press Enter → reaction sent."""
+    """Focus a MessageRow, press 'e', type an emoji, press Enter → reaction sent."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [_msg("$e1", "!r:s", "hello")]
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [_msg("$e1", "!r:s", "hello")]
 
     app = HostApp(fake)
     async with app.run_test() as pilot:
@@ -490,7 +490,7 @@ async def test_react_binding_sends_reaction() -> None:
         await pilot.pause()
 
         # Focus the message row
-        row = view.query_one(_MessageRow)
+        row = view.query_one(MessageRow)
         row.focus()
         await pilot.pause()
 
@@ -522,16 +522,16 @@ async def test_react_binding_sends_reaction() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 14: press 'r' on a _MessageRow → reply-indicator shows; submit sends reply
+# Test 14: press 'r' on a MessageRow → reply-indicator shows; submit sends reply
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_reply_binding_sends_reply() -> None:
-    """Focus a _MessageRow, press 'r' → reply-indicator visible; submit sends reply."""
+    """Focus a MessageRow, press 'r' → reply-indicator visible; submit sends reply."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [_msg("$parent", "!r:s", "original", sender_display_name="Bob")]
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [_msg("$parent", "!r:s", "original", sender_display_name="Bob")]
 
     app = HostApp(fake)
     async with app.run_test() as pilot:
@@ -541,7 +541,7 @@ async def test_reply_binding_sends_reply() -> None:
         await pilot.pause()
 
         # Focus the message row and press 'r'
-        row = view.query_one(_MessageRow)
+        row = view.query_one(MessageRow)
         row.focus()
         await pilot.pause()
         await pilot.press("r")
@@ -553,7 +553,7 @@ async def test_reply_binding_sends_reply() -> None:
         assert "Bob" in str(indicator.render())
 
         # Type reply in composer and submit
-        composer = view.query_one("#composer", _ComposerArea)
+        composer = view.query_one("#composer", ComposerArea)
         composer.focus()
         await pilot.pause()
         await pilot.press("r", "e", "p", "l", "y")
@@ -581,8 +581,8 @@ async def test_reply_binding_sends_reply() -> None:
 async def test_G_key_scrolls_to_bottom() -> None:
     """Pressing G in the MessageView scrolls the timeline to the end."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [_msg(f"$e{i}", "!r:s", f"msg {i}") for i in range(20)]
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [_msg(f"$e{i}", "!r:s", f"msg {i}") for i in range(20)]
 
     app = HostApp(fake)
     async with app.run_test() as pilot:
@@ -617,8 +617,8 @@ async def test_G_key_scrolls_to_bottom() -> None:
 async def test_reply_to_shows_sender_and_body_not_event_id() -> None:
     """A reply message's in-row indicator must show 'sender: body', not the raw event_id."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [
         Message(
             event_id="$child",
             room_id="!r:s",
@@ -663,8 +663,8 @@ async def test_optimistic_reaction_appears_immediately() -> None:
     """After pressing 'e' + emoji + Enter the reaction chip must be visible before
     any sync echo — the update is purely local/optimistic."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [_msg("$e1", "!r:s", "hello")]
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [_msg("$e1", "!r:s", "hello")]
 
     app = HostApp(fake)
     async with app.run_test() as pilot:
@@ -673,7 +673,7 @@ async def test_optimistic_reaction_appears_immediately() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        row = view.query_one(_MessageRow)
+        row = view.query_one(MessageRow)
         row.focus()
         await pilot.pause()
         await pilot.press("e")
@@ -697,12 +697,12 @@ async def test_optimistic_reaction_appears_immediately() -> None:
 
 @pytest.mark.asyncio
 async def test_edit_binding_enters_edit_mode_and_sends() -> None:
-    """shift+E on a _MessageRow that belongs to me() pre-fills the composer;
+    """shift+E on a MessageRow that belongs to me() pre-fills the composer;
     submitting sends an edit call and updates the row body."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
+    fake.logged_in = True
     # FakeMatrixClient.me() returns "@fake:matrix.org"
-    fake._messages["!r:s"] = [
+    fake.messages_data["!r:s"] = [
         Message(
             event_id="$mine",
             room_id="!r:s",
@@ -720,14 +720,14 @@ async def test_edit_binding_enters_edit_mode_and_sends() -> None:
         await view.load_room("!r:s")
         await pilot.pause()
 
-        row = view.query_one(_MessageRow)
+        row = view.query_one(MessageRow)
         row.focus()
         await pilot.pause()
         await pilot.press("E")
         await pilot.pause()
 
         # Composer should be pre-filled with the original body
-        composer = view.query_one("#composer", _ComposerArea)
+        composer = view.query_one("#composer", ComposerArea)
         assert composer.text == "original body"
 
         # Clear and type new body
@@ -753,10 +753,10 @@ async def test_edit_binding_enters_edit_mode_and_sends() -> None:
 
 @pytest.mark.asyncio
 async def test_delete_binding_removes_row() -> None:
-    """Pressing 'd' on a focused _MessageRow calls redact_message and removes it."""
+    """Pressing 'd' on a focused MessageRow calls redact_message and removes it."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [
         _msg("$e1", "!r:s", "keep me"),
         _msg("$e2", "!r:s", "delete me"),
     ]
@@ -769,7 +769,7 @@ async def test_delete_binding_removes_row() -> None:
         await pilot.pause()
 
         # Find and focus the second row
-        rows = list(view.query(_MessageRow))
+        rows = list(view.query(MessageRow))
         assert len(rows) == 2
         rows[1].focus()
         await pilot.pause()
@@ -780,7 +780,7 @@ async def test_delete_binding_removes_row() -> None:
         assert fake.redacted_messages[0][1] == "$e2"
 
         # Row must be removed from the DOM
-        remaining = list(view.query(_MessageRow))
+        remaining = list(view.query(MessageRow))
         assert len(remaining) == 1
         remaining_rendered = _rendered_text(view)
         assert "keep me" in remaining_rendered
@@ -796,8 +796,8 @@ async def test_delete_binding_removes_row() -> None:
 async def test_G_key_focuses_composer() -> None:
     """Pressing G must move focus to the composer, not just scroll the timeline."""
     fake = FakeMatrixClient()
-    fake._logged_in = True
-    fake._messages["!r:s"] = [_msg(f"$e{i}", "!r:s", f"msg {i}") for i in range(10)]
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [_msg(f"$e{i}", "!r:s", f"msg {i}") for i in range(10)]
 
     app = HostApp(fake)
     async with app.run_test() as pilot:
@@ -807,13 +807,13 @@ async def test_G_key_focuses_composer() -> None:
         await pilot.pause()
 
         # Focus somewhere else (the first message row) so composer is not already focused
-        row = view.query_one(_MessageRow)
+        row = view.query_one(MessageRow)
         row.focus()
         await pilot.pause()
-        assert not isinstance(app.focused, _ComposerArea)
+        assert not isinstance(app.focused, ComposerArea)
 
         # Press G — should scroll and focus composer
         view.action_scroll_latest()
         await pilot.pause()
 
-        assert isinstance(app.focused, _ComposerArea)
+        assert isinstance(app.focused, ComposerArea)
