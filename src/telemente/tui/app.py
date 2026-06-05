@@ -190,10 +190,20 @@ class TelementeApp(App[None]):
         cached = self._room_cache.load(session.user_id)
         if cached:
             logger.info("Loaded %d rooms from cache", len(cached))
+            from telemente.matrix.models import RoomSummary
             from telemente.tui.widgets.room_list import RoomList
 
             with contextlib.suppress(Exception):
                 main.query_one(RoomList).set_rooms(cached)  # type: ignore[arg-type]
+
+            # Seed the client's last_activity dict so rooms() can sort by
+            # recency immediately, before any incremental sync arrives.
+            activities = {
+                r.room_id: r.last_activity
+                for r in cached
+                if isinstance(r, RoomSummary) and r.last_activity is not None
+            }
+            self._client.seed_last_activity(activities)
         self._start_sync_and_subscribe()
 
     def on_login_screen_logged_in(self, message: LoginScreen.LoggedIn) -> None:

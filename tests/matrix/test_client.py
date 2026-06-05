@@ -728,104 +728,39 @@ async def test_messages_reaction_unknown_event_id_ignored() -> None:
     assert msgs[0].reactions == {}
 
 
-async def test_rooms_last_activity_comes_from_sync_cache() -> None:
-    """rooms() uses _last_activity cache when present; cache wins over nio timeline."""
+async def test_seed_last_activity_pre_seeds_missing_entries() -> None:
+    """seed_last_activity() fills _last_activity for rooms not yet seen by sync."""
     from datetime import UTC, datetime
-    from types import SimpleNamespace
 
-    # Build a room whose nio timeline has one event.
-    ts_nio_ms = 1_700_000_000_000
-    ts_nio = datetime.fromtimestamp(ts_nio_ms / 1000, tz=UTC)
-    fake_event = SimpleNamespace(server_timestamp=ts_nio_ms)
-    fake_timeline = SimpleNamespace(events=[fake_event])
-    room = _make_nio_room("!r:example.com")
-    room.timeline = fake_timeline
+    ts_a = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+    ts_b = datetime(2024, 5, 1, 8, 0, 0, tzinfo=UTC)
 
     nio_mock = _build_nio_mock()
-    nio_mock.rooms = {"!r:example.com": room}
-
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
 
-    # Before any sync cache entry: fallback reads from nio timeline.
-    summaries = client.rooms()
-    assert len(summaries) == 1
-    assert summaries[0].last_activity == ts_nio
+    client.seed_last_activity({"!a:example.com": ts_a, "!b:example.com": ts_b})
 
-    # When the cache is populated, it wins over the nio timeline fallback.
-    ts_cache = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-    client._last_activity["!r:example.com"] = ts_cache
-
-    summaries = client.rooms()
-    assert summaries[0].last_activity == ts_cache
+    assert client._last_activity["!a:example.com"] == ts_a
+    assert client._last_activity["!b:example.com"] == ts_b
 
 
-async def test_rooms_fallback_timestamp_from_nio_timeline() -> None:
-    """rooms() returns a non-None last_activity from the nio room timeline
-    when _last_activity has no cache entry (e.g. before first sync)."""
+async def test_seed_last_activity_does_not_overwrite_existing() -> None:
+    """seed_last_activity() must not overwrite entries already set by a real sync."""
     from datetime import UTC, datetime
-    from types import SimpleNamespace
 
-    ts_ms = 1_717_243_200_000  # 2024-06-01 12:00:00 UTC
-    expected = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
-
-    fake_event = SimpleNamespace(server_timestamp=ts_ms)
-    fake_timeline = SimpleNamespace(events=[fake_event])
-    room = _make_nio_room("!r:example.com")
-    room.timeline = fake_timeline
+    ts_sync = datetime(2024, 7, 1, 0, 0, 0, tzinfo=UTC)
+    ts_seed = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
 
     nio_mock = _build_nio_mock()
-    nio_mock.rooms = {"!r:example.com": room}
-
     client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
 
-    summaries = client.rooms()
-    assert len(summaries) == 1
-    assert summaries[0].last_activity == expected
+    # Simulate a real sync having already populated the entry.
+    client._last_activity["!r:example.com"] = ts_sync
 
+    client.seed_last_activity({"!r:example.com": ts_seed})
 
-async def test_rooms_fallback_no_timeline_returns_none() -> None:
-    """rooms() returns last_activity=None for a room with no timeline events."""
-    from types import SimpleNamespace
-
-    room = _make_nio_room("!r:example.com")
-    # Attach a timeline with no events.
-    room.timeline = SimpleNamespace(events=[])
-
-    nio_mock = _build_nio_mock()
-    nio_mock.rooms = {"!r:example.com": room}
-
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
-
-    summaries = client.rooms()
-    assert len(summaries) == 1
-    assert summaries[0].last_activity is None
-
-
-async def test_rooms_fallback_multiple_events_picks_newest() -> None:
-    """rooms() fallback selects the highest server_timestamp across all timeline events."""
-    from datetime import UTC, datetime
-    from types import SimpleNamespace
-
-    ts_old_ms = 1_700_000_000_000
-    ts_new_ms = 1_717_243_200_000
-    expected = datetime.fromtimestamp(ts_new_ms / 1000, tz=UTC)
-
-    ev_old = SimpleNamespace(server_timestamp=ts_old_ms)
-    ev_new = SimpleNamespace(server_timestamp=ts_new_ms)
-    room = _make_nio_room("!r:example.com")
-    room.timeline = SimpleNamespace(events=[ev_old, ev_new])
-
-    nio_mock = _build_nio_mock()
-    nio_mock.rooms = {"!r:example.com": room}
-
-    client = MatrixClient(_HOMESERVER, nio_client=nio_mock)
-    client._logged_in = True
-
-    summaries = client.rooms()
-    assert summaries[0].last_activity == expected
+    # The sync value must be preserved.
+    assert client._last_activity["!r:example.com"] == ts_sync
 
 
 async def test_leave_room_hides_room_immediately_and_after_stale_sync() -> None:

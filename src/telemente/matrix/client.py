@@ -332,20 +332,32 @@ class MatrixClient:
     # Queries
     # ------------------------------------------------------------------
 
+    def seed_last_activity(self, activities: dict[str, datetime]) -> None:
+        """Pre-seed _last_activity from persisted cache data.
+
+        Only fills entries that are not already present — a timestamp written
+        by a real sync response always takes precedence.  Call this once at
+        startup (before ``start_sync``) so that rooms are sortable by recency
+        immediately, without waiting for the first incremental sync.
+
+        Args:
+            activities: Mapping of room_id → last_activity datetime.  Entries
+                with a value of ``None`` should be filtered out by the caller
+                before passing here.
+        """
+        for room_id, ts in activities.items():
+            if room_id not in self._last_activity:
+                self._last_activity[room_id] = ts
+
     def rooms(self) -> list[RoomSummary]:
         """Return summaries of all joined rooms (from current sync state)."""
         summaries: list[RoomSummary] = []
         for room_id, room in self._client.rooms.items():
             if room_id in self._left_rooms:
                 continue
-            # last_activity is populated by _on_sync via _update_last_activity().
-            # Fallback: if the sync cache has no entry yet, scan nio's in-memory
-            # timeline so rooms are sortable by recency immediately (e.g. on
-            # startup before the first sync fires, or during the poll-based
-            # progressive updates emitted by _rooms_fast).
+            # last_activity is populated by _on_sync via _update_last_activity()
+            # or pre-seeded at startup via seed_last_activity().
             last_activity: datetime | None = self._last_activity.get(room_id)
-            if last_activity is None:
-                last_activity = _newest_timestamp_from_nio_room(room)
 
             # Extract room tags (m.favourite, m.lowpriority, etc.).
             tags: dict[str, float | None] = {}
@@ -904,32 +916,6 @@ class MatrixClient:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _newest_timestamp_from_nio_room(room: object) -> datetime | None:
-    """Extract the most recent server_timestamp from a nio MatrixRoom's timeline.
-
-    This is the fallback used by ``rooms()`` when ``_last_activity`` has no
-    cached entry yet (i.e. before the first SyncResponse arrives). Kept here so
-    nio types never cross the module boundary.
-
-    Returns None if the room has no timeline or no timestamped events.
-    """
-    try:
-        events = getattr(getattr(room, "timeline", None), "events", None)
-        if not events:
-            return None
-        best: datetime | None = None
-        for event in events:
-            ts_ms = getattr(event, "server_timestamp", None)
-            if not isinstance(ts_ms, (int, float)):
-                continue
-            ts = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
-            if best is None or ts > best:
-                best = ts
-        return best
-    except Exception:
-        return None
 
 
 def _get_display_name(room: nio.MatrixRoom | None, user_id: str) -> str:
