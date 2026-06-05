@@ -79,10 +79,6 @@ files = ["src", "tests"]
 pretty = true
 mypy_path = "stubs"
 
-[[tool.mypy.overrides]]
-module = ["aioresponses.*"]
-ignore_missing_imports = true
-
 [tool.pyright]
 stubPath = "stubs"
 
