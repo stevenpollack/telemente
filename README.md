@@ -81,8 +81,11 @@ uv run pytest                # tests
 # Run a single test
 uv run pytest tests/test_smoke.py::test_version
 
-# Run the app in Textual dev mode (live CSS reload, console)
-uv run textual run --dev telemente.tui.app:TelementeApp
+# Dev mode: hot-reload on any src/ change + Textual devtools enabled
+uv run telemente-dev
+
+# Textual devtools console (open in a second terminal alongside telemente-dev)
+uv run telemente-console
 ```
 
 ### Matrix nio cassette tests (plan 0016)

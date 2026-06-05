@@ -91,5 +91,24 @@ def main(argv: list[str] | None = None) -> None:
     TelementeApp().run()
 
 
+def dev() -> None:
+    """Relaunch the app under textual --dev whenever a source file changes."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src = str(Path(__file__).parent)
+    cmd = f"{sys.executable} -m textual run --dev telemente.tui.app:TelementeApp"
+    subprocess.run([sys.executable, "-m", "watchfiles", cmd, src])
+
+
+def console() -> None:
+    """Open the Textual devtools console (pair with `telemente-dev`)."""
+    import subprocess
+    import sys
+
+    subprocess.run([sys.executable, "-m", "textual", "console"])
+
+
 if __name__ == "__main__":
     main()

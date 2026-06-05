@@ -130,7 +130,17 @@ Plan order: `0001 → … → 0012 → 0015 (nio stubs) → …`.
 
 Runtime: `textual`, `matrix-nio[e2e]`, `keyring`, `platformdirs`.
 Dev: `pytest(+asyncio,+cov)`, `aioresponses`, `ruff`, `mypy`, `pre-commit`,
-`textual-dev`.
+`textual-dev`, `watchfiles`.
+
+Two convenience scripts are registered for development:
+
+```bash
+# Hot-reload the app (restarts on any src/telemente/ change, textual --dev enabled)
+uv run telemente-dev
+
+# Textual devtools console — open in a second terminal alongside telemente-dev
+uv run telemente-console
+```
 
 E2EE requires the system library **libolm** (see README for install commands).
 
