@@ -1,4 +1,4 @@
-"""Tests for EmojiPickerScreen (plan 0020, Part 5).
+"""Tests for EmojiPickerScreen (plan 0020, Part 5 / plan 0021 Bug 4).
 
 Tier-2 tests: no Matrix client needed for the picker itself.
 Integration test for picker + MessageView uses FakeMatrixClient.
@@ -182,3 +182,49 @@ async def test_emoji_picker_integration_sends_reaction() -> None:
 
         # The reaction should have been sent.
         assert fake.sent_reactions == [(room_id, event_id, first_emoji)]
+
+
+# ---------------------------------------------------------------------------
+# Test 6: no tooltip flicker — Bug 4 fix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emoji_picker_buttons_have_no_tooltip() -> None:
+    """Emoji buttons must NOT have tooltip set (prevents hover flicker, Bug 4)."""
+    app = PickerHostApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, EmojiPickerScreen)
+        buttons = list(app.screen.query(Button))
+        assert buttons
+        for btn in buttons[:5]:
+            assert not btn.tooltip, f"button {btn.label!r} has tooltip set (Bug 4)"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: diff-based update reuses buttons — Bug 4 fix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emoji_picker_filter_reuses_existing_buttons() -> None:
+    """After filtering, at least one button widget is reused (not recreated)."""
+    app = PickerHostApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, EmojiPickerScreen)
+
+        before_ids = {id(b) for b in app.screen.query(Button)}
+
+        # Trigger a filter that returns a non-empty subset.
+        search = app.screen.query_one("#emoji-search", Input)
+        search.value = "heart"
+        app.screen.on_input_changed(Input.Changed(search, search.value))
+        await pilot.pause()
+
+        after_buttons = list(app.screen.query(Button))
+        after_ids = {id(b) for b in after_buttons}
+        assert after_buttons, "no buttons after filter"
+        shared = before_ids & after_ids
+        assert shared, "no button widgets reused after filter (diff-update not working)"

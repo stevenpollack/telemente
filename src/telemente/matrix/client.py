@@ -136,6 +136,10 @@ class MatrixClient:
         self._left_rooms: set[str] = set()
         # Fingerprint of the last RoomsChanged payload; skip emit when unchanged.
         self._last_rooms_fingerprint: frozenset[tuple[str, str, int]] = frozenset()
+        # Optimistic tag overrides: room_id -> {tag -> order} applied locally but
+        # not yet confirmed by a sync response (Bug 2 fix).
+        self._tag_overrides: dict[str, dict[str, float | None]] = {}
+        self._removed_tag_overrides: dict[str, set[str]] = {}
 
         if nio_client is not None:
             self._client = nio_client
@@ -392,6 +396,14 @@ class MatrixClient:
                         if isinstance(raw_order, (int, float)):
                             order = float(raw_order)
                     tags[str(tag_name)] = order
+            # Bug 2 fix: merge optimistic tag overrides set before sync confirms.
+            overrides = self._tag_overrides.get(room_id)
+            if overrides:
+                tags.update(overrides)
+            removed = self._removed_tag_overrides.get(room_id)
+            if removed:
+                for t in removed:
+                    tags.pop(t, None)
 
             summaries.append(
                 RoomSummary(
@@ -648,6 +660,12 @@ class MatrixClient:
             raise
         except Exception as exc:
             raise MatrixError(f"set_room_tag request failed: {exc}") from exc
+        # Bug 2 fix: record the override so rooms() reflects the new tag
+        # immediately, before the next sync delivers it from the server.
+        self._tag_overrides.setdefault(room_id, {})[tag] = order
+        # Remove from removed-overrides in case we're re-adding a removed tag.
+        self._removed_tag_overrides.get(room_id, set()).discard(tag)
+        await self._emit(RoomsChanged(rooms=self.rooms()))
         logger.debug("Set tag %s on room %s", tag, room_id)
 
     async def remove_room_tag(self, room_id: str, tag: str) -> None:
@@ -678,6 +696,10 @@ class MatrixClient:
             raise
         except Exception as exc:
             raise MatrixError(f"remove_room_tag request failed: {exc}") from exc
+        # Bug 2 fix: record removal override and clear any set-override.
+        self._removed_tag_overrides.setdefault(room_id, set()).add(tag)
+        self._tag_overrides.get(room_id, {}).pop(tag, None)
+        await self._emit(RoomsChanged(rooms=self.rooms()))
         logger.debug("Removed tag %s from room %s", tag, room_id)
 
     def me(self) -> tuple[str, str]:
@@ -988,6 +1010,14 @@ class MatrixClient:
                         if isinstance(raw_order, (int, float)):
                             order = float(raw_order)
                     tags[str(tag_name)] = order
+            # Bug 2 fix: apply optimistic tag overrides.
+            overrides = self._tag_overrides.get(room_id)
+            if overrides:
+                tags.update(overrides)
+            removed_override = self._removed_tag_overrides.get(room_id)
+            if removed_override:
+                for t in removed_override:
+                    tags.pop(t, None)
             summaries.append(
                 RoomSummary(
                     room_id=room_id,
@@ -1026,6 +1056,21 @@ class MatrixClient:
         self._update_last_activity(response)
         # Discard _left_rooms entries that nio has now removed from its dict.
         self._left_rooms &= set(self._client.rooms)
+        # Bug 2 fix: clear tag overrides for rooms whose tags are now authoritatively
+        # populated by the sync response (m.tag account_data event).
+        try:
+            join = response.rooms.join
+        except AttributeError:
+            join = {}
+        for room_id, room_info in join.items():
+            account_events: list[object] = list(getattr(room_info, "account_data", None) or [])
+            for ev in account_events:
+                ev_type: object = getattr(ev, "type", None)
+                if ev_type is None and isinstance(ev, dict):
+                    ev_type = ev.get("type")  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
+                if ev_type == "m.tag":
+                    self._tag_overrides.pop(room_id, None)
+                    self._removed_tag_overrides.pop(room_id, None)
         rooms = self.rooms()
         logger.debug("_on_sync: %d rooms after sync", len(rooms))
 

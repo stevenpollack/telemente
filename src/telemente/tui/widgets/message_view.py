@@ -465,12 +465,21 @@ class MessageView(Widget):
         composer.focus()
 
     def on_message_row_delete_request(self, event: MessageRow.DeleteRequest) -> None:
-        """Redact the message: confirm with server first, then remove the row."""
+        """Show confirmation before redacting (Bug 5 fix)."""
         msg = event.message
         room_id = self._current_room_id
         if not room_id:
             return
-        self.run_worker(self._do_redact_and_remove(room_id, msg), exclusive=False)
+        from telemente.tui.widgets.confirm_screen import ConfirmScreen
+
+        def _on_confirmed(confirmed: bool | None) -> None:
+            if confirmed is True:
+                self.run_worker(self._do_redact_and_remove(room_id, msg), exclusive=False)
+
+        self.app.push_screen(
+            ConfirmScreen("Delete this message?"),
+            _on_confirmed,
+        )
 
     def on_message_row_context_menu_request(self, event: MessageRow.ContextMenuRequest) -> None:
         msg = event.message
@@ -529,7 +538,14 @@ class MessageView(Widget):
     # ------------------------------------------------------------------
 
     def _open_emoji_picker_for(self, event_id: str) -> None:
-        """Open the emoji picker modal and send the selected reaction."""
+        """Open the emoji picker modal and send the selected reaction.
+
+        Uses call_next so push_screen runs after the current message-pump
+        turn completes. If called from a ContextMenu action, the menu is
+        being dismissed in the same turn — deferring ensures the callback is
+        registered with MessageView as the active pump, not the (soon-removed)
+        ContextMenu.
+        """
         from telemente.tui.screens.emoji_picker import EmojiPickerScreen
 
         self._react_target_event_id = event_id
@@ -538,7 +554,7 @@ class MessageView(Widget):
             if emoji:
                 self._handle_emoji_value(emoji)
 
-        self.app.push_screen(EmojiPickerScreen(), _on_picked)
+        self.call_next(self.app.push_screen, EmojiPickerScreen(), _on_picked)
 
     def _handle_emoji_value(self, emoji: str) -> None:
         """Send a reaction for the currently targeted event ID."""

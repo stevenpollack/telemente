@@ -185,10 +185,11 @@ ContextMenu {
     layer: context-menu;
 }
 
+/* Bug 7 fix: width: auto (not 1fr) so menu shrinks to fit content width */
 ContextMenu .menu-item {
     height: 1;
     padding: 0 1;
-    width: 1fr;
+    width: auto;
 }
 
 ContextMenu .menu-item:hover,

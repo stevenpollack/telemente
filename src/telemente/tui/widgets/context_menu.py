@@ -143,8 +143,10 @@ class ContextMenu(Widget, can_focus=True):
         item_idx = self._enabled_indices[self._focus_idx]
         entry = self._items[item_idx]
         if isinstance(entry, MenuItem) and entry.enabled:
-            self._dismiss()
+            # Bug 1 fix: action fires BEFORE dismiss so the callback always runs
+            # even if dismiss scheduling interrupts the call stack.
             entry.action()
+            self._dismiss()
 
     # ------------------------------------------------------------------
     # Mouse handling
@@ -168,8 +170,9 @@ class ContextMenu(Widget, can_focus=True):
                         idx = int(widget_id[len("menu-item-") :])
                         entry = self._items[idx]
                         if isinstance(entry, MenuItem) and entry.enabled:
-                            self._dismiss()
+                            # Bug 1 fix: action fires BEFORE dismiss.
                             entry.action()
+                            self._dismiss()
                     except (ValueError, IndexError):
                         pass
                 return

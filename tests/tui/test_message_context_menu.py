@@ -274,3 +274,213 @@ async def test_reply_item_posts_reply_request() -> None:
         # The reply indicator should be shown.
         reply_indicator = view.query_one("#reply-indicator", Static)
         assert reply_indicator.display is True, "Reply indicator should be visible"
+
+
+# ---------------------------------------------------------------------------
+# Test 6: React via context menu sends reaction (Bug 3 — downstream of Bug 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_react_via_context_menu_sends_reaction() -> None:
+    """Open context menu → React → pick emoji → reaction sent to client."""
+    from telemente.tui.screens.emoji_picker import EmojiPickerScreen
+
+    my_id = "@alice:matrix.org"
+    room_id = "!room:server"
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    fake.set_me(my_id, "Alice")
+    fake.rooms_data = [RoomSummary(room_id=room_id, display_name="Room")]
+    fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = await _open_room_and_get_view(app, room_id)
+        await pilot.pause()
+
+        rows = list(view.query(MessageRow))
+        assert rows
+        _simulate_right_click(rows[0])
+        await pilot.pause()
+
+        react_items = [
+            w
+            for w in app.screen.query(Static)
+            if "menu-item" in (w.classes or set()) and "React" in str(w.render())
+        ]
+        assert react_items, "React item not found in context menu"
+        await pilot.click(react_items[0])
+        await pilot.pause()
+
+        # EmojiPickerScreen should now be on the stack.
+        assert isinstance(app.screen, EmojiPickerScreen)
+
+        # Click the first button in the emoji picker.
+        from textual.widgets import Button as TxtButton
+
+        picker_screen = app.screen
+        assert isinstance(picker_screen, EmojiPickerScreen)
+        buttons = list(picker_screen.query_one("#emoji-grid").query(TxtButton))
+        assert buttons, "no emoji buttons in picker grid"
+        first_emoji = str(buttons[0].label)
+        await pilot.click(buttons[0])
+
+        # Give the worker time: button click → dismiss → callback → run_worker.
+        import asyncio as _asyncio
+
+        for _ in range(20):
+            await pilot.pause()
+            await _asyncio.sleep(0.05)
+            if fake.sent_reactions:
+                break
+
+        assert len(fake.sent_reactions) == 1, f"reaction not sent: {fake.sent_reactions}"
+        assert fake.sent_reactions[0][2] == first_emoji
+
+
+# ---------------------------------------------------------------------------
+# Test 7: Delete shows confirmation before redacting (Bug 5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_via_context_menu_shows_confirmation() -> None:
+    """Clicking Delete in context menu pushes ConfirmScreen before redacting."""
+    from telemente.tui.widgets.confirm_screen import ConfirmScreen
+
+    my_id = "@alice:matrix.org"
+    room_id = "!room:server"
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    fake.set_me(my_id, "Alice")
+    fake.rooms_data = [RoomSummary(room_id=room_id, display_name="Room")]
+    fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = await _open_room_and_get_view(app, room_id)
+        await pilot.pause()
+
+        rows = list(view.query(MessageRow))
+        assert rows
+        _simulate_right_click(rows[0])
+        await pilot.pause()
+
+        delete_items = [
+            w
+            for w in app.screen.query(Static)
+            if "menu-item" in (w.classes or set()) and "Delete" in str(w.render())
+        ]
+        assert delete_items, "Delete item not found in context menu"
+        await pilot.click(delete_items[0])
+        await pilot.pause()
+
+        # Redact must NOT have been called yet.
+        assert len(fake.redacted_messages) == 0, "redact called before confirmation"
+
+        # ConfirmScreen must be showing.
+        assert isinstance(app.screen, ConfirmScreen), (
+            f"Expected ConfirmScreen, got {type(app.screen).__name__}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 8: Delete confirmed → redact called
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_confirmed_calls_redact() -> None:
+    """After confirming the delete dialog, redact_message is called."""
+    from textual.widgets import Button as TxtButton
+
+    from telemente.tui.widgets.confirm_screen import ConfirmScreen
+
+    my_id = "@alice:matrix.org"
+    room_id = "!room:server"
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    fake.set_me(my_id, "Alice")
+    fake.rooms_data = [RoomSummary(room_id=room_id, display_name="Room")]
+    fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = await _open_room_and_get_view(app, room_id)
+        await pilot.pause()
+
+        rows = list(view.query(MessageRow))
+        assert rows
+        _simulate_right_click(rows[0])
+        await pilot.pause()
+
+        delete_items = [
+            w
+            for w in app.screen.query(Static)
+            if "menu-item" in (w.classes or set()) and "Delete" in str(w.render())
+        ]
+        assert delete_items
+        await pilot.click(delete_items[0])
+        await pilot.pause()
+
+        assert isinstance(app.screen, ConfirmScreen)
+        yes_btn = app.screen.query_one("#btn-yes", TxtButton)
+        await pilot.click(yes_btn)
+        await pilot.pause()
+        await pilot.pause()
+
+        assert len(fake.redacted_messages) == 1
+        assert fake.redacted_messages[0][1] == "$ev1"
+
+
+# ---------------------------------------------------------------------------
+# Test 9: Delete cancelled → redact NOT called
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_cancelled_does_not_redact() -> None:
+    """Cancelling the delete confirmation does NOT call redact_message."""
+    from textual.widgets import Button as TxtButton
+
+    from telemente.tui.widgets.confirm_screen import ConfirmScreen
+
+    my_id = "@alice:matrix.org"
+    room_id = "!room:server"
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    fake.set_me(my_id, "Alice")
+    fake.rooms_data = [RoomSummary(room_id=room_id, display_name="Room")]
+    fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = await _open_room_and_get_view(app, room_id)
+        await pilot.pause()
+
+        rows = list(view.query(MessageRow))
+        assert rows
+        _simulate_right_click(rows[0])
+        await pilot.pause()
+
+        delete_items = [
+            w
+            for w in app.screen.query(Static)
+            if "menu-item" in (w.classes or set()) and "Delete" in str(w.render())
+        ]
+        assert delete_items
+        await pilot.click(delete_items[0])
+        await pilot.pause()
+
+        assert isinstance(app.screen, ConfirmScreen)
+        no_btn = app.screen.query_one("#btn-no", TxtButton)
+        await pilot.click(no_btn)
+        await pilot.pause()
+        await pilot.pause()
+
+        assert len(fake.redacted_messages) == 0

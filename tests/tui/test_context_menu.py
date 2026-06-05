@@ -1,4 +1,4 @@
-"""Tests for the ContextMenu widget (plan 0020, Part 1).
+"""Tests for the ContextMenu widget (plan 0020, Part 1 / plan 0021).
 
 Tier-2 tests: no real client needed — ContextMenu is a standalone widget.
 """
@@ -165,3 +165,77 @@ async def test_context_menu_outside_click_dismisses() -> None:
         await pilot.pause()
 
         assert len(list(app.query(ContextMenu))) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 6: click on menu item fires action BEFORE dismiss (Bug 1)
+# ---------------------------------------------------------------------------
+
+
+async def test_click_item_fires_action_before_dismiss() -> None:
+    """Clicking a menu item invokes the callback before the menu is dismissed."""
+    call_log: list[str] = []
+
+    def _action() -> None:
+        call_log.append("action")
+
+    items = [MenuItem("Click me", _action)]
+    # Use a mid-screen position so the Static is within the visible viewport.
+    app = MenuHostApp(items, x=5, y=5)
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        menu = app.query_one(ContextMenu)
+
+        # Intercept _dismiss to record when it fires relative to the action.
+        _real_dismiss = menu._dismiss  # pyright: ignore[reportPrivateUsage]
+
+        def _tracked() -> None:
+            call_log.append("dismiss")
+            _real_dismiss()
+
+        menu._dismiss = _tracked  # type: ignore[method-assign]
+
+        # Find the first menu-item Static.
+        items_statics = [w for w in app.screen.query(Static) if "menu-item" in (w.classes or set())]
+        assert items_statics, "no menu-item Static found"
+        await pilot.click(items_statics[0])
+        await pilot.pause()
+
+    assert "action" in call_log, f"action not called: {call_log}"
+    assert "dismiss" in call_log, f"dismiss not called: {call_log}"
+    action_idx = call_log.index("action")
+    dismiss_idx = call_log.index("dismiss")
+    assert action_idx < dismiss_idx, f"action did not fire before dismiss: {call_log}"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: menu width does not expand to terminal width (Bug 7)
+# ---------------------------------------------------------------------------
+
+
+async def test_context_menu_menu_item_not_using_1fr() -> None:
+    """ContextMenu .menu-item must not use width: 1fr (Bug 7 fix verification).
+
+    width: 1fr inside width: auto causes circular expansion in Textual's CSS
+    engine. The fix replaces it with width: auto so items size to their content.
+    """
+    items = [MenuItem("Short", lambda: None)]
+    app = MenuHostApp(items, x=0, y=0)
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        menu = app.query_one(ContextMenu)
+        item_statics = [w for w in menu.query(Static) if "menu-item" in (w.classes or set())]
+        assert item_statics, "no .menu-item Static found in ContextMenu"
+        for item_static in item_statics:
+            # Verify the CSS computed styles do not use a fractional unit.
+            # In Textual, styles.width is a Scalar; a fractional unit would have
+            # unit == Unit.FRACTION. We assert it is NOT fractional.
+            from textual.css.scalar import Unit
+
+            w = item_static.styles.width
+            if w is not None:
+                assert w.unit != Unit.FRACTION, (
+                    f".menu-item width uses 1fr — Bug 7 fix not applied: {w}"
+                )

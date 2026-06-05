@@ -753,7 +753,11 @@ async def test_edit_binding_enters_edit_mode_and_sends() -> None:
 
 @pytest.mark.asyncio
 async def test_delete_binding_removes_row() -> None:
-    """Pressing 'd' on a focused MessageRow calls redact_message and removes it."""
+    """Pressing 'd' on a focused MessageRow shows ConfirmScreen; confirming redacts."""
+    from textual.widgets import Button as TxtButton
+
+    from telemente.tui.widgets.confirm_screen import ConfirmScreen
+
     fake = FakeMatrixClient()
     fake.logged_in = True
     fake.messages_data["!r:s"] = [
@@ -774,6 +778,18 @@ async def test_delete_binding_removes_row() -> None:
         rows[1].focus()
         await pilot.pause()
         await pilot.press("d")
+        await pilot.pause()
+
+        # Bug 5: ConfirmScreen must appear before redacting.
+        assert isinstance(app.screen, ConfirmScreen), (
+            f"Expected ConfirmScreen, got {type(app.screen).__name__}"
+        )
+        assert len(fake.redacted_messages) == 0, "redact called before confirmation"
+
+        # Confirm the deletion.
+        yes_btn = app.screen.query_one("#btn-yes", TxtButton)
+        await pilot.click(yes_btn)
+        await pilot.pause()
         await pilot.pause()
 
         assert len(fake.redacted_messages) == 1

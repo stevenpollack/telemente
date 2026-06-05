@@ -190,10 +190,27 @@ class EmojiPickerScreen(ModalScreen[str]):
         self.query_one("#emoji-search", Input).focus()
 
     def _populate_grid(self, emoji_list: list[tuple[str, str]]) -> None:
+        """Update the emoji grid with a diff so existing buttons are reused.
+
+        Bug 4: avoid full destroy/remount which causes flicker on hover, and
+        never pass tooltip= (also causes hover flicker via Tooltip DOM mutations).
+        """
         grid = self.query_one("#emoji-grid", Grid)
-        grid.remove_children()
-        for codepoint, name in emoji_list:
-            grid.mount(Button(codepoint, tooltip=name))
+        existing = list(grid.query(Button))
+        target_count = len(emoji_list)
+
+        # Update existing buttons in-place.
+        for i, (cp, _name) in enumerate(emoji_list):
+            if i < len(existing):
+                if str(existing[i].label) != cp:
+                    existing[i].label = cp
+            else:
+                # Bug 4: no tooltip= parameter.
+                grid.mount(Button(cp))
+
+        # Remove surplus buttons.
+        for btn in existing[target_count:]:
+            btn.remove()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "emoji-search":

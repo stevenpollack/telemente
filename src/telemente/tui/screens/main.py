@@ -201,9 +201,19 @@ class MainScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def _show_context_menu(self, items: list[MenuEntry], screen_x: int, screen_y: int) -> None:
-        """Mount a ContextMenu at the given screen coordinates."""
+        """Mount a ContextMenu at the given screen coordinates.
+
+        Bug 7 fix: clamp coordinates so the menu never overflows the terminal.
+        """
         self._dismiss_context_menu()
-        menu = ContextMenu(items, screen_x, screen_y)
+        # Estimate menu dimensions. min-width is 24 from CSS; 2 for the border.
+        menu_width = 26
+        menu_height = len(items) + 2  # padding
+        max_x = max(0, self.size.width - menu_width)
+        max_y = max(0, self.size.height - menu_height)
+        clamped_x = min(screen_x, max_x)
+        clamped_y = min(screen_y, max_y)
+        menu = ContextMenu(items, clamped_x, clamped_y)
         self._active_context_menu = menu
         self.mount(menu)
 

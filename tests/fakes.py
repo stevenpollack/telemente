@@ -429,6 +429,23 @@ class FakeMatrixClient:
         self._check_fail("set_room_tag")
         await self._maybe_block("set_room_tag")
         self.set_tags.append((room_id, tag, order))
+        # Update rooms_data so rooms() reflects the new tag immediately.
+        self.rooms_data = [
+            RoomSummary(
+                room_id=r.room_id,
+                display_name=r.display_name,
+                unread_count=r.unread_count,
+                last_activity=r.last_activity,
+                encrypted=r.encrypted,
+                tags={**r.tags, tag: order},
+            )
+            if r.room_id == room_id
+            else r
+            for r in self.rooms_data
+        ]
+        from telemente.matrix.client import RoomsChanged
+
+        await self.emit(RoomsChanged(rooms=list(self.rooms_data)))
 
     async def remove_room_tag(self, room_id: str, tag: str) -> None:
         if not self.logged_in:
@@ -436,6 +453,23 @@ class FakeMatrixClient:
         self._check_fail("remove_room_tag")
         await self._maybe_block("remove_room_tag")
         self.removed_tags.append((room_id, tag))
+        # Update rooms_data so rooms() reflects the removed tag immediately.
+        self.rooms_data = [
+            RoomSummary(
+                room_id=r.room_id,
+                display_name=r.display_name,
+                unread_count=r.unread_count,
+                last_activity=r.last_activity,
+                encrypted=r.encrypted,
+                tags={k: v for k, v in r.tags.items() if k != tag},
+            )
+            if r.room_id == room_id
+            else r
+            for r in self.rooms_data
+        ]
+        from telemente.matrix.client import RoomsChanged
+
+        await self.emit(RoomsChanged(rooms=list(self.rooms_data)))
 
     # ------------------------------------------------------------------
     # Subscriptions
