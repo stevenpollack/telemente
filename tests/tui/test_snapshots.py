@@ -63,13 +63,13 @@ class MainScreenApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
         yield Label("host")
 
     def on_mount(self) -> None:
-        self.push_screen(MainScreen(self._client))
+        self.push_screen(MainScreen(self.client))
 
 
 class LoginScreenApp(App[None]):
@@ -79,14 +79,14 @@ class LoginScreenApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
         yield Label("host")
 
     def on_mount(self) -> None:
         def factory(_homeserver: str) -> FakeMatrixClient:
-            return self._client
+            return self.client
 
         self.push_screen(LoginScreen(factory, default_homeserver="https://matrix.org"))
 

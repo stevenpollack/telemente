@@ -31,13 +31,13 @@ class HostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
         yield Label("host")
 
     def on_mount(self) -> None:
-        self.push_screen(MainScreen(self._client))
+        self.push_screen(MainScreen(self.client))
 
 
 def _make_app() -> HostApp:

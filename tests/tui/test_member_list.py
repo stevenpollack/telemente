@@ -42,10 +42,10 @@ class HostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
-        yield MemberList(self._client, id="members-panel")
+        yield MemberList(self.client, id="members-panel")
 
 
 # ---------------------------------------------------------------------------

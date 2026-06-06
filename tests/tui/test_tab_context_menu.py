@@ -39,13 +39,13 @@ def _make_client(*rooms: RoomSummary) -> FakeMatrixClient:
 class HostApp(App[None]):
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
         yield Label("host")
 
     def on_mount(self) -> None:
-        self.push_screen(MainScreen(self._client))
+        self.push_screen(MainScreen(self.client))
 
 
 async def _open_room(app: HostApp, room_id: str) -> MainScreen:
@@ -53,7 +53,7 @@ async def _open_room(app: HostApp, room_id: str) -> MainScreen:
     screen = app.screen
     assert isinstance(screen, MainScreen)
     room_list = screen.query_one(RoomList)
-    room_list.set_rooms(app._client.rooms_data)
+    room_list.set_rooms(app.client.rooms_data)
     screen.on_room_list_room_selected(RoomList.RoomSelected(room_id))
     # Give the exclusive worker time to add the pane.
     await wait_for_workers(app)

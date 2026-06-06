@@ -268,13 +268,13 @@ class MainScreenHostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
         yield Label("host")
 
     def on_mount(self) -> None:
-        self.push_screen(MainScreen(self._client))
+        self.push_screen(MainScreen(self.client))
 
 
 async def test_context_menu_uses_context_menu_layer() -> None:

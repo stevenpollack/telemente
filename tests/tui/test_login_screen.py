@@ -32,7 +32,7 @@ class HostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient, *, default_homeserver: str) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
         self._default_homeserver = default_homeserver
         self.logged_in_sessions: list[Session] = []
 
@@ -40,7 +40,7 @@ class HostApp(App[None]):
         # Plan 0011: LoginScreen takes a factory, not a pre-built client.
         # Wrap the fake in a factory that ignores the homeserver argument.
         def factory(_homeserver: str) -> FakeMatrixClient:
-            return self._client
+            return self.client
 
         self.push_screen(LoginScreen(factory, default_homeserver=self._default_homeserver))
 

@@ -42,11 +42,11 @@ class SearchHostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient, room_id: str) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
         self._room_id = room_id
 
     def compose(self) -> ComposeResult:
-        yield MessageView(self._client, id="message-panel")
+        yield MessageView(self.client, id="message-panel")
 
     def on_mount(self) -> None:
         pass  # room loaded via view.load_room() in each test

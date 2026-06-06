@@ -66,10 +66,10 @@ class MessageViewHostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
-        yield MessageView(self._client, id="view")
+        yield MessageView(self.client, id="view")
 
 
 # ---------------------------------------------------------------------------

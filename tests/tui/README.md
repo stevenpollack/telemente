@@ -79,10 +79,10 @@ use `TelementeApp` or `MainScreen` directly.
 class HostApp(App[None]):
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
-        yield MyWidget(self._client, id="my-widget")
+        yield MyWidget(self.client, id="my-widget")
 ```
 
 Do not mount the full `MainScreen` when you are testing a single widget — the

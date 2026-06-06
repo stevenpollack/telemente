@@ -66,10 +66,10 @@ class HostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
-        yield MessageView(self._client, id="message-panel")
+        yield MessageView(self.client, id="message-panel")
 
 
 # ---------------------------------------------------------------------------
@@ -870,14 +870,14 @@ class TypingHostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient, room_id: str) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
         self._room_id = room_id
 
     def compose(self) -> ComposeResult:
-        yield MessageView(self._client, id="message-panel")
+        yield MessageView(self.client, id="message-panel")
 
     def on_mount(self) -> None:
-        self._client.subscribe(self._handle_event)
+        self.client.subscribe(self._handle_event)
         view = self.query_one(MessageView)
         view._current_room_id = self._room_id  # pyright: ignore[reportPrivateUsage]
 

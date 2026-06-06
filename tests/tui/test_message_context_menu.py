@@ -47,13 +47,13 @@ class HostApp(App[None]):
 
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
         yield Label("host")
 
     def on_mount(self) -> None:
-        self.push_screen(MainScreen(self._client))
+        self.push_screen(MainScreen(self.client))
 
 
 async def _open_room_and_get_view(app: HostApp, room_id: str) -> MessageView:
@@ -61,7 +61,7 @@ async def _open_room_and_get_view(app: HostApp, room_id: str) -> MessageView:
     screen = app.screen
     assert isinstance(screen, MainScreen)
     room_list = screen.query_one(RoomList)
-    room_list.set_rooms(app._client.rooms_data)  # pyright: ignore[reportPrivateUsage]
+    room_list.set_rooms(app.client.rooms_data)
     screen.on_room_list_room_selected(RoomList.RoomSelected(room_id))
     await wait_for_workers(app)
     view = screen.message_view_for(room_id)

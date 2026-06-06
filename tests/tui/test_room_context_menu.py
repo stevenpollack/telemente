@@ -36,7 +36,7 @@ def _room(
 class HostApp(App[None]):
     def __init__(self, client: FakeMatrixClient) -> None:
         super().__init__()
-        self._client = client
+        self.client = client
 
     def compose(self) -> ComposeResult:
         yield Label("host")
@@ -50,8 +50,8 @@ class HostApp(App[None]):
                 if isinstance(screen, MainScreen):
                     screen.handle_rooms_changed(event)
 
-        self._client.subscribe(_on_event)
-        self.push_screen(MainScreen(self._client))
+        self.client.subscribe(_on_event)
+        self.push_screen(MainScreen(self.client))
 
 
 def _menu_item_labels(app: App[None]) -> list[str]:
@@ -68,7 +68,7 @@ async def _right_click_room(pilot: object, app: HostApp, room_id: str) -> None:
     screen = app.screen
     assert isinstance(screen, MainScreen)
     room_list = screen.query_one(RoomList)
-    room_list.set_rooms(app._client.rooms_data)
+    room_list.set_rooms(app.client.rooms_data)
     await wait_for_workers(app)
 
     ol = room_list.query_one(OptionList)
