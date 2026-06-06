@@ -9,6 +9,7 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.containers import Grid
 from textual.widgets import Button, Input
+
 from textual_emoji_picker import EmojiPicker
 
 # ---------------------------------------------------------------------------
@@ -62,7 +63,8 @@ async def test_search_filters_grid() -> None:
         await pilot.click(search)
         for ch in "grinning":
             await pilot.press(ch)
-        await pilot.pause()
+        # Wait longer than the 150 ms search debounce.
+        await pilot.pause(delay=0.2)
         grid = app.query_one("#emoji-grid", Grid)
         buttons = list(grid.query(Button))
         labels = {str(b.label) for b in buttons}
@@ -77,7 +79,8 @@ async def test_search_no_match_clears_grid() -> None:
         await pilot.click(search)
         for ch in "zzzzzzznomatch":
             await pilot.press(ch)
-        await pilot.pause()
+        # Wait longer than the 150 ms search debounce.
+        await pilot.pause(delay=0.2)
         grid = app.query_one("#emoji-grid", Grid)
         buttons = list(grid.query(Button))
         assert len(buttons) == 0
@@ -119,7 +122,8 @@ async def test_skin_tone_applied() -> None:
         await pilot.click(search)
         for ch in "thumbs up":
             await pilot.press(ch)
-        await pilot.pause()
+        # Wait longer than the 150 ms search debounce.
+        await pilot.pause(delay=0.2)
 
         # Select the light-skin swatch (U+1F3FB).
         row = app.query_one("#skin-tone-row", Horizontal)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import importlib.resources
 import json
-import re
+import logging
 from collections.abc import Sequence
 from typing import ClassVar
 
@@ -15,8 +15,11 @@ from textual.binding import Binding, BindingType
 from textual.containers import Grid, Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
+from textual.timer import Timer
 from textual.widget import Widget
-from textual.widgets import Button, Input, Label
+from textual.widgets import Button, Input, Label, Tab, Tabs
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Module-level data — loaded once at import time
@@ -47,6 +50,22 @@ _pkg_ref = importlib.resources.files("textual_emoji_picker") / "_data" / "catego
 with importlib.resources.as_file(_pkg_ref) as _cat_path, open(_cat_path, encoding="utf-8") as _f:
     _CATEGORIES: dict[str, dict[str, str | int]] = json.load(_f)
 
+# Ordered list of display groups (Component contains only Fitzpatrick/hair
+# modifier bases; skip it since modifiers are shown in the swatch row).
+_GROUP_ORDER: list[str] = [
+    "Smileys & Emotion",
+    "People & Body",
+    "Animals & Nature",
+    "Food & Drink",
+    "Travel & Places",
+    "Activities",
+    "Objects",
+    "Symbols",
+    "Flags",
+]
+# "Component" is intentionally omitted — those are skin/hair modifier bases,
+# not standalone emoji for selection.
+
 
 def _en_name(meta: _EmojiMeta) -> str:
     """Extract the English CLDR name string from emoji metadata."""
@@ -61,21 +80,34 @@ def _emoji_version(meta: _EmojiMeta) -> float:
     return float(raw)  # type: ignore[arg-type]  # E is always numeric in practice
 
 
-# Skin-tone-capable bases: any base whose en name has variants with _skin_tone suffixes.
-_SKIN_TONE_CAPABLE: frozenset[str] = frozenset(
-    base_cp
-    for base_cp, base_meta in _FULLY_QUALIFIED.items()
-    if any(
-        "_skin_tone" in _en_name(v_meta)
-        and re.sub(
-            r":(.+?)(?:_(?:light|medium_light|medium|medium_dark|dark)_skin_tone)+:",
-            r":\1:",
-            _en_name(v_meta),
-        )
-        == _en_name(base_meta)
-        for v_meta in _FULLY_QUALIFIED.values()
-    )
-)
+def _is_base_emoji(cp: str) -> bool:
+    """Return True iff the codepoint string is a base (un-toned) emoji.
+
+    A toned variant contains one of the five Fitzpatrick modifier codepoints
+    (U+1F3FB-U+1F3FF) in its sequence. We check the raw string because the
+    modifier is always present as a literal character in fully-qualified forms.
+    """
+    return not any(mod in cp for mod in _FITZPATRICK_MODIFIERS)
+
+
+# Skin-tone-capable bases: emoji that have Fitzpatrick-toned variants in the
+# fully-qualified set.  Computed in O(N) by collecting bases of toned variants.
+# An emoji is a toned variant iff its codepoint string contains a Fitzpatrick
+# modifier.  The base is the same string with all Fitzpatrick modifiers removed.
+def _compute_skin_tone_capable() -> frozenset[str]:
+    bases: set[str] = set()
+    for cp in _FULLY_QUALIFIED:
+        if not _is_base_emoji(cp):
+            # Strip all Fitzpatrick modifiers to recover the base codepoint.
+            base = cp
+            for mod in _FITZPATRICK_MODIFIERS:
+                base = base.replace(mod, "")
+            if base in _FULLY_QUALIFIED:
+                bases.add(base)
+    return frozenset(bases)
+
+
+_SKIN_TONE_CAPABLE: frozenset[str] = _compute_skin_tone_capable()
 
 
 def _apply_version_filter(
@@ -138,6 +170,10 @@ class EmojiPicker(Widget):
     }
     EmojiPicker #skin-tone-row Button.-selected-swatch {
         border: tall $accent;
+    }
+    EmojiPicker #category-tabs {
+        width: 1fr;
+        margin-bottom: 1;
     }
     EmojiPicker #emoji-grid {
         width: 1fr;
@@ -211,15 +247,30 @@ class EmojiPicker(Widget):
             _FITZPATRICK_MODIFIERS[default_skin_tone - 2] if default_skin_tone >= 2 else ""
         )
         # Build the display list once at construction time.
+        # Only base emoji (no Fitzpatrick-toned variants) appear in the grid.
         self._emoji_list: list[tuple[str, str]] = self._build_emoji_list()
+        # Active category tab; empty string means "show all".
+        self._active_group: str = ""
+        # Debounce timer — replaced on each keystroke.
+        self._search_timer: Timer | None = None
 
     # ---------------------------------------------------------------------------
     # Helpers
     # ---------------------------------------------------------------------------
 
     def _build_emoji_list(self) -> list[tuple[str, str]]:
-        """Return the sorted list of (codepoint, CLDR_name) for display."""
+        """Return sorted (codepoint, CLDR_name) for base emoji only."""
         pool = _apply_version_filter(_FULLY_QUALIFIED, self._max_emoji_version)
+
+        # Remove toned variants — only base emoji appear in the grid.
+        pool = {cp: meta for cp, meta in pool.items() if _is_base_emoji(cp)}
+
+        # Exclude the "Component" group (Fitzpatrick + hair modifier bases).
+        pool = {
+            cp: meta
+            for cp, meta in pool.items()
+            if cp not in _CATEGORIES or _CATEGORIES[cp].get("group") != "Component"
+        }
 
         # Filter to requested categories (slugified group names).
         if self._categories is not None:
@@ -245,11 +296,23 @@ class EmojiPicker(Widget):
 
         return result
 
-    def _filtered_list(self, query: str) -> list[tuple[str, str]]:
-        if not query:
+    def _emoji_for_display(self, query: str, group: str) -> list[tuple[str, str]]:
+        """Return the emoji list to display given current search query and group."""
+        if query:
+            # Search spans all categories; ignore group filter.
+            q = query.lower()
+            return [(cp, nm) for cp, nm in self._emoji_list if q in nm.lower()]
+        if not group:
             return self._emoji_list
-        q = query.lower()
-        return [(cp, nm) for cp, nm in self._emoji_list if q in nm.lower()]
+        return [
+            (cp, nm)
+            for cp, nm in self._emoji_list
+            if cp in _CATEGORIES and _CATEGORIES[cp].get("group") == group
+        ]
+
+    def _filtered_list(self, query: str) -> list[tuple[str, str]]:
+        """Kept for backwards-compat with direct callers in tests."""
+        return self._emoji_for_display(query, self._active_group)
 
     def _populate_grid(self, emoji_list: list[tuple[str, str]]) -> None:
         """Update the emoji grid with a diff so existing buttons are reused."""
@@ -266,6 +329,30 @@ class EmojiPicker(Widget):
         for btn in existing[len(emoji_list) :]:
             btn.remove()
 
+    def _available_groups(self) -> list[str]:
+        """Return the ordered list of groups present in _emoji_list."""
+        groups_in_list: set[str] = set()
+        for cp, _ in self._emoji_list:
+            cat = _CATEGORIES.get(cp)
+            if cat:
+                groups_in_list.add(str(cat["group"]))
+        return [g for g in _GROUP_ORDER if g in groups_in_list]
+
+    def _make_category_tabs(self) -> list[Tab]:
+        """Build the initial Tab objects for compose time.
+
+        Category tabs are listed first (so the first category is auto-activated
+        on mount, loading only ~170 emoji instead of 1800+). "All" is appended
+        at the end for users who want to browse the full set.
+        """
+        tabs: list[Tab] = []
+        for group in self._available_groups():
+            slug = _normalise_group(group)
+            tabs.append(Tab(group, id=f"tab-{slug}"))
+        # "All" tab is last; first category tab gets auto-activated on mount.
+        tabs.append(Tab("All", id="tab-all"))
+        return tabs
+
     # ---------------------------------------------------------------------------
     # Lifecycle
     # ---------------------------------------------------------------------------
@@ -278,12 +365,16 @@ class EmojiPicker(Widget):
                 yield Button("\U0001f3f3", id="swatch-none")
                 for mod in _FITZPATRICK_MODIFIERS:
                     yield Button(mod, id=f"swatch-{ord(mod):x}")
+            # Tabs built at compose time with static Tab children — avoids the
+            # async add_tab() path and ensures the first tab is activated on
+            # mount via Tabs' own on_mount, which fires TabActivated.
+            yield Tabs(*self._make_category_tabs(), id="category-tabs")
             yield Grid(id="emoji-grid")
             yield Label("Press Enter or click to select", id="emoji-hint")
 
     def on_mount(self) -> None:
-        self._populate_grid(self._emoji_list)
-        # Apply default skin tone selection visually.
+        # Grid population is triggered by the TabActivated message that Tabs
+        # fires for its initially-active tab; no explicit _populate_grid call here.
         if self._skin_modifier:
             btn_id = f"swatch-{ord(self._skin_modifier):x}"
             with contextlib.suppress(Exception):
@@ -294,11 +385,37 @@ class EmojiPicker(Widget):
     # Event handlers
     # ---------------------------------------------------------------------------
 
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
+        if event.tabs.id != "category-tabs":
+            return
+        tab = event.tab
+        if tab is None:
+            return
+        tab_id = tab.id or ""
+        if tab_id == "tab-all":
+            self._active_group = ""
+        else:
+            # Recover group name from slug by matching against _GROUP_ORDER.
+            slug = tab_id.removeprefix("tab-")
+            self._active_group = next(
+                (g for g in _GROUP_ORDER if _normalise_group(g) == slug),
+                "",
+            )
+        query = self.query_one("#emoji-search", Input).value.strip().lower()
+        self._populate_grid(self._emoji_for_display(query, self._active_group))
+        event.stop()
+
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "emoji-search":
             return
+        # Cancel any pending debounce timer.
+        if self._search_timer is not None:
+            self._search_timer.stop()
         query = event.value.strip().lower()
-        self._populate_grid(self._filtered_list(query))
+        # Debounce: wait 150 ms before rebuilding the grid.
+        self._search_timer = self.set_timer(
+            0.15, lambda: self._populate_grid(self._emoji_for_display(query, self._active_group))
+        )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id or ""

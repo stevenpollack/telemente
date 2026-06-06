@@ -1,20 +1,12 @@
-# Pre-commit configuration for telemente.
+# Pre-commit configuration for textual-emoji-picker (standalone package).
 #
-# Two layers of feedback:
-#   * commit stage  -> fast checks (lint, format, types, file hygiene)
-#   * pre-push stage -> the test suite (the "don't break the build" gate)
-#
-# Install both stages with:
+# Install:
 #   uv run pre-commit install --install-hooks
 #
-# Local hooks shell out to `uv run` so the tool versions always match the
-# versions resolved into the project's environment (uv.lock).
+# Hooks shell out to `uv run` so tool versions match the lockfile.
 
 default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
-
-# Exclude standalone packages — they have their own pre-commit configs.
-exclude: ^packages/
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -31,29 +23,33 @@ repos:
     hooks:
       - id: ruff-lint
         name: ruff (lint)
-        entry: uv run ruff check --fix
+        entry: uv run --directory packages/textual-emoji-picker ruff check --fix
         language: system
         types_or: [python, pyi]
+        files: ^packages/textual-emoji-picker/
         require_serial: true
 
       - id: ruff-format
         name: ruff (format)
-        entry: uv run ruff format
+        entry: uv run --directory packages/textual-emoji-picker ruff format
         language: system
         types_or: [python, pyi]
+        files: ^packages/textual-emoji-picker/
         require_serial: true
 
       - id: mypy
-        name: mypy (strict types)
-        entry: uv run mypy
+        name: mypy (strict)
+        entry: uv run --directory packages/textual-emoji-picker mypy
         language: system
         types_or: [python, pyi]
+        files: ^packages/textual-emoji-picker/
         pass_filenames: false
         require_serial: true
 
       - id: pytest
-        name: pytest (full suite)
-        entry: uv run pytest
+        name: pytest
+        entry: uv run --directory packages/textual-emoji-picker pytest
         language: system
         pass_filenames: false
+        files: ^packages/textual-emoji-picker/
         stages: [pre-push]
