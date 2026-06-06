@@ -20,12 +20,12 @@ async def wait_for_workers(app: App[Any]) -> None:
     so any messages those workers posted are processed before the test asserts
     on widget or message state.
     """
-    await app.workers.wait_for_complete()
+    await app.workers.wait_for_complete()  # pyright: ignore[reportUnknownMemberType]
     # Drain the message queues exactly like pilot.pause() would.
     pilot: Pilot[Any] = Pilot(app)
     await pilot.pause()
     # Workers spawned by those drained messages also need to finish.
-    await app.workers.wait_for_complete()
+    await app.workers.wait_for_complete()  # pyright: ignore[reportUnknownMemberType]
     await pilot.pause()
 
 
