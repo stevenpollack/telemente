@@ -1,17 +1,19 @@
-# Plan 0032 — Pagination (load older messages)
+# Plan 0032b — Pagination (load older messages)
 
 ## Goal
 
 When the user scrolls to the top of a room's message timeline, telemente fetches
-the next page of older messages and prepends them to the visible list. The
-initial 50-message window is no longer a hard limit; the full conversation
-history is accessible by scrolling up.
+the next page of older messages and prepends them to the visible list via
+`MessageTimeline.prepend_batch`. The initial 50-message window is no longer a
+hard limit; the full conversation history is accessible by scrolling up.
 
 ---
 
 ## Dependencies
 
 - Plans 0001–0031 complete.
+- Plan 0032a (`MessageTimeline`) complete — `prepend_batch` is the insertion
+  primitive used by this plan.
 - Plan 0013 (`MessageCache`) — pagination tokens are stored per-room alongside
   the cached messages.
 
@@ -77,7 +79,11 @@ Methods:
            await self._cache.clear_pagination_token(room_id)
    ```
 
-2. Add a new public method:
+2. Refactor the event-parsing logic in `messages()` into a private helper
+   `_parse_room_messages_chunk(chunk, room_id, room)` shared by both
+   `messages()` and `load_older_messages()` to avoid duplication.
+
+3. Add a new public method:
 
 ```python
 async def load_older_messages(
@@ -144,17 +150,13 @@ async def load_older_messages(
     return result, has_more
 ```
 
-The event-parsing logic in `messages()` is refactored into a private helper
-`_parse_room_messages_chunk(chunk, room_id, room)` shared by both `messages()`
-and `load_older_messages()` to avoid duplication.
-
 Also import `MessageDirection` from nio as `_NioMessageDirection`:
 
 ```python
 from nio.client.async_client import MessageDirection as _NioMessageDirection
 ```
 
-Add to stubs if not present.
+Add to `stubs/nio/` if not present.
 
 **`src/telemente/tui/widgets/message_view.py`**
 
@@ -171,18 +173,14 @@ async def load_older_messages(
 ) -> tuple[list[Message], bool]: ...
 ```
 
-4. Add scroll detection. Textual's `VerticalScroll` emits `ScrollTo` and
-   `Scroll` events, but there is no built-in "reached top" event. Use a
-   `on_scroll_end` handler on `VerticalScroll` — but "scroll end" means bottom.
-   Instead, override `on_message_timeline_scroll` (if available) or use
-   `watch` on `VerticalScroll.scroll_y`. The correct approach for "scrolled to
-   top" is to check `timeline.scroll_y == 0` in `on_scroll` on the
-   `VerticalScroll`:
+4. Add scroll-to-top detection. `MessageTimeline` is a `ScrollView`. Override
+   `on_scroll` (or use a `watch` on `scroll_y`) to detect when `scroll_y`
+   reaches 0:
 
 ```python
-def on_vertical_scroll_scroll(self, event: events.Scroll) -> None:
+def on_message_timeline_scroll(self, event: events.Scroll) -> None:
     """Detect scroll-to-top and trigger history load."""
-    timeline = self.query_one("#message-timeline", VerticalScroll)
+    timeline = self.query_one("#message-timeline", MessageTimeline)
     if (
         timeline.scroll_y == 0
         and self._has_more_history
@@ -207,72 +205,29 @@ async def _load_older(self, room_id: str) -> None:
         messages, has_more = await self._client.load_older_messages(room_id)
         self._has_more_history = has_more
         if messages:
-            self._prepend_messages(messages)
+            timeline = self.query_one("#message-timeline", MessageTimeline)
+            timeline.prepend_batch(messages)
     except Exception as exc:
         logger.warning("_load_older failed for %s: %s", room_id, exc)
     finally:
         self._loading_history = False
 ```
 
-6. Add `_prepend_messages` to insert rows at the top of the timeline:
+The scroll-position restoration after prepend is handled entirely inside
+`MessageTimeline.prepend_batch` (plan 0032a) — no `call_after_refresh` needed
+here.
 
-```python
-def _prepend_messages(self, messages: list[Message]) -> None:
-    """Prepend older messages at the top of the timeline without scrolling."""
-    timeline = self.query_one("#message-timeline", VerticalScroll)
-    # Capture scroll position before insertion.
-    old_scroll_y = timeline.scroll_y
-    old_height = timeline.virtual_size.height
-
-    # Register new event IDs and bodies.
-    for msg in messages:
-        if msg.event_id not in self._rendered_event_ids:
-            self._rendered_event_ids.add(msg.event_id)
-            self._msgs_by_id[msg.event_id] = msg
-
-    # Build widgets to prepend (oldest first — messages is already chrono).
-    to_mount: list[Widget] = []
-    for msg in messages:
-        if msg.event_id in self._rendered_event_ids:
-            reply_quoted = (
-                self._msgs_by_id.get(msg.reply_to_event_id)
-                if msg.reply_to_event_id
-                else None
-            )
-            to_mount.append(MessageRow(msg, reply_quoted=reply_quoted))
-
-    if not to_mount:
-        return
-
-    # Mount before the first existing child to prepend.
-    first_child = next(
-        (w for w in timeline.children if isinstance(w, (MessageRow, _DateSeparator))),
-        None,
-    )
-    if first_child is not None:
-        timeline.mount(*to_mount, before=first_child)
-    else:
-        timeline.mount(*to_mount)
-
-    # Restore scroll position so the user stays at the same apparent position.
-    def _restore_scroll() -> None:
-        new_height = timeline.virtual_size.height
-        delta = new_height - old_height
-        timeline.scroll_to(y=old_scroll_y + delta, animate=False)
-
-    self.call_after_refresh(_restore_scroll)
-```
-
-7. Reset `_has_more_history = True` and `_loading_history = False` in `clear()`.
-
-8. In `load_room`, after fetching messages, call `load_older_messages` with
-   limit=0 just to prime the pagination token — NO, that would be an
-   unnecessary network call. Instead, `messages()` already stores the token
-   from the backfill response. No extra call needed in `load_room`.
+6. Reset `_has_more_history = True` and `_loading_history = False` in `clear()`.
 
 **`src/telemente/tui/screens/main.py`**
 
-Add `load_older_messages` to `_MainClient` protocol.
+Add `load_older_messages` to `_MainClient` protocol:
+
+```python
+async def load_older_messages(
+    self, room_id: str, limit: int = 50
+) -> tuple[list[Message], bool]: ...
+```
 
 **`tests/fakes.py`**
 
@@ -303,8 +258,9 @@ async def load_older_messages(
 2. Refactor `messages()` event-parsing into `_parse_room_messages_chunk()`.
 3. Store pagination token in `messages()` cold backfill path.
 4. Add `load_older_messages()` to `MatrixClient`.
-5. Add `load_older_messages` to stubs if `MessageDirection` is missing.
-6. Add `_prepend_messages` and scroll detection to `MessageView`.
+5. Add `MessageDirection` to nio stubs if missing.
+6. Add `_has_more_history`, `_loading_history`, scroll detection, and
+   `_load_older` to `MessageView`.
 7. Add `load_older_messages` to `_MessageViewClient` protocol.
 8. Add `load_older_messages` to `_MainClient` protocol.
 9. Add `load_older_messages` to `FakeMatrixClient`.
@@ -352,7 +308,19 @@ async def test_load_older_messages_skips_replace_events(
 
 async def test_load_older_messages_not_logged_in_raises(restore_client) -> None:
     """load_older_messages raises NotLoggedInError when not logged in."""
+
+async def test_parse_room_messages_chunk_shared_with_messages(
+    restore_client, aioresponses_ctx
+) -> None:
+    """_parse_room_messages_chunk is used by both messages() and
+    load_older_messages(), producing identical Message objects for the same
+    raw events."""
 ```
+
+Setup: use `restore_client()` for an authenticated `MatrixClient`; stub the
+`GET /rooms/{roomId}/messages` endpoint with `aioresponses` returning a
+synthetic JSON fixture containing a `chunk` array and an `end` token. Use
+`matrix.helpers.stub_get` for typed stubs.
 
 ### Tier 2 — `tests/tui/test_pagination.py`
 
@@ -362,8 +330,9 @@ async def test_scroll_to_top_triggers_load_older() -> None:
     called on the client."""
 
 async def test_prepended_messages_appear_above_existing() -> None:
-    """After load_older_messages returns, the new MessageRow widgets are
-    prepended before the existing rows (older messages at top)."""
+    """After load_older_messages returns, the prepended messages appear before
+    the existing messages in MessageTimeline._messages (older messages at lower
+    indices)."""
 
 async def test_no_load_when_has_more_is_false() -> None:
     """When _has_more_history is False, scrolling to the top does not call
@@ -374,18 +343,23 @@ async def test_no_concurrent_loads() -> None:
     does not start another load_older_messages call."""
 
 async def test_scroll_position_preserved_after_prepend() -> None:
-    """After prepending older messages, the timeline scrolls to preserve the user's
-    position (the previously-topmost message remains visible)."""
+    """After prepending older messages, MessageTimeline.scroll_y is adjusted so
+    that the previously-topmost message remains in the same viewport position."""
 
 async def test_load_older_empty_result_sets_has_more_false() -> None:
     """If load_older_messages returns ([], False), _has_more_history is set to
-    False and no rows are added."""
+    False and MessageTimeline.message_count is unchanged."""
+
+async def test_has_more_reset_on_clear() -> None:
+    """After clear() is called, _has_more_history is True and _loading_history
+    is False, so a fresh room load can trigger pagination again."""
 ```
 
 Setup: build a host app with `FakeMatrixClient`, pre-populate
 `fake.older_messages[room_id] = (messages, has_more)`, load a room, simulate
-scroll-to-top (set `timeline.scroll_y = 0` and post a scroll event), then
-`await wait_for_workers(app)` and assert row count / order.
+scroll-to-top by setting `timeline.scroll_y = 0` and posting a scroll event,
+then `await wait_for_workers(app)` and assert on
+`timeline.message_count` / `timeline._messages[0].event_id`.
 
 ---
 
@@ -393,12 +367,10 @@ scroll-to-top (set `timeline.scroll_y = 0` and post a scroll event), then
 
 - [ ] `MessageCache` has `pagination_tokens` table with get/set/clear methods.
 - [ ] `MatrixClient.messages()` stores pagination token after cold backfill.
-- [ ] `MatrixClient.load_older_messages()` fetches older messages and updates
-      the token.
+- [ ] `MatrixClient.load_older_messages()` fetches older messages and updates the token.
 - [ ] Event parsing is shared via `_parse_room_messages_chunk` (no duplication).
-- [ ] `MessageView` detects scroll-to-top and starts a load worker.
-- [ ] `_prepend_messages` inserts rows above existing content and restores
-      scroll position.
+- [ ] `MessageView` detects scroll-to-top and starts a `load-older` worker.
+- [ ] `MessageView._load_older` calls `timeline.prepend_batch(messages)` from plan 0032a.
 - [ ] `FakeMatrixClient.load_older_messages` is scripted via `older_messages`.
 - [ ] All Tier 1 and Tier 2 tests listed above pass.
 - [ ] `uv run ruff check .` / `uv run ruff format .` clean.
