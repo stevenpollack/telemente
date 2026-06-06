@@ -8,6 +8,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.widgets import RichLog
 
+from conftest import wait_for_workers
 from telemente.tui.widgets.log_panel import LogPanel
 
 # ---------------------------------------------------------------------------
@@ -179,9 +180,9 @@ async def test_command_palette_has_toggle() -> None:
     fake = fakes_module.FakeMatrixClient()
     app = TelementeApp(client=fake)  # type: ignore[arg-type]
 
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as _pilot:
         app.push_screen(MainScreen(fake))
-        await pilot.pause()
+        await wait_for_workers(app)
 
         provider = TelementeCommands(app.screen)
         hits = [h async for h in provider.discover()]

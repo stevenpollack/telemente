@@ -1,16 +1,15 @@
 # Pre-commit configuration for telemente.
 #
-# Two layers of feedback:
-#   * commit stage  -> fast checks (lint, format, types, file hygiene)
-#   * pre-push stage -> the test suite (the "don't break the build" gate)
+# All checks run at commit time so the local history is always green.
+# The suite runs in ~25s under xdist (-n auto is set in pyproject.toml).
 #
-# Install both stages with:
+# Install with:
 #   uv run pre-commit install --install-hooks
 #
 # Local hooks shell out to `uv run` so the tool versions always match the
 # versions resolved into the project's environment (uv.lock).
 
-default_install_hook_types: [pre-commit, pre-push]
+default_install_hook_types: [pre-commit]
 default_stages: [pre-commit]
 
 # Exclude standalone packages — they have their own pre-commit configs.
@@ -56,4 +55,3 @@ repos:
         entry: uv run pytest
         language: system
         pass_filenames: false
-        stages: [pre-push]

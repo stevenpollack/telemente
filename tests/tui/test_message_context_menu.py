@@ -6,7 +6,6 @@ Uses MainScreen as the app so ShowContextMenu is properly handled.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 from textual.app import App, ComposeResult
@@ -62,9 +61,9 @@ async def _open_room_and_get_view(app: HostApp, room_id: str) -> MessageView:
     screen = app.screen
     assert isinstance(screen, MainScreen)
     room_list = screen.query_one(RoomList)
-    room_list.set_rooms(app._client.rooms_data)
+    room_list.set_rooms(app._client.rooms_data)  # pyright: ignore[reportPrivateUsage]
     screen.on_room_list_room_selected(RoomList.RoomSelected(room_id))
-    await asyncio.sleep(0.15)
+    await wait_for_workers(app)
     view = screen.message_view_for(room_id)
     assert view is not None, "MessageView not found after opening room"
     return view
@@ -322,13 +321,7 @@ async def test_react_via_context_menu_sends_reaction() -> None:
         await pilot.click(buttons[0])
 
         # Give the worker time: button click → dismiss → callback → run_worker.
-        import asyncio as _asyncio
-
-        for _ in range(20):
-            await pilot.pause()
-            await _asyncio.sleep(0.05)
-            if fake.sent_reactions:
-                break
+        await wait_for_workers(app)
 
         assert len(fake.sent_reactions) == 1, f"reaction not sent: {fake.sent_reactions}"
         assert fake.sent_reactions[0][2] == first_emoji
