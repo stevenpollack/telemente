@@ -177,21 +177,21 @@ class EmojiPicker(Widget):
         margin-bottom: 1;
     }
     EmojiPicker #skin-tone-bar {
-        height: 1;
+        height: 3;
         width: 1fr;
         align: right middle;
-        margin-top: 1;
     }
     EmojiPicker #skin-tone-label {
         width: auto;
-        height: 1;
-        padding: 0 1;
+        height: 3;
+        content-align: left middle;
         color: $text-muted;
     }
     EmojiPicker #skin-tone-select {
-        width: auto;
-        min-width: 4;
-        height: 1;
+        width: 6;
+        min-width: 6;
+        height: 3;
+        content-align: center middle;
     }
     EmojiPicker #category-tabs {
         width: 1fr;
@@ -200,7 +200,7 @@ class EmojiPicker(Widget):
     EmojiPicker #emoji-grid {
         width: 1fr;
         height: auto;
-        max-height: 20;
+        max-height: 18;
         grid-size: 8;
         grid-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
         grid-rows: 2;
