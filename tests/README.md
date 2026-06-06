@@ -7,8 +7,9 @@ Tests live in two tiers that must never be mixed:
 | **Matrix unit** | `tests/matrix/` | `MatrixClient` public API | `aioresponses` + JSON cassettes in `tests/fixtures/nio/synthetic/` |
 | **TUI integration** | `tests/tui/` | Textual widgets and screens | `FakeMatrixClient` from `tests/fakes.py` |
 
-Shared fixtures live in `tests/conftest.py`. There is no `tests/tui/conftest.py`;
-TUI tests import helpers directly from `conftest` using `from conftest import
+Shared fixtures live in `tests/conftest.py`. `tests/tui/conftest.py` exists and
+provides the normalised SVG `snap_compare` fixture used by snapshot tests; TUI
+tests import other helpers directly from `conftest` using `from conftest import
 wait_for_workers`.
 
 Top-level tests (`test_config.py`, `test_smoke.py`) cover config logic and basic
@@ -104,6 +105,11 @@ in config and credential tests to avoid touching real user data.
 |---|---|
 | `tests/fakes.py` | `FakeMatrixClient` and helper builders |
 | `tests/conftest.py` | `wait_for_workers`, `tmp_store` |
+| `tests/tui/conftest.py` | Normalised SVG `snap_compare` fixture for snapshot tests |
 | `tests/matrix/helpers.py` | `restore_client`, `stub_sync`, `stub_get/post/put/delete`, `load_fixture` |
+| `tests/matrix/test_client_receipts.py` | Read receipt sending via `MatrixClient` |
+| `tests/tui/test_read_receipts.py` | TUI read receipt behaviour |
+| `tests/tui/test_emoji_picker_integration.py` | Emoji picker integration with `MessageView` |
+| `tests/tui/test_snapshots.py` | SVG snapshot tests (requires `pytest-textual-snapshot`) |
 | `tests/fixtures/nio/synthetic/` | Deterministic JSON cassettes for matrix tests |
 | `tests/fixtures/nio/README.md` | Cassette format documentation |

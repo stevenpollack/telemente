@@ -214,4 +214,7 @@ async def test_selecting_room_loads_messages() -> None:
 | `test_thread_panel.py` | `ThreadPanel`: load, live append, open from command, close |
 | `test_message_search.py` | In-room search: open, highlight, navigate, close |
 | `test_log_panel.py` | Log viewer panel |
-| `test_emoji_picker.py` | Emoji picker screen |
+| `test_emoji_picker.py` | Emoji picker screen (unit tests) |
+| `test_emoji_picker_integration.py` | Emoji picker integration with `MessageView` |
+| `test_read_receipts.py` | Read receipt sending triggered by room selection and message view |
+| `test_snapshots.py` | SVG snapshot regression tests (requires `pytest-textual-snapshot`) |

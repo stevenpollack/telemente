@@ -65,7 +65,8 @@ parser path) and walks the parent chain to find a `Tab`.
 |------|------|
 | `login.py` | `LoginScreen` — homeserver flow detection, password login, SSO (loopback + manual paste) |
 | `main.py` | `MainScreen` — three-panel layout, LRU tab manager, client-event routing, context menus |
-| `emoji_picker.py` | `EmojiPickerScreen` — searchable emoji grid with skin-tone modifier support; dismisses with selected emoji |
+| `emoji_picker.py` | `EmojiPickerScreen` — wraps `textual-emoji-picker` package; dismisses with selected emoji |
+| `_emoji_data_legacy.py` | Legacy emoji dataset kept for compatibility; superseded by the `textual-emoji-picker` package |
 | `__init__.py` | Package docstring only |
 
 ## Patterns used

@@ -10,8 +10,13 @@ UI; matrix-nio for the protocol. Managed with `uv`. Public GitHub repo,
 distributed via GitHub Releases.
 
 Core MVP is complete: login, sync, three-panel layout, tabbed messaging,
-command palette, E2EE (plan 0010), SSO (plan 0011). Active work is on
-performance (plan 0012: OptionList migration) and polish.
+command palette, E2EE (plan 0010), SSO (plan 0011), OptionList room list
+(plan 0012), message cache (plan 0013), log viewer (plan 0014), context menus
+(plan 0020), redaction tombstones (plan 0022), thread panel (plan 0023),
+in-room search (plan 0024), emoji picker as standalone package (plan 0027),
+and read receipts (plan 0031). Pending: incoming edits (plan 0029), incoming
+reactions (plan 0030), timeline virtualisation (plan 0032a), pagination
+(plan 0032b), join room (plan 0033).
 
 ## Architecture
 
@@ -21,11 +26,22 @@ config.py         XDG paths, settings, secure credential storage.
 matrix/
   client.py       MatrixClient: the ONLY code that talks to matrix-nio.
   models.py       Plain dataclasses (RoomSummary, Message, Member) — no nio types leak out.
+  auth.py         LoginFlows, SSO helpers.
+  sso.py          SsoCallbackServer — loopback HTTP server for SSO token capture.
+  discovery.py    MXID / server-name / .well-known resolution.
+  cache.py        MessageCache — async SQLite write-through cache.
+  sort.py         sort_rooms_by_recency.
 stubs/nio/        Partial inline type stubs for matrix-nio (plan 0015).
+packages/
+  textual-emoji-picker/  Standalone emoji picker package (plan 0027).
 tui/
   app.py          TelementeApp(App): owns the MatrixClient, routes events.
-  screens/        login.py, main.py
-  widgets/        room_list.py, message_view.py, member_list.py
+  commands.py     TelementeCommands — command palette provider.
+  colors.py       sender_color() — deterministic per-sender colour.
+  screens/        login.py, main.py, emoji_picker.py
+  widgets/        room_list.py, message_view.py, member_list.py,
+                  thread_panel.py, log_panel.py, context_menu.py,
+                  confirm_screen.py
   styles/app.tcss Styling.
 ```
 
@@ -136,7 +152,7 @@ Mocking strategy · Done-when · Dependencies.** When implementing a plan:
 4. Run the full fast-feedback loop.
 5. Update the plan's status / check off the Done-when list.
 
-Plan order: `0001 → … → 0012 → 0015 (nio stubs) → …`.
+Plan order: `0001 → … → 0012 → 0015 (nio stubs) → … → 0031 (read receipts) → 0029/0030/0032a/0032b/0033 (pending)`. See `plans/README.md` for the full annotated index.
 
 ## Dependencies
 
@@ -211,8 +227,8 @@ snappy by following these patterns (already in place — don't regress them):
   `MainScreen.handle_new_message` calls it, not `set_rooms`.
 - **Avoid full rebuilds on tab switches.** Worker exclusivity
   (`run_worker(..., exclusive=True)`) serialises concurrent room selections.
-- **Next target (plan 0012):** replace `ListView` with `OptionList` to get
-  `replace_option_prompt` for zero-teardown option updates.
+- **`RoomList` uses `OptionList` (plan 0012, done).** `replace_option_prompt`
+  enables surgical single-option updates without clearing the list.
 
 ## Logging
 

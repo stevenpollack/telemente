@@ -64,7 +64,7 @@ flow. The `loginToken` is single-use and never logged.
 
 | File | Role |
 |------|------|
-| `client.py` | `MatrixClient` — the only nio code; `ClientEvent` union type |
+| `client.py` | `MatrixClient` — the only nio code; `ClientEvent` union type; includes `send_read_receipt` |
 | `models.py` | `RoomSummary`, `Message`, `Member` — the only types that cross the boundary |
 | `auth.py` | `LoginFlows`, `IdentityProvider`, `parse_login_flows`, `build_sso_redirect_url` |
 | `sso.py` | `SsoCallbackServer` — loopback HTTP server for SSO token capture |

@@ -16,7 +16,7 @@ built with [Textual](https://textual.textualize.io/) and
     sort by recent activity or alphabetically.
   - **Center:** tabbed message views (up to 8 rooms open simultaneously, LRU
     eviction), multi-line composer (Enter sends, Shift+Enter newlines), reply /
-    react / edit / redact, unread notifications.
+    react / edit / redact, in-room search, read receipts, unread notifications.
   - **Right:** live member list for the active room.
 - Interactive login to any Matrix homeserver.
 - Live sync — rooms update in real-time; departed rooms close their tabs
@@ -114,6 +114,8 @@ and per-feature specifications.
 src/telemente/      Application code
   matrix/           Async wrapper around matrix-nio (the only network layer)
   tui/              Textual screens & widgets
+packages/           Standalone packages extracted from the app
+  textual-emoji-picker/  Emoji picker widget (published separately)
 stubs/nio/          Partial type stubs for matrix-nio (used by mypy + Pyright)
 tests/              Test suite (mirrors the package layout)
   fixtures/nio/     Matrix HTTP cassettes (synthetic/ committed; recorded/ local)

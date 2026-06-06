@@ -75,7 +75,7 @@ appearing twice if it arrives in both the backfill and a live sync.
 | File | Role |
 |------|------|
 | `room_list.py` | `RoomList` — searchable/filterable `OptionList` of rooms with unread badges and tag decorators |
-| `message_view.py` | `MessageView` — scrollable message timeline, `MessageRow`, `ComposerArea`; handles send/reply/react/edit/redact/search |
+| `message_view.py` | `MessageView` — scrollable message timeline, `MessageRow`, `ComposerArea`; handles send/reply/react/edit/redact/search/read-receipts |
 | `member_list.py` | `MemberList` — right-panel member list sorted by power level then name |
 | `thread_panel.py` | `ThreadPanel` — collapsible side panel for a single Matrix thread |
 | `log_panel.py` | `LogPanel` — bottom panel tailing the telemente log file via `RichLog` |
@@ -102,6 +102,6 @@ too expensive.
 - Sorting logic (`sort_rooms_by_recency`) → `matrix/sort.py`
 - Sender colour assignment → `tui/colors.py`
 - The `ClientEvent` types that feed widget updates → `matrix/client.py`
-- `EmojiPickerScreen` (opened by `MessageView`) → `tui/screens/emoji_picker.py`
+- `EmojiPickerScreen` (opened by `MessageView`) → `tui/screens/emoji_picker.py` (wraps the `textual-emoji-picker` package)
 - Application-level routing of `ClientEvent` to widgets → `tui/app.py` and
   `tui/screens/main.py`
