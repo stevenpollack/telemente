@@ -231,6 +231,7 @@ class MessageRow(Widget, can_focus=True):
         if event.button != 3:
             return
         event.stop()
+        logger.debug("MessageRow: right-click on event_id=%s", self._message.event_id)
         self.post_message(
             self.ContextMenuRequest(
                 message=self._message,
@@ -303,6 +304,14 @@ class MessageView(Widget):
     clear()                  Remove all rendered messages.
     current_room_id          The currently loaded room, or None.
     """
+
+    class ScrolledToBottom(TextualMessage):
+        """Posted when the timeline is scrolled to the bottom and a room is loaded."""
+
+        def __init__(self, room_id: str, event_id: str) -> None:
+            super().__init__()
+            self.room_id = room_id
+            self.event_id = event_id
 
     class ShowContextMenu(TextualMessage):
         """Requests the parent screen to display a context menu."""
@@ -387,6 +396,16 @@ class MessageView(Widget):
     def current_room_id(self) -> str | None:
         return self._current_room_id
 
+    @property
+    def newest_event_id(self) -> str | None:
+        """The event_id of the most recently rendered message, or None.
+
+        _msgs_by_id preserves insertion order; the last key is the newest.
+        """
+        if not self._msgs_by_id:
+            return None
+        return next(reversed(self._msgs_by_id))
+
     async def load_room(self, room_id: str) -> None:
         """Fetch message history for *room_id* and render it."""
         logger.info("load_room: room_id=%s", room_id)
@@ -463,7 +482,7 @@ class MessageView(Widget):
     # ------------------------------------------------------------------
 
     def action_scroll_latest(self) -> None:
-        self._scroll_to_bottom()
+        self._scroll_to_bottom(notify=True)
         self.query_one("#composer", ComposerArea).focus()
 
     def action_open_search(self) -> None:
@@ -536,6 +555,7 @@ class MessageView(Widget):
 
     def on_message_row_context_menu_request(self, event: MessageRow.ContextMenuRequest) -> None:
         msg = event.message
+        logger.debug("MessageView: context menu opened for event_id=%s", msg.event_id)
         my_user_id = self._client.me()[0]
         room_id = self._current_room_id or ""
 
@@ -546,6 +566,7 @@ class MessageView(Widget):
             self.post_message(MessageRow.EditRequest(msg))
 
         def _react() -> None:
+            logger.debug("MessageView: 'React' selected for event_id=%s", msg.event_id)
             self.open_emoji_picker_for(msg.event_id)
 
         def _delete() -> None:
@@ -617,6 +638,7 @@ class MessageView(Widget):
         """
         from telemente.tui.screens.emoji_picker import EmojiPickerScreen
 
+        logger.debug("MessageView: opening emoji picker for event_id=%s", event_id)
         self._react_target_event_id = event_id
 
         def _on_picked(emoji: str | None) -> None:
@@ -821,7 +843,16 @@ class MessageView(Widget):
             row.remove_class("-search-match", "-search-current")
         self.query_one("#search-count", Static).update("")
 
-    def _scroll_to_bottom(self) -> None:
-        """Scroll the timeline to the bottom."""
+    def _scroll_to_bottom(self, *, notify: bool = False) -> None:
+        """Scroll the timeline to the bottom.
+
+        notify: when True, post ScrolledToBottom so MainScreen can send a
+        read receipt. Only set by action_scroll_latest (explicit user
+        scroll); load_room and append_message use the default False.
+        """
         timeline = self.query_one("#message-timeline", VerticalScroll)
         timeline.scroll_end(animate=False)
+        if notify:
+            newest = self.newest_event_id
+            if newest and self._current_room_id:
+                self.post_message(self.ScrolledToBottom(self._current_room_id, newest))

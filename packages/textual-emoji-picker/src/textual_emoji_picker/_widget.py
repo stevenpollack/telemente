@@ -389,6 +389,12 @@ class EmojiPicker(Widget):
     # ---------------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
+        # Pre-compute the initial category's emoji so we can yield buttons in
+        # compose() — this avoids a post-mount mount_all and renders instantly.
+        groups = self._available_groups()
+        initial_group = groups[0] if groups else ""
+        initial_emoji = self._emoji_for_display("", initial_group)
+
         with Vertical():
             with Horizontal(id="emoji-toolbar"):
                 yield Input(id="emoji-search", placeholder="Search emoji…")
@@ -403,12 +409,15 @@ class EmojiPicker(Widget):
             # async add_tab() path and ensures the first tab is activated on
             # mount via Tabs' own on_mount, which fires TabActivated.
             yield Tabs(*self._make_category_tabs(), id="category-tabs")
-            yield Grid(id="emoji-grid")
+            with Grid(id="emoji-grid"):
+                for cp, _name in initial_emoji:
+                    yield Button(_apply_skin_tone(cp, self._skin_modifier))
             yield Label("Press Enter or click to select", id="emoji-hint")
 
     def on_mount(self) -> None:
-        # Grid population is triggered by the TabActivated message that Tabs
-        # fires for its initially-active tab; no explicit _populate_grid call here.
+        # Set the initial active group to match what compose() pre-populated.
+        groups = self._available_groups()
+        self._active_group = groups[0] if groups else ""
         self.query_one("#emoji-search", Input).focus()
         logger.debug("EmojiPicker mounted (%d emoji loaded)", len(self._emoji_list))
 
