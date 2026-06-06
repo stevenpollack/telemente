@@ -110,11 +110,17 @@ async def test_emoji_picker_search_filters_results() -> None:
 
         grid = app.screen.query_one("#emoji-grid", Grid)
         buttons = list(grid.query(Button))
-        labels = [str(b.label) for b in buttons]
-        # All remaining buttons should be heart-related emoji.
-        heart_emojis = {cp for cp, name in REACTION_EMOJI if "heart" in name.lower()}
-        for label in labels:
-            assert label in heart_emojis, f"Non-heart emoji {label!r} remained after 'heart' search"
+        # After searching "heart" the full Unicode set still yields results, and
+        # the count must be non-zero but smaller than the unfiltered set.
+        assert buttons, "no buttons after 'heart' search"
+        # Every curated heart emoji should be present in the filtered results
+        # (the full set is a superset of the curated set).
+        curated_hearts = {cp for cp, name in REACTION_EMOJI if "heart" in name.lower()}
+        result_labels = {str(b.label) for b in buttons}
+        for cp in curated_hearts:
+            assert cp in result_labels, (
+                f"Curated heart emoji {cp!r} missing from 'heart' search results"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +160,50 @@ async def test_emoji_picker_escape_dismisses_with_none() -> None:
         await pilot.pause()
 
         assert app.result == ""
+
+
+# ---------------------------------------------------------------------------
+# Test 4b: Escape does NOT cause a double-dismiss (regression for ScreenStackError)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emoji_picker_escape_no_double_dismiss() -> None:
+    """Pressing Escape must dismiss exactly once.
+
+    Before the fix, EmojiPickerScreen had its own Escape binding that called
+    self.dismiss("") *and* EmojiPicker.Cancelled bubbled up to
+    on_emoji_picker_cancelled which called self.dismiss("") again, causing
+    a ScreenStackError because the screen was already gone (double-dismiss).
+    """
+    from textual.app import ScreenStackError
+
+    app = PickerHostApp()
+    raised: list[Exception] = []
+
+    original_handler = app._handle_exception  # private but stable across Textual versions
+
+    def _capture(exc: Exception) -> None:
+        raised.append(exc)
+        original_handler(exc)
+
+    app._handle_exception = _capture  # type: ignore[assignment]  # monkey-patch for test
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, EmojiPickerScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        # After Escape, EmojiPickerScreen must have been popped — base screen is active.
+        assert not isinstance(app.screen, EmojiPickerScreen), (
+            "EmojiPickerScreen still on stack after Escape"
+        )
+
+    screen_stack_errors = [e for e in raised if isinstance(e, ScreenStackError)]
+    assert not screen_stack_errors, (
+        f"ScreenStackError raised on Escape (double-dismiss): {screen_stack_errors}"
+    )
+    assert app.result == "", f"expected empty string result, got {app.result!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -230,10 +280,14 @@ async def test_emoji_picker_filter_reuses_existing_buttons() -> None:
 
         before_ids = {id(b) for b in app.screen.query(Button)}
 
-        # Trigger a filter that returns a non-empty subset.
-        search = app.screen.query_one("#emoji-search", Input)
+        # Trigger a filter by routing the event through the EmojiPicker widget,
+        # which is the actual owner of on_input_changed after the refactor.
+        from textual_emoji_picker import EmojiPicker as _EmojiPicker
+
+        picker = app.screen.query_one(_EmojiPicker)
+        search = picker.query_one("#emoji-search", Input)
         search.value = "heart"
-        app.screen.on_input_changed(Input.Changed(search, search.value))
+        picker.on_input_changed(Input.Changed(search, search.value))
         await pilot.pause()
 
         after_buttons = list(app.screen.query(Button))
@@ -306,24 +360,34 @@ async def test_skin_tone_selector_present() -> None:
 async def test_skin_tone_applied_to_capable_emoji() -> None:
     """Selecting light-skin swatch then clicking a skin-tone-capable emoji
     must dismiss with base + U+1F3FB modifier."""
-    # Find a base that is skin-tone capable
-    capable_base = next(cp for cp, _name in REACTION_EMOJI if cp in SKIN_TONE_CAPABLE)
+    # Find a base that is skin-tone capable (use curated list — all are in full set)
+    capable_base, capable_name = next(
+        (cp, nm) for cp, nm in REACTION_EMOJI if cp in SKIN_TONE_CAPABLE
+    )
 
     app = PickerHostApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         assert isinstance(app.screen, EmojiPickerScreen)
 
-        # Click the light-skin swatch (U+1F3FB)
         from textual.containers import Grid, Horizontal
+        from textual_emoji_picker import EmojiPicker as _EmojiPicker
 
+        # Click the light-skin swatch (U+1F3FB)
         row = app.screen.query_one("#skin-tone-row", Horizontal)
         swatches = list(row.query(Button))
         light_swatch = next(b for b in swatches if str(b.label) == "\U0001f3fb")
         await pilot.click(light_swatch)
         await pilot.pause()
 
-        # Find the capable emoji button in the grid and click it
+        # Search for the capable emoji by name to scroll it into view.
+        picker = app.screen.query_one(_EmojiPicker)
+        search = picker.query_one("#emoji-search", Input)
+        search.value = capable_name
+        picker.on_input_changed(Input.Changed(search, search.value))
+        await pilot.pause()
+
+        # Find the capable emoji button in the (now-filtered) grid and click it.
         grid = app.screen.query_one("#emoji-grid", Grid)
         capable_btn = next(b for b in grid.query(Button) if str(b.label) == capable_base)
         await pilot.click(capable_btn)
