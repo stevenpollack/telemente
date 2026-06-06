@@ -271,7 +271,7 @@ async def test_leave_confirmed_calls_leave_room() -> None:
 
         import asyncio
 
-        screen._confirm_leave_room(room_id)  # pyright: ignore[reportPrivateUsage]
+        screen.confirm_leave_room(room_id)
         await pilot.pause()
 
         assert isinstance(app.screen, ConfirmScreen), (
@@ -309,7 +309,7 @@ async def test_leave_cancelled_does_nothing() -> None:
 
         import asyncio
 
-        screen._confirm_leave_room(room_id)  # pyright: ignore[reportPrivateUsage]
+        screen.confirm_leave_room(room_id)
         await pilot.pause()
 
         assert isinstance(app.screen, ConfirmScreen)
@@ -491,7 +491,7 @@ async def test_leave_refreshes_room_list() -> None:
         await pilot.pause()
 
         # Confirm leave on room_a
-        screen._confirm_leave_room(room_id_a)  # pyright: ignore[reportPrivateUsage]
+        screen.confirm_leave_room(room_id_a)
         await pilot.pause()
 
         assert isinstance(app.screen, ConfirmScreen)
@@ -550,7 +550,7 @@ async def test_leave_closes_tab() -> None:
         assert room_id in screen.open_tabs, f"Tab not opened for {room_id}"
 
         # Confirm leave
-        screen._confirm_leave_room(room_id)  # pyright: ignore[reportPrivateUsage]
+        screen.confirm_leave_room(room_id)
         await pilot.pause()
 
         assert isinstance(app.screen, ConfirmScreen)

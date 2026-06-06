@@ -546,7 +546,7 @@ class MessageView(Widget):
             self.post_message(MessageRow.EditRequest(msg))
 
         def _react() -> None:
-            self._open_emoji_picker_for(msg.event_id)
+            self.open_emoji_picker_for(msg.event_id)
 
         def _delete() -> None:
             self.post_message(MessageRow.DeleteRequest(msg))
@@ -606,7 +606,7 @@ class MessageView(Widget):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _open_emoji_picker_for(self, event_id: str) -> None:
+    def open_emoji_picker_for(self, event_id: str) -> None:
         """Open the emoji picker modal and send the selected reaction.
 
         Uses call_next so push_screen runs after the current message-pump

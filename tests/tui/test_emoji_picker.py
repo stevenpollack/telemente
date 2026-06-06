@@ -178,7 +178,7 @@ async def test_emoji_picker_integration_sends_reaction() -> None:
         await pilot.pause()
 
         # Trigger the emoji picker via _open_emoji_picker_for.
-        view._open_emoji_picker_for(event_id)  # pyright: ignore[reportPrivateUsage]
+        view.open_emoji_picker_for(event_id)
         await pilot.pause()
 
         # The EmojiPickerScreen should now be on the stack.

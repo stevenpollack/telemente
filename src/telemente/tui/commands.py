@@ -189,7 +189,7 @@ class TelementeCommands(Provider):
         if room_id is None:
             self.app.notify("No room selected", severity="warning")
             return
-        screen._toggle_tag_for(room_id, tag)  # pyright: ignore[reportPrivateUsage]
+        screen.toggle_tag_for(room_id, tag)
 
     # ------------------------------------------------------------------
     # Room / session
@@ -206,7 +206,7 @@ class TelementeCommands(Provider):
         if room_id is None:
             self.app.notify("No room selected", severity="warning")
             return
-        screen._confirm_leave_room(room_id)  # pyright: ignore[reportPrivateUsage]
+        screen.confirm_leave_room(room_id)
 
     def cmd_react_to_message(self) -> None:
         """Open emoji picker to react to the focused (or last) message."""
@@ -227,12 +227,12 @@ class TelementeCommands(Provider):
         if focused:
             row = focused[0]
             if isinstance(row, MessageRow):
-                view._open_emoji_picker_for(row.message.event_id)  # pyright: ignore[reportPrivateUsage]
+                view.open_emoji_picker_for(row.message.event_id)
                 return
         rows = list(view.query(MessageRow))
         if not rows:
             return
-        view._open_emoji_picker_for(rows[-1].message.event_id)  # pyright: ignore[reportPrivateUsage]
+        view.open_emoji_picker_for(rows[-1].message.event_id)
 
     def cmd_open_thread(self) -> None:
         """Open the thread panel for the focused message (if it is a thread reply)."""

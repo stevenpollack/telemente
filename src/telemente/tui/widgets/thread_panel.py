@@ -98,6 +98,14 @@ class ThreadPanel(Widget):
     # Public API
     # ------------------------------------------------------------------
 
+    @property
+    def room_id(self) -> str:
+        return self._room_id
+
+    @property
+    def root_event_id(self) -> str:
+        return self._root_event_id
+
     def load_thread(self, room_id: str, root_event_id: str) -> None:
         """Start loading the thread; replaces any previously loaded thread."""
         self._room_id = room_id

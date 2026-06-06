@@ -333,18 +333,18 @@ class MainScreen(Screen[None]):
         room_id = room.room_id  # captured by closures
 
         def _toggle_fav() -> None:
-            self._toggle_tag_for(room_id, "m.favourite")
+            self.toggle_tag_for(room_id, "m.favourite")
 
         def _toggle_lp() -> None:
-            self._toggle_tag_for(room_id, "m.lowpriority")
+            self.toggle_tag_for(room_id, "m.lowpriority")
 
         def _toggle_mute() -> None:
             # m.mute is a de-facto standard used by Element and others; MSC2175 proposes
             # m.muted but is not yet merged. We use m.mute for compatibility.
-            self._toggle_tag_for(room_id, "m.mute")
+            self.toggle_tag_for(room_id, "m.mute")
 
         def _leave() -> None:
-            self._confirm_leave_room(room_id)
+            self.confirm_leave_room(room_id)
 
         items: list[MenuEntry] = [
             MenuItem(
@@ -364,7 +364,7 @@ class MainScreen(Screen[None]):
         ]
         self._show_context_menu(items, event.screen_x, event.screen_y)
 
-    def _toggle_tag_for(self, room_id: str, tag: str) -> None:
+    def toggle_tag_for(self, room_id: str, tag: str) -> None:
         """Toggle a room tag on/off; delegates the async work to a worker."""
         self.run_worker(
             self._do_toggle_tag(room_id, tag),
@@ -396,7 +396,7 @@ class MainScreen(Screen[None]):
             logger.warning("tag operation failed for %s %s: %s", tag, room_id, exc)
             self.app.notify(f"Tag operation failed: {exc}", severity="error")
 
-    def _confirm_leave_room(self, room_id: str) -> None:
+    def confirm_leave_room(self, room_id: str) -> None:
         """Push the confirmation modal for leaving a room."""
         try:
             room_list = self.query_one(RoomList)
@@ -490,7 +490,7 @@ class MainScreen(Screen[None]):
         # Forward matching thread messages to the open ThreadPanel.
         if self.thread_visible and msg.thread_root_id is not None:
             panel = self.query_one(ThreadPanel)
-            if msg.thread_root_id == panel._root_event_id and msg.room_id == panel._room_id:  # pyright: ignore[reportPrivateUsage]
+            if msg.thread_root_id == panel.root_event_id and msg.room_id == panel.room_id:
                 panel.append_message(msg)
 
         if msg.room_id == active_room:
