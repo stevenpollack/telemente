@@ -6,12 +6,6 @@ resolution-markers = [
     "python_full_version < '3.15'",
 ]
 
-[manifest]
-members = [
-    "telemente",
-    "textual-emoji-picker",
-]
-
 [[package]]
 name = "aiofiles"
 version = "24.1.0"
@@ -1984,7 +1978,7 @@ requires-dist = [
     { name = "matrix-nio", extras = ["e2e"], specifier = ">=0.25" },
     { name = "platformdirs", specifier = ">=4" },
     { name = "textual", specifier = ">=1.0" },
-    { name = "textual-emoji-picker", editable = "packages/textual-emoji-picker" },
+    { name = "textual-emoji-picker" },
 ]
 
 [package.metadata.requires-dev]
@@ -2039,34 +2033,14 @@ wheels = [
 [[package]]
 name = "textual-emoji-picker"
 version = "0.1.0"
-source = { editable = "packages/textual-emoji-picker" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "emoji" },
     { name = "textual" },
 ]
-
-[package.dev-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "emoji", specifier = ">=2.0.0" },
-    { name = "textual", specifier = ">=1.0.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.10" },
-    { name = "pre-commit", specifier = ">=4" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "ruff", specifier = ">=0.8" },
+sdist = { url = "https://files.pythonhosted.org/packages/e6/8f/a94c1ed45d3dfb2426175e355bb2e957d40f8e5d44ebed375e97dd34f542/textual_emoji_picker-0.1.0.tar.gz", hash = "sha256:1f844788872c7b2565898da087b2ea7cde9097504c97fec30cb58d47114fa1dd", size = 71472, upload-time = "2026-06-06T13:57:45.608Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3d/75/f0b6f2feb61182043ec89b8ee4ceee16c1040447acdca06c58893126321d/textual_emoji_picker-0.1.0-py3-none-any.whl", hash = "sha256:5aa3736b28bdca44a496121b09e7424f91ed00bc0cdd1f4bf51559a3e268a9ab", size = 33974, upload-time = "2026-06-06T13:57:44.433Z" },
 ]
 
 [[package]]

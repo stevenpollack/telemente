@@ -5,7 +5,7 @@ description = "A terminal-based chat client for the Matrix protocol, built with 
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "telemente contributors" }]
+authors = [{ name = "Steven Pollack" }]
 keywords = ["matrix", "chat", "tui", "textual", "terminal"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -29,9 +29,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/telemente/telemente"
-Repository = "https://github.com/telemente/telemente"
-Issues = "https://github.com/telemente/telemente/issues"
+Homepage = "https://github.com/stevenpollack/telemente"
+Repository = "https://github.com/stevenpollack/telemente"
+Issues = "https://github.com/stevenpollack/telemente/issues"
 
 [project.scripts]
 telemente = "telemente.cli:main"
@@ -118,12 +118,6 @@ markers = [
     "olm: tests that require libolm (end-to-end encryption)",
     "recorded: smoke tests using local tests/fixtures/nio/recorded/ (skipped when absent)",
 ]
-
-[tool.uv.workspace]
-members = ["packages/textual-emoji-picker"]
-
-[tool.uv.sources]
-textual-emoji-picker = { workspace = true }
 
 [tool.coverage.run]
 branch = true

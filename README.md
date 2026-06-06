@@ -51,7 +51,7 @@ system `libolm` above and reinstall: `uv sync --reinstall-package python-olm`.
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/telemente/telemente
+git clone https://github.com/stevenpollack/telemente
 cd telemente
 
 # 2. Create the environment and install dependencies
