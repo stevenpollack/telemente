@@ -2047,8 +2047,11 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "mypy" },
+    { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -2059,8 +2062,11 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "mypy", specifier = ">=1.10" },
+    { name = "pre-commit", specifier = ">=4" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "ruff", specifier = ">=0.8" },
 ]
 
 [[package]]
