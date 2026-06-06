@@ -194,6 +194,7 @@ async def test_max_emoji_version_filter() -> None:
 async def test_skin_tone_persisted(tmp_path: object) -> None:
     """Skin tone selection persists to disk and is restored on next open."""
     from pathlib import Path
+
     from textual.widgets import Select
 
     persist_file = Path(str(tmp_path)) / "emoji_prefs.json"

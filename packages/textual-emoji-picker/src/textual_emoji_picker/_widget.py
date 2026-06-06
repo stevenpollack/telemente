@@ -180,6 +180,13 @@ class EmojiPicker(Widget):
     EmojiPicker #emoji-search {
         width: 1fr;
     }
+    EmojiPicker #skin-tone-label {
+        width: auto;
+        height: 3;
+        content-align: left middle;
+        padding: 0 1;
+        color: $text-muted;
+    }
     EmojiPicker #skin-tone-select {
         width: 6;
         min-width: 6;
@@ -419,6 +426,7 @@ class EmojiPicker(Widget):
         with Vertical():
             with Horizontal(id="emoji-toolbar"):
                 yield Input(id="emoji-search", placeholder="Search emoji…")
+                yield Label("Skin tone:", id="skin-tone-label")
                 yield Select(
                     _SKIN_TONE_OPTIONS,
                     value=self._skin_modifier,
