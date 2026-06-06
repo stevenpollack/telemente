@@ -197,3 +197,66 @@ async def test_tab_right_click_via_mouse_event() -> None:
 
         menus = list(app.screen.query(ContextMenu))
         assert len(menus) == 1, f"expected 1 ContextMenu, got {len(menus)}"
+
+
+# ---------------------------------------------------------------------------
+# Test 5: on_mouse_down with widget=None resolves target via get_widget_at
+# (plan 0025 Bug 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tab_right_click_dispatch_shows_menu() -> None:
+    """MouseDown with widget=None (production case) shows ContextMenu via get_widget_at."""
+    from rich.style import Style as RichStyle
+    from textual.events import MouseDown
+
+    room_id = "!room1:server"
+    fake = _make_client(_room(room_id, "Room One"))
+    app = HostApp(fake)
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = await _open_room(app, room_id)
+        await pilot.pause()
+
+        # Hide side panels so TabbedContent gets full width, making tab visible.
+        screen.rooms_visible = False
+        screen.members_visible = False
+        await pilot.pause()
+
+        tab = await _get_tab(screen, room_id)
+        # Skip if the tab hasn't been laid out or is off-screen.
+        r = tab.region
+        screen_w, screen_h = app.size
+        if r.width == 0 or r.height == 0:
+            pytest.skip("tab region is zero-sized; layout not yet complete")
+        sx = r.x + r.width // 2
+        sy = r.y + r.height // 2
+        if sx >= screen_w or sy >= screen_h or sx < 0 or sy < 0:
+            pytest.skip(
+                f"tab center ({sx},{sy}) is outside screen ({screen_w}x{screen_h}); "
+                "cannot use get_widget_at"
+            )
+
+        # widget=None reproduces the production xterm-parser path — the bug.
+        # Before the fix, the while-loop never executes and no menu appears.
+        event = MouseDown(
+            widget=None,
+            x=sx,
+            y=sy,
+            delta_x=0,
+            delta_y=0,
+            button=3,
+            shift=False,
+            meta=False,
+            ctrl=False,
+            screen_x=sx,
+            screen_y=sy,
+            style=RichStyle(),
+        )
+        screen.on_mouse_down(event)
+        await pilot.pause()
+
+        menus = list(app.screen.query(ContextMenu))
+        assert menus, "Expected ContextMenu after right-click with widget=None (Bug 3)"

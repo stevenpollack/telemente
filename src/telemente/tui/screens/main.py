@@ -274,7 +274,14 @@ class MainScreen(Screen[None]):
         """Intercept right-click on Tab widgets before Tab._on_click fires."""
         if event.button != 3:
             return
-        widget = event.widget
+        # event.widget is None when delivered by the xterm parser; resolve the
+        # target from screen coordinates so the dispatch works in production.
+        from textual.errors import NoWidget
+
+        try:
+            widget, _region = self.get_widget_at(event.screen_x, event.screen_y)
+        except NoWidget:
+            return
         while widget is not None:
             if isinstance(widget, Tab):
                 event.stop()
