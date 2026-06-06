@@ -1948,8 +1948,8 @@ async def test_on_room_message_writes_to_cache() -> None:
         await event_callback_for(nio_mock, nio.RoomMessageText)(room, event)
 
         # Room is now warm because the sync callback wrote to the cache.
-        assert client._cache is not None
-        assert not await client._cache.is_cold("!r:example.com")
+        assert client._cache is not None  # pyright: ignore[reportPrivateUsage]
+        assert not await client._cache.is_cold("!r:example.com")  # pyright: ignore[reportPrivateUsage]
 
         await client.close()
     finally:
@@ -2029,8 +2029,8 @@ async def test_messages_warm_room_writes_back_resolved_display_name() -> None:
         await client.messages("!r:example.com")  # triggers write-back
 
         # Read directly from cache to confirm the write-back happened
-        assert client._cache is not None
-        cached = await client._cache.get_room("!r:example.com")
+        assert client._cache is not None  # pyright: ignore[reportPrivateUsage]
+        cached = await client._cache.get_room("!r:example.com")  # pyright: ignore[reportPrivateUsage]
         assert cached[0].sender_display_name == "Bob"
 
         await client.close()
@@ -2053,8 +2053,8 @@ async def test_close_closes_cache() -> None:
         client = MatrixClient(HOMESERVER, nio_client=nio_mock, cache_path=cache_path)
         await client.restore(make_session())
 
-        assert client._cache is not None
-        cache = client._cache
+        assert client._cache is not None  # pyright: ignore[reportPrivateUsage]
+        cache = client._cache  # pyright: ignore[reportPrivateUsage]
 
         await client.close()
 

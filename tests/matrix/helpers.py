@@ -58,6 +58,7 @@ class HttpMocker(Protocol):
         payload: dict[str, Any] | None = ...,
         status: int = ...,
         body: str = ...,
+        exception: Exception | None = ...,
     ) -> None: ...
 
     def put(
@@ -71,7 +72,7 @@ class HttpMocker(Protocol):
 
     def delete(
         self,
-        url: str,
+        url: str | Pattern[str],
         *,
         payload: dict[str, Any] | None = ...,
         status: int = ...,
@@ -112,9 +113,12 @@ def stub_post(
     payload: dict[str, Any] | None = None,
     status: int = 200,
     body: str | None = None,
+    exception: Exception | None = None,
 ) -> None:
     """Register a stubbed POST response on an ``aioresponses`` context."""
-    if body is not None:
+    if exception is not None:
+        m.post(url, exception=exception)
+    elif body is not None:
         m.post(url, body=body, status=status)
     elif payload is not None:
         m.post(url, payload=payload, status=status)
@@ -141,7 +145,7 @@ def stub_put(
 
 def stub_delete(
     m: HttpMocker,
-    url: str,
+    url: str | Pattern[str],
     *,
     payload: dict[str, Any] | None = None,
     status: int = 200,

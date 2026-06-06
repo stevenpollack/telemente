@@ -9,25 +9,16 @@ Tests:
 
 from __future__ import annotations
 
-import re
-
 import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from matrix.helpers import HOMESERVER, build_nio_mock, make_nio_room, restore_client
+from matrix.helpers import HOMESERVER, build_nio_mock, make_nio_room, restore_client, stub_post
 from telemente.matrix.client import MatrixClient, NotLoggedInError
 
 
 def _receipt_url(room_id: str, event_id: str) -> str:
     return f"{HOMESERVER}/_matrix/client/v3/rooms/{room_id}/receipt/m.read/{event_id}"
-
-
-def _receipt_url_pattern(room_id: str, event_id: str) -> re.Pattern[str]:
-    return re.compile(
-        rf"^{re.escape(HOMESERVER)}/_matrix/client/v3/rooms"
-        rf"/{re.escape(room_id)}/receipt/m\.read/{re.escape(event_id)}$"
-    )
 
 
 async def test_send_read_receipt_posts_to_correct_url() -> None:
@@ -39,7 +30,7 @@ async def test_send_read_receipt_posts_to_correct_url() -> None:
     client = await restore_client(nio_mock)
 
     with aioresponses() as m:
-        m.post(_receipt_url(room_id, event_id), payload={}, status=200)
+        stub_post(m, _receipt_url(room_id, event_id), payload={})
         await client.send_read_receipt(room_id, event_id)
 
     # If we got here without an exception, the call succeeded.
@@ -67,7 +58,9 @@ async def test_send_read_receipt_http_error_logs_warning_no_raise(
     client = await restore_client(nio_mock)
 
     with aioresponses() as m:
-        m.post(_receipt_url(room_id, event_id), payload={"errcode": "M_FORBIDDEN"}, status=403)
+        stub_post(
+            m, _receipt_url(room_id, event_id), payload={"errcode": "M_FORBIDDEN"}, status=403
+        )
         import logging
 
         with caplog.at_level(logging.WARNING, logger="telemente.matrix.client"):
@@ -88,7 +81,8 @@ async def test_send_read_receipt_network_error_logs_warning_no_raise(
     client = await restore_client(nio_mock)
 
     with aioresponses() as m:
-        m.post(
+        stub_post(
+            m,
             _receipt_url(room_id, event_id),
             exception=aiohttp.ClientError("simulated network error"),
         )

@@ -17,6 +17,8 @@ from matrix.helpers import (
     build_nio_mock,
     make_nio_room,
     restore_client,
+    stub_delete,
+    stub_put,
 )
 from telemente.matrix.client import RoomsChanged
 
@@ -43,7 +45,7 @@ async def test_set_room_tag_emits_rooms_changed() -> None:
             rf"^{re.escape(HOMESERVER)}/_matrix/client/v3/user/{re.escape(USER)}"
             rf"/rooms/{re.escape(room_id)}/tags/{re.escape(tag)}"
         )
-        m.put(tag_url, payload={}, status=200)
+        stub_put(m, tag_url, payload={})
 
         await client.set_room_tag(room_id, tag)
 
@@ -79,7 +81,7 @@ async def test_remove_room_tag_emits_rooms_changed() -> None:
             rf"^{re.escape(HOMESERVER)}/_matrix/client/v3/user/{re.escape(USER)}"
             rf"/rooms/{re.escape(room_id)}/tags/{re.escape(tag)}"
         )
-        m.delete(tag_url, payload={}, status=200)
+        stub_delete(m, tag_url, payload={})
 
         await client.remove_room_tag(room_id, tag)
 
