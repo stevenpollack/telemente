@@ -101,8 +101,7 @@ async def test_thread_panel_shows_messages_after_load() -> None:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         rows = list(panel.query(MessageRow))
         assert len(rows) == 2
@@ -126,8 +125,7 @@ async def test_thread_panel_empty_thread_shows_no_rows() -> None:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         rows = list(panel.query(MessageRow))
         assert len(rows) == 0
@@ -215,13 +213,11 @@ async def test_thread_panel_append_message_adds_row() -> None:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         new_msg = _msg("$m2", body="Appended")
         panel.append_message(new_msg)
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         rows = list(panel.query(MessageRow))
         assert len(rows) == 2
@@ -245,13 +241,11 @@ async def test_thread_panel_deduplicates_appended_messages() -> None:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         # Append the same message again
         panel.append_message(msg1)
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         rows = list(panel.query(MessageRow))
         assert len(rows) == 1
@@ -272,8 +266,7 @@ async def test_thread_panel_has_more_notice_shown() -> None:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         load_more = panel.query_one("#thread-load-more", Static)
         assert load_more.display is True
@@ -294,8 +287,7 @@ async def test_thread_panel_has_more_notice_hidden_when_complete() -> None:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         load_more = panel.query_one("#thread-load-more", Static)
         assert load_more.display is False
@@ -539,14 +531,12 @@ async def test_live_new_message_in_other_thread_ignored() -> None:
         assert isinstance(screen, MainScreen)
 
         screen.open_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         other_reply = _msg("$other", room_id="!r:s", thread_root_id="$other_root")
         # Drive handle_new_message directly — simulates a live event.
         screen.handle_new_message(NewMessage(message=other_reply))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         panel = screen.query_one(ThreadPanel)
         rows = list(panel.query(MessageRow))

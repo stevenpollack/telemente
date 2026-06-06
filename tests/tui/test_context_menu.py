@@ -356,7 +356,6 @@ async def test_context_menu_with_separator_fits_content() -> None:
 
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        await pilot.pause()
         menu = app.query_one(ContextMenu)
         assert menu.size.width <= 30, (
             f"ContextMenu width is {menu.size.width}, expected <= 30. "

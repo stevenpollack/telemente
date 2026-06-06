@@ -15,6 +15,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Label, Static
 
 import fakes as fakes_module
+from conftest import wait_for_workers
 from matrix.helpers import stub_get
 from telemente.config import Session
 from telemente.matrix.auth import IdentityProvider, LoginFlows
@@ -143,10 +144,8 @@ async def test_sso_button_shown_when_supported() -> None:
     factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(factory)
 
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+    async with app.run_test(size=(120, 40)) as _pilot:
+        await wait_for_workers(app)
 
         screen = app.screen
         # SSO button should be present
@@ -175,10 +174,8 @@ async def test_both_flows_shown() -> None:
     factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(factory)
 
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+    async with app.run_test(size=(120, 40)) as _pilot:
+        await wait_for_workers(app)
 
         screen = app.screen
         # Password submit button visible
@@ -204,10 +201,8 @@ async def test_no_supported_flow_shows_error() -> None:
     factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(factory)
 
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+    async with app.run_test(size=(120, 40)) as _pilot:
+        await wait_for_workers(app)
 
         screen = app.screen
         error_widget = screen.query_one("#error", Static)
@@ -242,9 +237,7 @@ async def test_sso_loopback_success() -> None:
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         # Click the SSO button
         sso_button = app.screen.query(".sso-button").first()
@@ -291,9 +284,7 @@ async def test_sso_no_browser_switches_to_manual() -> None:
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         sso_button = app.screen.query(".sso-button").first()
         await pilot.click(sso_button)
@@ -344,9 +335,7 @@ async def test_sso_timeout_shows_error() -> None:
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         sso_button = app.screen.query(".sso-button").first()
         await pilot.click(sso_button)
@@ -392,9 +381,7 @@ async def test_idp_buttons() -> None:
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         screen = app.screen
         sso_buttons = list(screen.query(".sso-button"))

@@ -15,6 +15,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Label, LoadingIndicator, Static
 
 import fakes as fakes_module
+from conftest import wait_for_workers
 from telemente.config import Session
 from telemente.matrix.auth import LoginFlows
 from telemente.tui.screens.login import LoginScreen
@@ -78,8 +79,7 @@ async def test_successful_login_posts_loggedin() -> None:
         screen.query_one("#password", Input).value = "s3cret"
 
         await pilot.click("#submit")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
     assert len(app.logged_in_sessions) == 1
     session = app.logged_in_sessions[0]
@@ -106,8 +106,7 @@ async def test_failed_login_shows_error() -> None:
         screen.query_one("#password", Input).value = "wrong"
 
         await pilot.click("#submit")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         error_widget = screen.query_one("#error", Static)
         assert error_widget.display is True
@@ -164,8 +163,7 @@ async def test_enter_in_password_submits() -> None:
         # Focus the password field and press Enter
         await pilot.click("#password")
         await pilot.press("enter")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
     assert len(app.logged_in_sessions) == 1
     assert fake.login_called is True
@@ -201,7 +199,6 @@ async def test_loading_state() -> None:
 
         # Release and let it finish
         fake.unblock_login()
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
     assert len(app.logged_in_sessions) == 1

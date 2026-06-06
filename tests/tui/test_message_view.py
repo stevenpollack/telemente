@@ -9,9 +9,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from textual.app import App, ComposeResult
-from textual.widgets import Input, Link, Static
+from textual.widgets import Link, Static
 
 import fakes as fakes_module
+from conftest import wait_for_workers
 from telemente.matrix.models import Message
 from telemente.tui.widgets.message_view import ComposerArea, MessageRow, MessageView
 
@@ -774,8 +775,7 @@ async def test_delete_binding_removes_row() -> None:
         # Confirm the deletion.
         yes_btn = app.screen.query_one("#btn-yes", TxtButton)
         await pilot.click(yes_btn)
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         assert len(fake.redacted_messages) == 1
         assert fake.redacted_messages[0][1] == "$e2"

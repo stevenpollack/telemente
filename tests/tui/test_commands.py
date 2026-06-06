@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import fakes as fakes_module
+from conftest import wait_for_workers
 from telemente.config import CredentialStore, Paths
 from telemente.matrix.models import RoomSummary
 from telemente.tui.app import TelementeApp
@@ -331,9 +332,7 @@ async def test_cmd_logout_triggers_app_logout() -> None:
 
         provider = TelementeCommands(screen)
         provider.cmd_logout()
-        # Two pauses: logout worker navigates to LoginScreen before app exits
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         assert fake.close_called
         assert isinstance(app.screen, LoginScreen)
