@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import importlib.resources
 import json
 import logging
@@ -17,7 +16,7 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widget import Widget
-from textual.widgets import Button, Input, Label, Tab, Tabs
+from textual.widgets import Button, Input, Label, Select, Tab, Tabs
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +108,24 @@ def _compute_skin_tone_capable() -> frozenset[str]:
 
 _SKIN_TONE_CAPABLE: frozenset[str] = _compute_skin_tone_capable()
 
+# Skin tone selector options: (label, modifier_string).
+# The label is a hand emoji rendered in that tone; value is the modifier to append.
+_SKIN_TONE_OPTIONS: list[tuple[str, str]] = [
+    ("✋", ""),  # neutral (raised hand, no modifier)
+    ("✋\U0001f3fb", "\U0001f3fb"),
+    ("✋\U0001f3fc", "\U0001f3fc"),
+    ("✋\U0001f3fd", "\U0001f3fd"),
+    ("✋\U0001f3fe", "\U0001f3fe"),
+    ("✋\U0001f3ff", "\U0001f3ff"),
+]
+
+
+def _apply_skin_tone(cp: str, modifier: str) -> str:
+    """Apply a Fitzpatrick modifier to a base emoji if it's skin-tone-capable."""
+    if not modifier or cp not in _SKIN_TONE_CAPABLE:
+        return cp
+    return cp.rstrip("️") + modifier
+
 
 def _apply_version_filter(
     data: dict[str, _EmojiMeta], max_version: float | None
@@ -137,6 +154,12 @@ class EmojiPicker(Widget):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel", "Cancel", show=False),
+        Binding("ctrl+1", "skin_tone(0)", "Neutral", show=False),
+        Binding("ctrl+2", "skin_tone(1)", "Light", show=False),
+        Binding("ctrl+3", "skin_tone(2)", "Medium Light", show=False),
+        Binding("ctrl+4", "skin_tone(3)", "Medium", show=False),
+        Binding("ctrl+5", "skin_tone(4)", "Medium Dark", show=False),
+        Binding("ctrl+6", "skin_tone(5)", "Dark", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -148,28 +171,17 @@ class EmojiPicker(Widget):
         background: $surface;
         border: round $primary;
     }
+    EmojiPicker #emoji-toolbar {
+        height: 3;
+        width: 1fr;
+        margin-bottom: 1;
+    }
     EmojiPicker #emoji-search {
         width: 1fr;
-        margin-bottom: 1;
     }
-    EmojiPicker #skin-tone-row {
-        height: 2;
-        width: 1fr;
-        margin-bottom: 1;
-    }
-    EmojiPicker #skin-tone-row Button {
-        width: 4;
-        min-width: 4;
-        height: 2;
-        padding: 0;
-        border: none;
-    }
-    EmojiPicker #skin-tone-row Button:hover {
-        border: none;
-        background: $accent 30%;
-    }
-    EmojiPicker #skin-tone-row Button.-selected-swatch {
-        border: tall $accent;
+    EmojiPicker #skin-tone-select {
+        width: 8;
+        min-width: 8;
     }
     EmojiPicker #category-tabs {
         width: 1fr;
@@ -323,14 +335,20 @@ class EmojiPicker(Widget):
         existing = list(grid.query(Button))
 
         for i, (cp, _name) in enumerate(emoji_list):
+            display = _apply_skin_tone(cp, self._skin_modifier)
             if i < len(existing):
-                if str(existing[i].label) != cp:
-                    existing[i].label = cp
+                if str(existing[i].label) != display:
+                    existing[i].label = display
             else:
-                grid.mount(Button(cp))
+                grid.mount(Button(display))
 
         for btn in existing[len(emoji_list) :]:
             btn.remove()
+
+    def _refresh_grid(self) -> None:
+        """Re-populate the grid with current filters and skin tone."""
+        query = self.query_one("#emoji-search", Input).value.strip().lower()
+        self._populate_grid(self._emoji_for_display(query, self._active_group))
 
     def _available_groups(self) -> list[str]:
         """Return the ordered list of groups present in _emoji_list."""
@@ -362,12 +380,15 @@ class EmojiPicker(Widget):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Input(id="emoji-search", placeholder="Search emoji…")
-            with Horizontal(id="skin-tone-row"):
-                # Neutral swatch — white flag glyph as a "no modifier" indicator.
-                yield Button("\U0001f3f3", id="swatch-none")
-                for mod in _FITZPATRICK_MODIFIERS:
-                    yield Button(mod, id=f"swatch-{ord(mod):x}")
+            with Horizontal(id="emoji-toolbar"):
+                yield Input(id="emoji-search", placeholder="Search emoji…")
+                yield Select(
+                    _SKIN_TONE_OPTIONS,
+                    value=self._skin_modifier,
+                    allow_blank=False,
+                    id="skin-tone-select",
+                    compact=True,
+                )
             # Tabs built at compose time with static Tab children — avoids the
             # async add_tab() path and ensures the first tab is activated on
             # mount via Tabs' own on_mount, which fires TabActivated.
@@ -378,10 +399,6 @@ class EmojiPicker(Widget):
     def on_mount(self) -> None:
         # Grid population is triggered by the TabActivated message that Tabs
         # fires for its initially-active tab; no explicit _populate_grid call here.
-        if self._skin_modifier:
-            btn_id = f"swatch-{ord(self._skin_modifier):x}"
-            with contextlib.suppress(Exception):
-                self.query_one(f"#{btn_id}", Button).add_class("-selected-swatch")
         self.query_one("#emoji-search", Input).focus()
 
     # ---------------------------------------------------------------------------
@@ -420,30 +437,25 @@ class EmojiPicker(Widget):
             0.15, lambda: self._populate_grid(self._emoji_for_display(query, self._active_group))
         )
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        btn_id = event.button.id or ""
-
-        if btn_id == "swatch-none" or btn_id.startswith("swatch-"):
-            # Clear selection on all swatches.
-            for swatch in self.query_one("#skin-tone-row", Horizontal).query(Button):
-                swatch.remove_class("-selected-swatch")
-            if btn_id == "swatch-none":
-                self._skin_modifier = ""
-            else:
-                self._skin_modifier = str(event.button.label)
-                event.button.add_class("-selected-swatch")
-            event.stop()
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "skin-tone-select":
             return
+        self._skin_modifier = str(event.value) if event.value != Select.BLANK else ""
+        self._refresh_grid()
+        event.stop()
 
-        # Emoji grid button — apply modifier if capable, then post message.
-        base = str(event.button.label)
-        if self._skin_modifier and base in _SKIN_TONE_CAPABLE:
-            # Strip a trailing U+FE0F variation selector before appending the
-            # modifier; appending after FE0F produces an invalid sequence.
-            clean_base = base.rstrip("️")
-            self.post_message(EmojiPicker.EmojiSelected(clean_base + self._skin_modifier))
-        else:
-            self.post_message(EmojiPicker.EmojiSelected(base))
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        # Emoji grid button — the displayed label already has the tone applied,
+        # so post it directly.
+        self.post_message(EmojiPicker.EmojiSelected(str(event.button.label)))
+
+    def action_skin_tone(self, index: int) -> None:
+        """Switch skin tone via keyboard shortcut (Ctrl+1 through Ctrl+6)."""
+        if 0 <= index < len(_SKIN_TONE_OPTIONS):
+            _, modifier = _SKIN_TONE_OPTIONS[index]
+            self._skin_modifier = modifier
+            self.query_one("#skin-tone-select", Select).value = modifier
+            self._refresh_grid()
 
     def action_cancel(self) -> None:
         self.post_message(EmojiPicker.Cancelled())
