@@ -25,6 +25,7 @@ dependencies = [
     "keyring>=25",
     "platformdirs>=4",
     "aiosqlite>=0.19",
+    "textual-emoji-picker",
 ]
 
 [project.urls]
@@ -117,6 +118,12 @@ markers = [
     "olm: tests that require libolm (end-to-end encryption)",
     "recorded: smoke tests using local tests/fixtures/nio/recorded/ (skipped when absent)",
 ]
+
+[tool.uv.workspace]
+members = ["packages/textual-emoji-picker"]
+
+[tool.uv.sources]
+textual-emoji-picker = { workspace = true }
 
 [tool.coverage.run]
 branch = true
