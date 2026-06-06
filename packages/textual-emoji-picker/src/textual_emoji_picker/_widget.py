@@ -175,21 +175,23 @@ class EmojiPicker(Widget):
     EmojiPicker #emoji-toolbar {
         height: 3;
         width: 1fr;
+        align: left middle;
         margin-bottom: 1;
     }
     EmojiPicker #emoji-search {
         width: 1fr;
+        height: 3;
     }
     EmojiPicker #skin-tone-label {
         width: auto;
-        height: 3;
-        content-align: left middle;
+        height: 1;
         padding: 0 1;
         color: $text-muted;
     }
     EmojiPicker #skin-tone-select {
         width: 6;
         min-width: 6;
+        height: 1;
     }
     EmojiPicker #category-tabs {
         width: 1fr;
