@@ -181,6 +181,9 @@ class FakeMatrixClient:
         # Thread messages: (room_id, root_event_id) → (messages, has_more) (plan 0023)
         self.thread_messages: dict[tuple[str, str], tuple[list[Message], bool]] = {}
 
+        # Spy: (room_id, event_id) tuples from send_read_receipt (plan 0031)
+        self.sent_receipts: list[tuple[str, str]] = []
+
     # ------------------------------------------------------------------
     # Scripting helpers
     # ------------------------------------------------------------------
@@ -267,6 +270,7 @@ class FakeMatrixClient:
         self.sso_redirect_url_idp_id = None
         self.subscribe_count = 0
         self.unsubscribe_count = 0
+        self.sent_receipts.clear()
 
     async def emit_sequence(self, *events: ClientEvent, pause: float = 0.0) -> None:
         """Emit events in order, optionally sleeping between each."""
@@ -498,6 +502,13 @@ class FakeMatrixClient:
         from telemente.matrix.client import RoomsChanged
 
         await self.emit(RoomsChanged(rooms=list(self.rooms_data)))
+
+    async def send_read_receipt(self, room_id: str, event_id: str) -> None:
+        if not self.logged_in:
+            raise NotLoggedInError("Not logged in")
+        self._check_fail("send_read_receipt")
+        await self._maybe_block("send_read_receipt")
+        self.sent_receipts.append((room_id, event_id))
 
     # ------------------------------------------------------------------
     # Subscriptions
