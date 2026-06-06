@@ -304,6 +304,11 @@ def build_nio_mock(
     mock.rooms = rooms or {}
     mock.should_upload_keys = False
     mock.should_query_keys = False
+    # nio's callback-registration methods are sync (return None).
+    # AsyncMock would auto-generate unawaited coroutines for these.
+    mock.add_event_callback = MagicMock()
+    mock.add_response_callback = MagicMock()
+    mock.add_ephemeral_callback = MagicMock()
     if login_return is not None:
         mock.login.return_value = login_return
     return mock

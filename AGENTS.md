@@ -81,6 +81,11 @@ ruff + mypy clean.** Each `plans/*.md` document lists its test cases first.
   callbacks via `event_callback_for()` / `response_callback_for()` after
   `restore()` registers them.  Do not assign `client._logged_in` or call
   `client._on_*` directly.
+- **Always use `build_nio_mock()` from `matrix.helpers`** instead of bare
+  `AsyncMock()` when creating a nio client mock. It configures
+  callback-registration methods (`add_event_callback`, etc.) as sync
+  `MagicMock` instances — matching nio's real sync API — preventing
+  "coroutine was never awaited" RuntimeWarnings.
 - **HTTP integration tests** use typed `matrix.helpers.stub_get/post/put/delete`
   instead of calling `aioresponses` methods directly (keeps Pyright clean).
 

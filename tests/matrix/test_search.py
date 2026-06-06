@@ -6,11 +6,10 @@ All tests use real MessageCache with in-memory SQLite — no aioresponses needed
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
 
 import pytest
 
-from matrix.helpers import HOMESERVER, make_session
+from matrix.helpers import HOMESERVER, build_nio_mock, make_session
 from telemente.matrix.cache import MessageCache
 from telemente.matrix.client import MatrixClient
 from telemente.matrix.models import Message
@@ -136,10 +135,7 @@ async def test_search_room_empty_query_returns_empty(cache: MessageCache) -> Non
 
 
 async def test_matrix_client_search_messages_delegates_to_cache() -> None:
-    nio_mock = AsyncMock()
-    nio_mock.rooms = {}
-    nio_mock.should_upload_keys = False
-    nio_mock.should_query_keys = False
+    nio_mock = build_nio_mock()
 
     cache = MessageCache()
     await cache.open(":memory:")
@@ -162,10 +158,7 @@ async def test_matrix_client_search_messages_delegates_to_cache() -> None:
 
 
 async def test_matrix_client_search_messages_no_cache_returns_empty() -> None:
-    nio_mock = AsyncMock()
-    nio_mock.rooms = {}
-    nio_mock.should_upload_keys = False
-    nio_mock.should_query_keys = False
+    nio_mock = build_nio_mock()
 
     # Build client without cache_path → _cache is None
     client = MatrixClient(HOMESERVER, nio_client=nio_mock)
