@@ -177,21 +177,21 @@ class EmojiPicker(Widget):
         margin-bottom: 1;
     }
     EmojiPicker #skin-tone-bar {
-        height: 3;
+        height: 1;
         width: 1fr;
         align: right middle;
+        margin-top: 1;
     }
-    EmojiPicker #skin-tone-label {
+    EmojiPicker #skin-tone-bar Label {
         width: auto;
-        height: 3;
-        content-align: left middle;
+        height: 1;
         color: $text-muted;
+        margin-right: 1;
     }
-    EmojiPicker #skin-tone-select {
-        width: 6;
-        min-width: 6;
-        height: 3;
-        content-align: center middle;
+    EmojiPicker #skin-tone-bar Select {
+        width: auto;
+        min-width: 4;
+        height: 1;
     }
     EmojiPicker #category-tabs {
         width: 1fr;
