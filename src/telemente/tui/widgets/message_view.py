@@ -511,11 +511,7 @@ class MessageView(Widget):
     # ------------------------------------------------------------------
 
     def on_message_row_react_request(self, event: MessageRow.ReactRequest) -> None:
-        self._react_target_event_id = event.event_id
-        emoji_input = self.query_one("#emoji-input", Input)
-        emoji_input.clear()
-        emoji_input.display = True
-        emoji_input.focus()
+        self.open_emoji_picker_for(event.event_id)
 
     def on_message_row_reply_request(self, event: MessageRow.ReplyRequest) -> None:
         self._replying_to = event.message
