@@ -463,7 +463,12 @@ async def test_message_with_reactions_renders_chips() -> None:
 
 
 async def test_react_binding_sends_reaction() -> None:
-    """Focus a MessageRow, press 'e', type an emoji, press Enter → reaction sent."""
+    """Focus a MessageRow, press 'e' → emoji picker opens, click emoji → reaction sent."""
+    from textual.containers import Grid
+    from textual.widgets import Button
+
+    from telemente.tui.screens.emoji_picker import EmojiPickerScreen
+
     fake = FakeMatrixClient()
     fake.logged_in = True
     fake.messages_data["!r:s"] = [_msg("$e1", "!r:s", "hello")]
@@ -480,31 +485,24 @@ async def test_react_binding_sends_reaction() -> None:
         row.focus()
         await pilot.pause()
 
-        # Press 'e' to open emoji input
+        # Press 'e' to open emoji picker
         await pilot.press("e")
         await pilot.pause()
 
-        # emoji-input should now be visible
-        emoji_input = view.query_one("#emoji-input", Input)
-        assert emoji_input.display is True
+        # EmojiPickerScreen should be on the stack
+        assert isinstance(app.screen, EmojiPickerScreen)
 
-        # Type emoji and submit
-        await pilot.press("up", "down")  # clear any pending
-        emoji_input.clear()
-        await pilot.pause()
-        await pilot.press("thumbs_up")  # or just type characters
-        # Actually type via direct value set and submit
-        emoji_input.value = "👍"
-        await pilot.pause()
-        await pilot.press("enter")
+        # Click the first emoji in the grid
+        grid = app.screen.query_one("#emoji-grid", Grid)
+        buttons = list(grid.query(Button))
+        assert buttons
+        first_emoji = str(buttons[0].label)
+        await pilot.click(buttons[0])
         await pilot.pause()
 
         # Reaction should be sent
         assert len(fake.sent_reactions) == 1
-        assert fake.sent_reactions[0] == ("!r:s", "$e1", "👍")
-
-        # emoji-input should be hidden
-        assert emoji_input.display is False
+        assert fake.sent_reactions[0] == ("!r:s", "$e1", first_emoji)
 
 
 # ---------------------------------------------------------------------------
@@ -642,8 +640,13 @@ async def test_reply_to_shows_sender_and_body_not_event_id() -> None:
 
 
 async def test_optimistic_reaction_appears_immediately() -> None:
-    """After pressing 'e' + emoji + Enter the reaction chip must be visible before
-    any sync echo — the update is purely local/optimistic."""
+    """After selecting an emoji via the picker, the reaction chip must be visible
+    before any sync echo — the update is purely local/optimistic."""
+    from textual.containers import Grid
+    from textual.widgets import Button
+
+    from telemente.tui.screens.emoji_picker import EmojiPickerScreen
+
     fake = FakeMatrixClient()
     fake.logged_in = True
     fake.messages_data["!r:s"] = [_msg("$e1", "!r:s", "hello")]
@@ -661,15 +664,17 @@ async def test_optimistic_reaction_appears_immediately() -> None:
         await pilot.press("e")
         await pilot.pause()
 
-        emoji_input = view.query_one("#emoji-input", Input)
-        emoji_input.value = "🎉"
-        await pilot.pause()
-        await pilot.press("enter")
+        assert isinstance(app.screen, EmojiPickerScreen)
+        grid = app.screen.query_one("#emoji-grid", Grid)
+        buttons = list(grid.query(Button))
+        assert buttons
+        first_emoji = str(buttons[0].label)
+        await pilot.click(buttons[0])
         await pilot.pause()
 
         # The reaction chip must be visible on the row now
         rendered = _rendered_text(view)
-        assert "🎉" in rendered
+        assert first_emoji in rendered
 
 
 # ---------------------------------------------------------------------------

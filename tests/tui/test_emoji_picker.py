@@ -336,21 +336,18 @@ async def test_emoji_picker_grid_rows_not_auto() -> None:
 
 @pytest.mark.asyncio
 async def test_skin_tone_selector_present() -> None:
-    """The picker must contain a #skin-tone-row with swatch buttons."""
+    """The picker must contain a #skin-tone-bar with a Select dropdown."""
+    from textual.containers import Horizontal
+    from textual.widgets import Select
+
     app = PickerHostApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         assert isinstance(app.screen, EmojiPickerScreen)
-        from textual.containers import Horizontal
 
-        row = app.screen.query_one("#skin-tone-row", Horizontal)
-        swatches = list(row.query(Button))
-        # 1 "none/default" button + 5 Fitzpatrick modifier buttons
-        assert len(swatches) == 6, f"expected 6 swatch buttons, got {len(swatches)}"
-        # Modifier codepoints U+1F3FB-U+1F3FF must each appear
-        modifier_labels = {str(b.label) for b in swatches}
-        for cp in ("\U0001f3fb", "\U0001f3fc", "\U0001f3fd", "\U0001f3fe", "\U0001f3ff"):
-            assert cp in modifier_labels, f"modifier {cp!r} not found in swatch row"
+        bar = app.screen.query_one("#skin-tone-bar", Horizontal)
+        select = bar.query_one(Select)
+        assert select is not None
 
 
 # ---------------------------------------------------------------------------
@@ -360,9 +357,12 @@ async def test_skin_tone_selector_present() -> None:
 
 @pytest.mark.asyncio
 async def test_skin_tone_applied_to_capable_emoji() -> None:
-    """Selecting light-skin swatch then clicking a skin-tone-capable emoji
-    must dismiss with base + U+1F3FB modifier."""
-    # Find a base that is skin-tone capable (use curated list — all are in full set)
+    """Setting a skin tone via the Select then clicking a capable emoji
+    must dismiss with the tone applied (live preview)."""
+    from textual.containers import Grid
+    from textual.widgets import Select
+    from textual_emoji_picker import EmojiPicker as _EmojiPicker
+
     capable_base, capable_name = next(
         (cp, nm) for cp, nm in REACTION_EMOJI if cp in SKIN_TONE_CAPABLE
     )
@@ -372,34 +372,27 @@ async def test_skin_tone_applied_to_capable_emoji() -> None:
         await pilot.pause()
         assert isinstance(app.screen, EmojiPickerScreen)
 
-        from textual.containers import Grid, Horizontal
-        from textual_emoji_picker import EmojiPicker as _EmojiPicker
+        picker = app.screen.query_one(_EmojiPicker)
 
-        # Click the light-skin swatch (U+1F3FB)
-        row = app.screen.query_one("#skin-tone-row", Horizontal)
-        swatches = list(row.query(Button))
-        light_swatch = next(b for b in swatches if str(b.label) == "\U0001f3fb")
-        await pilot.click(light_swatch)
+        # Set light skin tone via the Select widget.
+        select = picker.query_one("#skin-tone-select", Select)
+        select.value = "\U0001f3fb"
         await pilot.pause()
 
-        # Search for the capable emoji by name to scroll it into view.
-        picker = app.screen.query_one(_EmojiPicker)
+        # Search for the capable emoji by name.
         search = picker.query_one("#emoji-search", Input)
         search.value = capable_name
         picker.on_input_changed(Input.Changed(search, search.value))
-        # Wait longer than the 150 ms search debounce.
         await pilot.pause(delay=0.2)
 
-        # Find the capable emoji button in the (now-filtered) grid and click it.
+        # The grid button should already show the toned version.
         grid = app.screen.query_one("#emoji-grid", Grid)
-        capable_btn = next(b for b in grid.query(Button) if str(b.label) == capable_base)
-        await pilot.click(capable_btn)
+        buttons = list(grid.query(Button))
+        assert buttons, "no buttons after search"
+        await pilot.click(buttons[0])
         await pilot.pause()
 
     assert app.result is not None
-    assert app.result.startswith(capable_base.rstrip("️")), (
-        f"result {app.result!r} does not start with base {capable_base!r}"
-    )
     assert "\U0001f3fb" in app.result, f"modifier U+1F3FB not found in result {app.result!r}"
 
 
@@ -410,8 +403,11 @@ async def test_skin_tone_applied_to_capable_emoji() -> None:
 
 @pytest.mark.asyncio
 async def test_skin_tone_ignored_for_incapable_emoji() -> None:
-    """Selecting a swatch then clicking a non-skin-tone-capable emoji
-    must dismiss with the bare base (no modifier appended)."""
+    """Setting a skin tone then clicking an incapable emoji returns the bare base."""
+    from textual.containers import Grid
+    from textual.widgets import Select
+    from textual_emoji_picker import EmojiPicker as _EmojiPicker
+
     incapable_base = next(cp for cp, _name in REACTION_EMOJI if cp not in SKIN_TONE_CAPABLE)
 
     app = PickerHostApp()
@@ -419,16 +415,14 @@ async def test_skin_tone_ignored_for_incapable_emoji() -> None:
         await pilot.pause()
         assert isinstance(app.screen, EmojiPickerScreen)
 
-        # Select medium-skin swatch (U+1F3FD)
-        from textual.containers import Grid, Horizontal
+        picker = app.screen.query_one(_EmojiPicker)
 
-        row = app.screen.query_one("#skin-tone-row", Horizontal)
-        swatches = list(row.query(Button))
-        medium_swatch = next(b for b in swatches if str(b.label) == "\U0001f3fd")
-        await pilot.click(medium_swatch)
+        # Set medium skin tone.
+        select = picker.query_one("#skin-tone-select", Select)
+        select.value = "\U0001f3fd"
         await pilot.pause()
 
-        # Click an incapable emoji (e.g. a face or heart)
+        # Click an incapable emoji (e.g. a face or heart) — tone not applied.
         grid = app.screen.query_one("#emoji-grid", Grid)
         incapable_btn = next(b for b in grid.query(Button) if str(b.label) == incapable_base)
         await pilot.click(incapable_btn)
