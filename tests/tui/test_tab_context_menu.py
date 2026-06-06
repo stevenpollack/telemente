@@ -14,7 +14,7 @@ from textual.widgets import Label, Tab
 
 import fakes as fakes_module
 from telemente.matrix.models import RoomSummary
-from telemente.tui.screens.main import MainScreen, _tab_id  # pyright: ignore[reportPrivateUsage]
+from telemente.tui.screens.main import MainScreen, tab_id
 from telemente.tui.widgets.context_menu import ContextMenu
 from telemente.tui.widgets.room_list import RoomList
 
@@ -70,7 +70,7 @@ async def _get_tab(screen: MainScreen, room_id: str) -> Tab:
     """
     from textual.widgets._tabbed_content import ContentTab
 
-    tid = _tab_id(room_id)
+    tid = tab_id(room_id)
     prefixed = ContentTab.add_prefix(tid)
     for tab in screen.query(Tab):
         if tab.id == prefixed:

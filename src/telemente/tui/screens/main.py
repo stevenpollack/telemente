@@ -53,7 +53,7 @@ TAB_CAP = 8
 _INVALID_ID_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
 
 
-def _tab_id(room_id: str) -> str:
+def tab_id(room_id: str) -> str:
     """Stable, valid Textual widget ID derived from a Matrix room_id."""
     safe = _INVALID_ID_CHARS.sub("-", room_id)
     return f"tab-room-{safe}"
@@ -153,7 +153,7 @@ class MainScreen(Screen[None]):
         if not active:
             return None
         for room_id in self.open_tabs:
-            if _tab_id(room_id) == active:
+            if tab_id(room_id) == active:
                 return room_id
         return None
 
@@ -302,7 +302,7 @@ class MainScreen(Screen[None]):
 
         room_id: str | None = None
         for rid in self.open_tabs:
-            if _tab_id(rid) == pane_id:
+            if tab_id(rid) == pane_id:
                 room_id = rid
                 break
         if room_id is None:
@@ -557,7 +557,7 @@ class MainScreen(Screen[None]):
     def on_room_list_room_selected(self, message: RoomList.RoomSelected) -> None:
         room_id = message.room_id
         logger.info("on_room_list_room_selected: room_id=%s", room_id)
-        tid = _tab_id(room_id)
+        tid = tab_id(room_id)
         tc = self.query_one(TabbedContent)
 
         if room_id in self.open_tabs:
@@ -572,7 +572,7 @@ class MainScreen(Screen[None]):
         evict_tid: str | None = None
         if len(self.open_tabs) >= TAB_CAP:
             oldest_room_id, _ = next(iter(self.open_tabs.items()))
-            evict_tid = _tab_id(oldest_room_id)
+            evict_tid = tab_id(oldest_room_id)
             del self.open_tabs[oldest_room_id]
 
         # Find display name from room list
@@ -611,7 +611,7 @@ class MainScreen(Screen[None]):
         """Close the tab for room_id (no-op if not open)."""
         if room_id not in self.open_tabs:
             return
-        tid = _tab_id(room_id)
+        tid = tab_id(room_id)
         del self.open_tabs[room_id]
         tc = self.query_one(TabbedContent)
         await tc.remove_pane(tid)
@@ -644,7 +644,7 @@ class MainScreen(Screen[None]):
     # ------------------------------------------------------------------
 
     def message_view_for(self, room_id: str) -> MessageView | None:
-        tid = _tab_id(room_id)
+        tid = tab_id(room_id)
         try:
             return self.query_one(f"#mv-{tid}", MessageView)
         except Exception:

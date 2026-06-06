@@ -12,7 +12,7 @@ import pytest
 from textual.app import App, ComposeResult
 
 from telemente.matrix.models import RoomSummary
-from telemente.tui.widgets.room_list import RoomList, _option_id
+from telemente.tui.widgets.room_list import RoomList, option_id
 
 
 class RoomContextMenuHostApp(App[None]):
@@ -388,7 +388,7 @@ async def test_set_active_room_highlights_matching_item() -> None:
         await pilot.pause()
 
         ol = room_list.query_one(OptionList)
-        expected_idx = ol.get_option_index(_option_id("!a:h"))
+        expected_idx = ol.get_option_index(option_id("!a:h"))
         assert ol.highlighted == expected_idx
 
 
@@ -419,7 +419,7 @@ async def test_active_highlight_survives_set_rooms_rebuild() -> None:
         await pilot.pause()
 
         ol = room_list.query_one(OptionList)
-        expected_idx = ol.get_option_index(_option_id("!a:h"))
+        expected_idx = ol.get_option_index(option_id("!a:h"))
         assert ol.highlighted == expected_idx
 
 
@@ -453,7 +453,7 @@ async def test_switch_active_room_moves_highlight() -> None:
         await pilot.pause()
 
         ol = room_list.query_one(OptionList)
-        expected_idx = ol.get_option_index(_option_id("!b:h"))
+        expected_idx = ol.get_option_index(option_id("!b:h"))
         assert ol.highlighted == expected_idx
 
 
@@ -708,7 +708,7 @@ async def test_update_unread_patches_label_in_place() -> None:
         assert ol.option_count == count_before
 
         # Prompt for room a updated to show new count.
-        idx = ol.get_option_index(_option_id("!a:h"))
+        idx = ol.get_option_index(option_id("!a:h"))
         prompt = str(ol.get_option_at_index(idx).prompt)
         assert "(5)" in prompt
 
@@ -1037,8 +1037,8 @@ async def test_option_list_count_after_set_rooms() -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_rooms_populates_option_ids() -> None:
-    """set_rooms() populates the OptionList with options using _option_id IDs."""
+async def test_set_rooms_populatesoption_ids() -> None:
+    """set_rooms() populates the OptionList with options using option_id IDs."""
     from textual.widgets import OptionList
 
     app = HostApp()
@@ -1052,7 +1052,7 @@ async def test_set_rooms_populates_option_ids() -> None:
 
         ol = room_list.query_one(OptionList)
         assert ol.option_count == 2
-        assert ol.get_option_index(_option_id("!a:h")) == 0
+        assert ol.get_option_index(option_id("!a:h")) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1094,7 +1094,7 @@ async def test_update_unread_uses_replace_not_clear() -> None:
         assert not clear_called, "clear_options must NOT be called by update_unread"
 
         # Prompt updated with new count.
-        idx = ol.get_option_index(_option_id("!a:h"))
+        idx = ol.get_option_index(option_id("!a:h"))
         prompt = str(ol.get_option_at_index(idx).prompt)
         assert "(7)" in prompt
 
@@ -1167,7 +1167,7 @@ async def test_filter_changes_option_count() -> None:
 @pytest.mark.asyncio
 async def test_active_highlight_index_after_refresh() -> None:
     """After set_active_room('!b:h') + set_rooms([ra, rb]),
-    ol.highlighted == ol.get_option_index(_option_id('!b:h'))."""
+    ol.highlighted == ol.get_option_index(option_id('!b:h'))."""
     from textual.widgets import OptionList
 
     app = HostApp()
@@ -1182,7 +1182,7 @@ async def test_active_highlight_index_after_refresh() -> None:
         await pilot.pause()
 
         ol = room_list.query_one(OptionList)
-        expected = ol.get_option_index(_option_id("!b:h"))
+        expected = ol.get_option_index(option_id("!b:h"))
         assert ol.highlighted == expected
 
 

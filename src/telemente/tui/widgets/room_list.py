@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _INVALID_ID_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
 
 
-def _option_id(room_id: str) -> str:
+def option_id(room_id: str) -> str:
     """Map a room_id to a valid CSS/option id string."""
     return "opt-room-" + _INVALID_ID_CHARS.sub("-", room_id)
 
@@ -182,7 +182,7 @@ class RoomList(Widget):
         self._visible_rooms = _patch(self._visible_rooms)
 
         ol = self.query_one("#room-list-view", OptionList)
-        oid = _option_id(room_id)
+        oid = option_id(room_id)
         updated = next((r for r in self._visible_rooms if r.room_id == room_id), None)
         if updated is not None:
             with contextlib.suppress(OptionDoesNotExist):
@@ -229,7 +229,7 @@ class RoomList(Widget):
         self._opt_to_room.clear()
         ol.clear_options()
         for room in self._visible_rooms:
-            oid = _option_id(room.room_id)
+            oid = option_id(room.room_id)
             self._opt_to_room[oid] = room.room_id
             ol.add_option(Option(_render_name(room), id=oid))
         self._apply_active_highlight()
@@ -240,7 +240,7 @@ class RoomList(Widget):
         if self._active_room_id is None:
             return
         ol = self.query_one("#room-list-view", OptionList)
-        oid = _option_id(self._active_room_id)
+        oid = option_id(self._active_room_id)
         with contextlib.suppress(OptionDoesNotExist):
             ol.highlighted = ol.get_option_index(oid)
 

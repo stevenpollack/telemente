@@ -14,7 +14,7 @@ from telemente.matrix.models import RoomSummary
 from telemente.tui.screens.main import MainScreen
 from telemente.tui.widgets.confirm_screen import ConfirmScreen
 from telemente.tui.widgets.context_menu import ContextMenu
-from telemente.tui.widgets.room_list import RoomList, _option_id
+from telemente.tui.widgets.room_list import RoomList, option_id
 
 FakeMatrixClient = fakes_module.FakeMatrixClient
 
@@ -74,7 +74,7 @@ async def _right_click_room(pilot: object, app: HostApp, room_id: str) -> None:
     await pilot.pause()  # type: ignore[attr-defined]
 
     ol = room_list.query_one(OptionList)
-    oid = _option_id(room_id)
+    oid = option_id(room_id)
     try:
         idx = ol.get_option_index(oid)
     except Exception as exc:
@@ -507,7 +507,7 @@ async def test_leave_refreshes_room_list() -> None:
 
         ol = room_list.query_one(OptionList)
         option_ids = {ol.get_option_at_index(i).id for i in range(ol.option_count)}
-        assert _option_id(room_id_a) not in option_ids, (
+        assert option_id(room_id_a) not in option_ids, (
             f"room_a option still in OptionList after leave: {option_ids}"
         )
 
@@ -524,7 +524,7 @@ async def test_leave_closes_tab() -> None:
 
     from textual.widgets import TabbedContent
 
-    from telemente.tui.screens.main import _tab_id
+    from telemente.tui.screens.main import tab_id
 
     room_id = "!room_x:server"
     fake = FakeMatrixClient()
@@ -562,7 +562,7 @@ async def test_leave_closes_tab() -> None:
             f"open_tabs still contains {room_id} after leave: {list(screen.open_tabs)}"
         )
 
-        tid = _tab_id(room_id)
+        tid = tab_id(room_id)
         tc = screen.query_one(TabbedContent)
         pane_ids = {p.id for p in tc.query("TabPane")}
         assert tid not in pane_ids, (
