@@ -180,15 +180,18 @@ class EmojiPicker(Widget):
         height: auto;
         max-height: 20;
         grid-size: 8;
+        grid-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
         grid-rows: 2;
         overflow-y: auto;
     }
     EmojiPicker #emoji-grid Button {
-        width: 3;
+        width: 1fr;
         min-width: 3;
         height: 2;
         padding: 0;
         border: none;
+        content-align: center middle;
+        text-align: center;
     }
     EmojiPicker #emoji-grid Button:hover {
         border: none;
