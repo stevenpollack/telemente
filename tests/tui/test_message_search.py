@@ -49,25 +49,7 @@ class SearchHostApp(App[None]):
         yield MessageView(self._client, id="message-panel")
 
     def on_mount(self) -> None:
-        view = self.query_one(MessageView)
-        view._current_room_id = self._room_id  # pyright: ignore[reportPrivateUsage]
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _load_messages(app: SearchHostApp, messages: list[Message]) -> None:
-    """Pre-load messages into the view without triggering client.messages()."""
-    view = app.query_one(MessageView)
-    from textual.containers import VerticalScroll
-
-    timeline = view.query_one("#message-timeline", VerticalScroll)
-    for msg in messages:
-        view._rendered_event_ids.add(msg.event_id)  # pyright: ignore[reportPrivateUsage]
-        view._msgs_by_id[msg.event_id] = msg  # pyright: ignore[reportPrivateUsage]
-        timeline.mount(MessageRow(msg))
+        pass  # room loaded via view.load_room() in each test
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +64,7 @@ async def test_ctrl_f_opens_search_bar() -> None:
 
     async with app.run_test(size=(120, 40)) as pilot:
         view = app.query_one(MessageView)
-        await _load_messages(app, [_msg("$e1", body="hello")])
+        await view.load_room(ROOM_ID)
         await pilot.pause()
 
         # MessageView itself must be focused (or a child) before ctrl+f reaches it.
@@ -114,10 +96,9 @@ async def test_search_highlights_matching_row() -> None:
 
     messages: list[TextualMessage] = []
     async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 
@@ -161,10 +142,9 @@ async def test_search_count_label_updated() -> None:
 
     messages: list[TextualMessage] = []
     async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 
@@ -200,10 +180,9 @@ async def test_n_advances_to_next_match() -> None:
 
     messages: list[TextualMessage] = []
     async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 
@@ -260,10 +239,9 @@ async def test_N_goes_to_prev_match() -> None:
 
     messages: list[TextualMessage] = []
     async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 
@@ -312,10 +290,9 @@ async def test_search_wraps_forward() -> None:
 
     messages: list[TextualMessage] = []
     async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 
@@ -365,10 +342,9 @@ async def test_escape_closes_search_bar() -> None:
     app = SearchHostApp(fake, ROOM_ID)
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 
@@ -407,10 +383,9 @@ async def test_empty_query_clears_highlights() -> None:
     app = SearchHostApp(fake, ROOM_ID)
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 
@@ -449,10 +424,9 @@ async def test_search_in_wrong_room_matches_ignored() -> None:
     app = SearchHostApp(fake, ROOM_ID)
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 
@@ -535,10 +509,9 @@ async def test_search_non_matching_rows_not_highlighted() -> None:
     app = SearchHostApp(fake, ROOM_ID)
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await _load_messages(app, msgs)
-        await pilot.pause()
-
         view = app.query_one(MessageView)
+        await view.load_room(ROOM_ID)
+        await pilot.pause()
         view.focus()
         await pilot.pause()
 

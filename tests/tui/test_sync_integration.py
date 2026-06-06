@@ -15,9 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-import pytest
-
 import fakes as fakes_module
+from conftest import wait_for_workers
 from telemente.config import CredentialStore, Paths
 from telemente.matrix.client import MembersChanged, NewMessage, RoomsChanged
 from telemente.matrix.models import Member, Message, RoomSummary
@@ -108,12 +107,11 @@ def _make_app() -> tuple[TelementeApp, FakeMatrixClient]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_rooms_changed_updates_room_list() -> None:
     """emit(RoomsChanged([...3 rooms])) → RoomList shows 3 visible rooms."""
     app, fake = _make_app()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -136,14 +134,13 @@ async def test_rooms_changed_updates_room_list() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_new_message_appends_to_active_room() -> None:
     """Select room A; emit NewMessage in A → message appears in MessageView."""
     app, fake = _make_app()
     fake.messages_data["!a:h"] = []
     fake.members_data["!a:h"] = []
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -154,8 +151,7 @@ async def test_new_message_appends_to_active_room() -> None:
         room_list = screen.query_one(RoomList)
         room_list.set_rooms([_room("!a:h", "General")])
         room_list.post_message(RoomList.RoomSelected("!a:h"))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         msg_view = screen.message_view_for("!a:h")
         assert msg_view is not None
@@ -178,7 +174,6 @@ async def test_new_message_appends_to_active_room() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_new_message_other_room_bumps_unread() -> None:
     """Active room A; emit NewMessage for room B → MessageView unchanged, B unread +1."""
     app, fake = _make_app()
@@ -188,7 +183,7 @@ async def test_new_message_other_room_bumps_unread() -> None:
     rooms_ab = [_room("!a:h", "General"), _room("!b:h", "Random")]
     fake.rooms_data = list(rooms_ab)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -199,8 +194,7 @@ async def test_new_message_other_room_bumps_unread() -> None:
         room_list = screen.query_one(RoomList)
         room_list.set_rooms(rooms_ab)
         room_list.post_message(RoomList.RoomSelected("!a:h"))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         msg_view = screen.message_view_for("!a:h")
         assert msg_view is not None
@@ -230,14 +224,13 @@ async def test_new_message_other_room_bumps_unread() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_members_changed_updates_active_room() -> None:
     """Active room A; emit MembersChanged(A, [...]) → MemberList re-renders."""
     app, fake = _make_app()
     fake.messages_data["!a:h"] = []
     fake.members_data["!a:h"] = []
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -247,8 +240,7 @@ async def test_members_changed_updates_active_room() -> None:
         room_list = screen.query_one(RoomList)
         room_list.set_rooms([_room("!a:h", "General")])
         room_list.post_message(RoomList.RoomSelected("!a:h"))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         member_list = screen.query_one(MemberList)
         assert member_list.member_count == 0
@@ -268,14 +260,13 @@ async def test_members_changed_updates_active_room() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_members_changed_other_room_ignored() -> None:
     """Active room A; emit MembersChanged(B, ...) → MemberList unchanged."""
     app, fake = _make_app()
     fake.messages_data["!a:h"] = []
     fake.members_data["!a:h"] = []
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -285,8 +276,7 @@ async def test_members_changed_other_room_ignored() -> None:
         room_list = screen.query_one(RoomList)
         room_list.set_rooms([_room("!a:h", "General")])
         room_list.post_message(RoomList.RoomSelected("!a:h"))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         member_list = screen.query_one(MemberList)
         assert member_list.member_count == 0
@@ -307,7 +297,6 @@ async def test_members_changed_other_room_ignored() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_room_selected_loads_messages_and_members() -> None:
     """Post RoomSelected(B) → MessageView.current_room_id == B, MemberList shows B's members."""
     app, fake = _make_app()
@@ -317,7 +306,7 @@ async def test_room_selected_loads_messages_and_members() -> None:
     rooms = [_room("!a:h", "General"), _room("!b:h", "Random", unread_count=2)]
     fake.rooms_data = list(rooms)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -329,8 +318,7 @@ async def test_room_selected_loads_messages_and_members() -> None:
 
         # Post RoomSelected for room B
         room_list.post_message(RoomList.RoomSelected("!b:h"))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         msg_view = screen.message_view_for("!b:h")
         assert msg_view is not None
@@ -351,12 +339,11 @@ async def test_room_selected_loads_messages_and_members() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_close_cancels_sync() -> None:
     """Exit the app → FakeMatrixClient.close was awaited, no asyncio warnings."""
     app, fake = _make_app()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
         assert not fake.close_called
@@ -370,7 +357,6 @@ async def test_close_cancels_sync() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_rooms_appear_after_session_restore() -> None:
     """Regression test for the 'rooms disappear on restart' bug.
 
@@ -417,11 +403,9 @@ async def test_rooms_appear_after_session_restore() -> None:
     # App uses the fake client and isolated store.
     app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)):
         # Allow on_mount → _restore_session to run (async worker).
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         # After restore, the app should have pushed MainScreen.
         screen: MainScreen = cast(MainScreen, app.screen)
@@ -443,7 +427,6 @@ async def test_rooms_appear_after_session_restore() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_leave_room_removes_from_list_and_closes_tab() -> None:
     """RoomsChanged without room B → B disappears from the list and its tab closes."""
     app, fake = _make_app()
@@ -452,7 +435,7 @@ async def test_leave_room_removes_from_list_and_closes_tab() -> None:
 
     rooms_ab = [_room("!a:h", "General"), _room("!b:h", "Random")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -463,16 +446,14 @@ async def test_leave_room_removes_from_list_and_closes_tab() -> None:
         room_list.set_rooms(rooms_ab)
         # Open room B so it has an active tab
         room_list.post_message(RoomList.RoomSelected("!b:h"))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         assert screen.message_view_for("!b:h") is not None
         assert "!b:h" in screen.open_tabs
 
         # Simulate leave: emit RoomsChanged without room B
         await fake.emit(RoomsChanged(rooms=[_room("!a:h", "General")]))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         # Room B gone from list
         visible_ids = {r.room_id for r in room_list.visible_rooms}
@@ -488,14 +469,13 @@ async def test_leave_room_removes_from_list_and_closes_tab() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_action_logout_clears_session_and_shows_login() -> None:
     """action_logout() clears credentials, calls client.close(), navigates to LoginScreen."""
     from telemente.tui.screens.login import LoginScreen
 
     app, fake = _make_app()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -515,13 +495,15 @@ async def test_action_logout_clears_session_and_shows_login() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_on_client_event_saves_rooms_to_cache() -> None:
     """RoomsChanged event triggers room cache save when user_id is known."""
     app, fake = _make_app()
+    # Whitebox: no public API on TelementeApp to set _cached_user_id (it is
+    # populated by on_login_screen_logged_in). Setting it directly is the only
+    # way to put the app in the "user_id known" state that triggers cache saves.
     app._cached_user_id = "@alice:matrix.org"  # pyright: ignore[reportPrivateUsage]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -529,7 +511,8 @@ async def test_on_client_event_saves_rooms_to_cache() -> None:
         await fake.emit(RoomsChanged(rooms=rooms))
         await pilot.pause()
 
-        # Room cache should have saved the rooms for this user
+        # Room cache should have saved the rooms for this user.
+        # Whitebox: _room_cache is private; no public API to query the cache.
         cached = app._room_cache.load("@alice:matrix.org")  # pyright: ignore[reportPrivateUsage]
         assert cached is not None
         assert len(cached) == 2
@@ -540,7 +523,6 @@ async def test_on_client_event_saves_rooms_to_cache() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_restore_session_rebuilds_client_for_different_homeserver() -> None:
     """_restore_session rebuilds _client when session homeserver != app default."""
     import tempfile as _tempfile
@@ -569,13 +551,127 @@ async def test_restore_session_rebuilds_client_for_different_homeserver() -> Non
 
     app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
 
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.pause()
-        await pilot.pause()
+    async with app.run_test(size=(120, 40)):
+        await wait_for_workers(app)
 
         # The app should have pushed MainScreen after restore
         screen: MainScreen = cast(MainScreen, app.screen)
         assert isinstance(screen, MainScreen)
         # The client should have been rebuilt for the session's homeserver
         assert app.client.homeserver == "https://other.matrix.example.org"
+
+
+# ---------------------------------------------------------------------------
+# Test 13: message_hook captures RoomsChanged
+# ---------------------------------------------------------------------------
+
+
+async def test_message_hook_captures_rooms_changed() -> None:
+    """Using message_hook=messages.append: emit RoomsChanged and verify it is captured."""
+    from textual.message import Message as TextualMessage
+
+    app, fake = _make_app()
+    messages: list[TextualMessage] = []
+
+    async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        rooms = [_room("!a:h", "General"), _room("!b:h", "Random")]
+        await fake.emit(RoomsChanged(rooms=rooms))
+        await wait_for_workers(app)
+
+        # Verify the app-level Textual message (posted by _on_client_event)
+        # arrived in the message hook.
+        # The app wraps RoomsChanged in _ClientRoomsChanged Textual message
+        rc_messages = [m for m in messages if type(m).__name__ == "_ClientRoomsChanged"]
+        assert len(rc_messages) >= 1, (
+            f"Expected _ClientRoomsChanged in message hook; got: "
+            f"{[type(m).__name__ for m in messages]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 14: test_full_login_to_main_flow
+# ---------------------------------------------------------------------------
+
+
+async def test_full_login_to_main_flow() -> None:
+    """Full login flow: TelementeApp with no session shows LoginScreen;
+    posting a LoggedIn message (as if login succeeded) triggers MainScreen push;
+    then RoomsChanged populates the room list.
+
+    We bypass the real MatrixClient construction by patching _restore_and_navigate
+    before dispatching the LoggedIn message, so the fake client is used throughout.
+    """
+    import tempfile as _tempfile
+
+    from telemente.config import CredentialStore, Paths, Session
+    from telemente.tui.screens.login import LoginScreen
+
+    # Isolated store with NO saved session -> LoginScreen will be shown.
+    tmp_dir = Path(_tempfile.mkdtemp())
+    paths = Paths(
+        config_dir=tmp_dir / "config",
+        data_dir=tmp_dir / "data",
+        store_dir=tmp_dir / "store",
+    )
+    store = CredentialStore(paths, service="telemente-test-full-login")
+    store.clear()  # Ensure no leftover session from a previous test run
+    assert store.load() is None, "store should be empty to trigger LoginScreen"
+
+    fake = FakeMatrixClient()
+    fake.logged_in = True  # fake is pre-authenticated for restore()
+
+    app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
+
+    session = Session(
+        homeserver="https://matrix.org",
+        user_id="@alice:matrix.org",
+        device_id="TESTDEV",
+        access_token="fake_token",
+    )
+
+    # Patch _restore_and_navigate before the message is dispatched. The real
+    # on_login_screen_logged_in replaces self._client with a real MatrixClient
+    # then calls run_worker(_restore_and_navigate(session)). We override this
+    # method to inject the fake back and navigate directly.
+    async def _fake_restore_and_navigate(sess: Session) -> None:
+        # Re-inject the fake (on_login_screen_logged_in overwrites _client)
+        app._client = fake  # type: ignore[assignment]  # whitebox: FakeMatrixClient satisfies protocol
+        app.push_screen(MainScreen(fake))
+        app.start_sync_and_subscribe()
+
+    app._restore_and_navigate = _fake_restore_and_navigate  # type: ignore[assignment]  # whitebox: patching method for test isolation
+    # Whitebox: no public API to inject a custom navigation callback into
+    # on_login_screen_logged_in; patching _restore_and_navigate is the only seam.
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+
+        # Step 1: LoginScreen is the initial screen (no saved session).
+        assert isinstance(app.screen, LoginScreen), (
+            f"Expected LoginScreen on first run; got {type(app.screen).__name__}"
+        )
+
+        # Step 2: Post LoggedIn as if login succeeded (simulates submit callback).
+        login_screen = app.screen
+        assert isinstance(login_screen, LoginScreen)
+        login_screen.post_message(LoginScreen.LoggedIn(session))
+        await wait_for_workers(app)
+
+        # Step 3: MainScreen is now pushed.
+        assert isinstance(app.screen, MainScreen), (
+            f"Expected MainScreen after login; got {type(app.screen).__name__}"
+        )
+
+        # Step 4: Emit RoomsChanged and assert rooms appear in the list.
+        rooms = [_room("!a:h", "General"), _room("!b:h", "Random")]
+        await fake.emit(RoomsChanged(rooms=rooms))
+        await wait_for_workers(app)
+
+        screen_now = cast(MainScreen, app.screen)
+        room_list = screen_now.query_one(RoomList)
+        visible_ids = {r.room_id for r in room_list.visible_rooms}
+        assert "!a:h" in visible_ids, f"Expected General room in list, got: {visible_ids}"
+        assert "!b:h" in visible_ids, f"Expected Random room in list, got: {visible_ids}"

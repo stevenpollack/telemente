@@ -10,7 +10,6 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
-import pytest
 from aioresponses import aioresponses
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Label, Static
@@ -132,7 +131,6 @@ class SsoHostApp(App[None]):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sso_button_shown_when_supported() -> None:
     """Factory yields FakeMatrixClient with sso=True, password=False.
 
@@ -145,7 +143,7 @@ async def test_sso_button_shown_when_supported() -> None:
     factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(factory)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
         await pilot.pause()
@@ -168,7 +166,6 @@ async def test_sso_button_shown_when_supported() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_both_flows_shown() -> None:
     """password=True, sso=True → both password form and SSO button present."""
     flows = LoginFlows(password=True, sso=True, token=True)
@@ -178,7 +175,7 @@ async def test_both_flows_shown() -> None:
     factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(factory)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
         await pilot.pause()
@@ -198,7 +195,6 @@ async def test_both_flows_shown() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_no_supported_flow_shows_error() -> None:
     """password=False, sso=False → error message; no submit controls."""
     flows = LoginFlows(password=False, sso=False, token=False)
@@ -208,7 +204,7 @@ async def test_no_supported_flow_shows_error() -> None:
     factory, _calls = _tracking_factory(fake)
     app = SsoHostApp(factory)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
         await pilot.pause()
@@ -225,7 +221,6 @@ async def test_no_supported_flow_shows_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sso_loopback_success() -> None:
     """Fake SSO server returns token → login_with_token called → LoggedIn posted."""
     flows = LoginFlows(password=False, sso=True, token=True)
@@ -246,7 +241,7 @@ async def test_sso_loopback_success() -> None:
         open_browser=stub_open_browser,
     )
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
         await pilot.pause()
@@ -269,7 +264,6 @@ async def test_sso_loopback_success() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sso_no_browser_switches_to_manual() -> None:
     """open_browser returns False → URL + login-token input become visible."""
     flows = LoginFlows(password=False, sso=True, token=True)
@@ -296,7 +290,7 @@ async def test_sso_no_browser_switches_to_manual() -> None:
         open_browser=no_browser,
     )
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
         await pilot.pause()
@@ -331,7 +325,6 @@ async def test_sso_no_browser_switches_to_manual() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sso_timeout_shows_error() -> None:
     """wait_for_token raises SsoTimeoutError → inline error + controls re-enabled."""
     flows = LoginFlows(password=False, sso=True, token=True)
@@ -350,7 +343,7 @@ async def test_sso_timeout_shows_error() -> None:
         open_browser=stub_browser,
     )
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
         await pilot.pause()
@@ -372,7 +365,6 @@ async def test_sso_timeout_shows_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_idp_buttons() -> None:
     """Flows with 2 IdPs → 2 SSO buttons; clicking one passes the idp_id to sso_redirect_url."""
     flows = LoginFlows(
@@ -399,7 +391,7 @@ async def test_idp_buttons() -> None:
         open_browser=stub_browser,
     )
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
         await pilot.pause()
@@ -423,7 +415,6 @@ async def test_idp_buttons() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sso_uses_resolved_homeserver_for_mxid() -> None:
     """SSO redirect uses discovered clam.au, not default matrix.org."""
     flows = LoginFlows(password=False, sso=True, token=True)
@@ -448,7 +439,7 @@ async def test_sso_uses_resolved_homeserver_for_mxid() -> None:
             open_browser=stub_browser,
         )
 
-        async with app.run_test() as pilot:
+        async with app.run_test(size=(120, 40)) as pilot:
             for _ in range(5):
                 await pilot.pause()
 
@@ -468,7 +459,6 @@ async def test_sso_uses_resolved_homeserver_for_mxid() -> None:
     assert "matrix.org" not in browser_urls[0]
 
 
-@pytest.mark.asyncio
 async def test_sso_stale_homeserver_without_enter() -> None:
     """Changing homeserver without Enter still re-detects before SSO."""
     flows = LoginFlows(password=False, sso=True, token=True)
@@ -493,7 +483,7 @@ async def test_sso_stale_homeserver_without_enter() -> None:
             open_browser=record_browser,
         )
 
-        async with app.run_test() as pilot:
+        async with app.run_test(size=(120, 40)) as pilot:
             for _ in range(5):
                 await pilot.pause()
 

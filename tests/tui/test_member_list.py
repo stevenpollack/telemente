@@ -6,7 +6,6 @@ A minimal host App mounts MemberList with the fake client.
 
 from __future__ import annotations
 
-import pytest
 from textual.app import App, ComposeResult
 
 import fakes as fakes_module
@@ -54,7 +53,6 @@ class HostApp(App[None]):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_load_room_renders_members() -> None:
     fake = FakeMatrixClient()
     fake.members_data["!room:s"] = [
@@ -64,7 +62,7 @@ async def test_load_room_renders_members() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         ml = app.query_one(MemberList)
         ml.load_room("!room:s")
@@ -82,7 +80,6 @@ async def test_load_room_renders_members() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sorted_by_power_then_name() -> None:
     fake = FakeMatrixClient()
     fake.members_data["!room:s"] = [
@@ -93,7 +90,7 @@ async def test_sorted_by_power_then_name() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         ml = app.query_one(MemberList)
         ml.load_room("!room:s")
@@ -120,7 +117,6 @@ async def test_sorted_by_power_then_name() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_power_level_marker() -> None:
     fake = FakeMatrixClient()
     fake.members_data["!room:s"] = [
@@ -130,7 +126,7 @@ async def test_power_level_marker() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         ml = app.query_one(MemberList)
         ml.load_room("!room:s")
@@ -152,7 +148,6 @@ async def test_power_level_marker() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_switching_rooms_updates_list() -> None:
     fake = FakeMatrixClient()
     fake.members_data["!roomA:s"] = [
@@ -167,7 +162,7 @@ async def test_switching_rooms_updates_list() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         ml = app.query_one(MemberList)
 
@@ -193,7 +188,6 @@ async def test_switching_rooms_updates_list() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_members_updates_render() -> None:
     fake = FakeMatrixClient()
     fake.members_data["!room:s"] = [
@@ -202,7 +196,7 @@ async def test_set_members_updates_render() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         ml = app.query_one(MemberList)
         ml.load_room("!room:s")

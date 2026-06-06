@@ -49,6 +49,7 @@ dev = [
     "textual-dev>=1.5",
     "pytest-xdist>=3.8.0",
     "watchfiles>=0.24",
+    "pytest-textual-snapshot>=1.0.0",
 ]
 
 [build-system]

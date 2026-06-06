@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Label, Static
 
@@ -102,7 +101,6 @@ def _is_disabled(app: App[None], label: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_right_click_own_message_shows_edit_delete() -> None:
     my_id = "@alice:matrix.org"
     room_id = "!room:server"
@@ -113,7 +111,7 @@ async def test_right_click_own_message_shows_edit_delete() -> None:
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()
@@ -134,7 +132,6 @@ async def test_right_click_own_message_shows_edit_delete() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_right_click_other_message_no_edit_delete_for_normal_user() -> None:
     my_id = "@alice:matrix.org"
     other_id = "@bob:matrix.org"
@@ -147,7 +144,7 @@ async def test_right_click_other_message_no_edit_delete_for_normal_user() -> Non
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=other_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()
@@ -168,7 +165,6 @@ async def test_right_click_other_message_no_edit_delete_for_normal_user() -> Non
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_right_click_other_message_delete_for_moderator() -> None:
     my_id = "@alice:matrix.org"
     other_id = "@bob:matrix.org"
@@ -181,7 +177,7 @@ async def test_right_click_other_message_delete_for_moderator() -> None:
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=other_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()
@@ -199,7 +195,6 @@ async def test_right_click_other_message_delete_for_moderator() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_react_item_opens_emoji_picker() -> None:
     from telemente.tui.screens.emoji_picker import EmojiPickerScreen
 
@@ -212,7 +207,7 @@ async def test_react_item_opens_emoji_picker() -> None:
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()
@@ -241,7 +236,6 @@ async def test_react_item_opens_emoji_picker() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_reply_item_posts_reply_request() -> None:
     my_id = "@alice:matrix.org"
     room_id = "!room:server"
@@ -252,7 +246,7 @@ async def test_reply_item_posts_reply_request() -> None:
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()
@@ -281,7 +275,6 @@ async def test_reply_item_posts_reply_request() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_react_via_context_menu_sends_reaction() -> None:
     """Open context menu → React → pick emoji → reaction sent to client."""
     from telemente.tui.screens.emoji_picker import EmojiPickerScreen
@@ -295,7 +288,7 @@ async def test_react_via_context_menu_sends_reaction() -> None:
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()
@@ -345,7 +338,6 @@ async def test_react_via_context_menu_sends_reaction() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_delete_via_context_menu_shows_confirmation() -> None:
     """Clicking Delete in context menu pushes ConfirmScreen before redacting."""
     from telemente.tui.widgets.confirm_screen import ConfirmScreen
@@ -359,7 +351,7 @@ async def test_delete_via_context_menu_shows_confirmation() -> None:
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()
@@ -392,7 +384,6 @@ async def test_delete_via_context_menu_shows_confirmation() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_delete_confirmed_calls_redact() -> None:
     """After confirming the delete dialog, redact_message is called."""
     from textual.widgets import Button as TxtButton
@@ -408,7 +399,7 @@ async def test_delete_confirmed_calls_redact() -> None:
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()
@@ -442,7 +433,6 @@ async def test_delete_confirmed_calls_redact() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_delete_cancelled_does_not_redact() -> None:
     """Cancelling the delete confirmation does NOT call redact_message."""
     from textual.widgets import Button as TxtButton
@@ -458,7 +448,7 @@ async def test_delete_cancelled_does_not_redact() -> None:
     fake.messages_data[room_id] = [_msg("$ev1", room_id, sender=my_id)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = await _open_room_and_get_view(app, room_id)
         await pilot.pause()

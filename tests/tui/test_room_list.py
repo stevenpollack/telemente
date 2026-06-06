@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
 from textual.app import App, ComposeResult
 
 from telemente.matrix.models import RoomSummary
@@ -78,7 +77,6 @@ class HostApp(App[None]):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_rooms_renders_all() -> None:
     app = HostApp()
     rooms = [
@@ -87,7 +85,7 @@ async def test_set_rooms_renders_all() -> None:
         _room("!c:h", "Dev"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -101,7 +99,6 @@ async def test_set_rooms_renders_all() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_filter_substring_case_insensitive() -> None:
     app = HostApp()
     rooms = [
@@ -110,7 +107,7 @@ async def test_filter_substring_case_insensitive() -> None:
         _room("!c:h", "Dev"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -129,7 +126,6 @@ async def test_filter_substring_case_insensitive() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_empty_filter_restores_all() -> None:
     app = HostApp()
     rooms = [
@@ -138,7 +134,7 @@ async def test_empty_filter_restores_all() -> None:
         _room("!c:h", "Dev"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -158,7 +154,6 @@ async def test_empty_filter_restores_all() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_no_match_shows_empty_state() -> None:
     app = HostApp()
     rooms = [
@@ -166,7 +161,7 @@ async def test_no_match_shows_empty_state() -> None:
         _room("!b:h", "Random"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -187,7 +182,6 @@ async def test_no_match_shows_empty_state() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sorted_by_recent_activity() -> None:
     app = HostApp()
     rooms = [
@@ -197,7 +191,7 @@ async def test_sorted_by_recent_activity() -> None:
         _room("!mid:h", "MidRoom", last_activity=DT_MID),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -216,7 +210,6 @@ async def test_sorted_by_recent_activity() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_selecting_posts_roomselected() -> None:
     app = HostApp()
     rooms = [
@@ -224,7 +217,7 @@ async def test_selecting_posts_roomselected() -> None:
         _room("!b:h", "Beta", last_activity=DT_OLD),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -250,7 +243,6 @@ async def test_selecting_posts_roomselected() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_unread_badge_rendered() -> None:
     """Unread count is embedded in the option prompt as '(3)'."""
     from textual.widgets import OptionList
@@ -260,7 +252,7 @@ async def test_unread_badge_rendered() -> None:
         _room("!a:h", "Busy Room", unread_count=3),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -278,12 +270,11 @@ async def test_unread_badge_rendered() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_loading_indicator_shown_until_first_rooms() -> None:
     """'Syncing…' is visible on mount, hidden once set_rooms provides data."""
     app = HostApp()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
 
@@ -302,12 +293,11 @@ async def test_loading_indicator_shown_until_first_rooms() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_loading_indicator_stays_hidden_after_load() -> None:
     """Once rooms have loaded, the indicator stays hidden even if rooms change."""
     app = HostApp()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms([_room("!a:h", "General")])
@@ -327,7 +317,6 @@ async def test_loading_indicator_stays_hidden_after_load() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_rooms_while_filtered_preserves_all_rooms() -> None:
     """Regression: calling set_rooms with all_rooms while a filter is active
     must not permanently discard filtered-out rooms."""
@@ -338,7 +327,7 @@ async def test_set_rooms_while_filtered_preserves_all_rooms() -> None:
         _room("!c:h", "Dev", last_activity=DT_OLD),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -366,7 +355,6 @@ async def test_set_rooms_while_filtered_preserves_all_rooms() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_active_room_highlights_matching_item() -> None:
     """set_active_room('!a:h') — matching option is highlighted."""
     from textual.widgets import OptionList
@@ -378,7 +366,7 @@ async def test_set_active_room_highlights_matching_item() -> None:
         _room("!c:h", "Gamma"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -397,7 +385,6 @@ async def test_set_active_room_highlights_matching_item() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_active_highlight_survives_set_rooms_rebuild() -> None:
     """Regression: calling set_rooms() after set_active_room() must re-apply the
     highlight — previously the rebuild wiped all classes on new instances."""
@@ -406,7 +393,7 @@ async def test_active_highlight_survives_set_rooms_rebuild() -> None:
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -428,7 +415,6 @@ async def test_active_highlight_survives_set_rooms_rebuild() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_switch_active_room_moves_highlight() -> None:
     """Regression: selecting room B after room A must move the highlight to B."""
     from textual.widgets import OptionList
@@ -436,7 +422,7 @@ async def test_switch_active_room_moves_highlight() -> None:
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -462,7 +448,6 @@ async def test_switch_active_room_moves_highlight() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_unread_room_name_is_bold() -> None:
     """A room with unread_count>0 renders its name with bold markup and (N) count."""
     from textual.widgets import OptionList
@@ -470,7 +455,7 @@ async def test_unread_room_name_is_bold() -> None:
     app = HostApp()
     rooms = [_room("!a:h", "General", unread_count=3)]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -488,7 +473,6 @@ async def test_unread_room_name_is_bold() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_read_room_name_is_plain() -> None:
     """A room with unread_count==0 renders its name without (N) count."""
     from textual.widgets import OptionList
@@ -496,7 +480,7 @@ async def test_read_room_name_is_plain() -> None:
     app = HostApp()
     rooms = [_room("!a:h", "General", unread_count=0)]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -514,7 +498,6 @@ async def test_read_room_name_is_plain() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_favourite_tag_shows_star() -> None:
     """A room tagged m.favourite shows ★ in its rendered name."""
     from textual.widgets import OptionList
@@ -528,7 +511,7 @@ async def test_favourite_tag_shows_star() -> None:
         )
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -544,7 +527,6 @@ async def test_favourite_tag_shows_star() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_lowpriority_tag_shows_arrow() -> None:
     """A room tagged m.lowpriority shows ↓ in its rendered name."""
     from textual.widgets import OptionList
@@ -558,7 +540,7 @@ async def test_lowpriority_tag_shows_arrow() -> None:
         )
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -574,7 +556,6 @@ async def test_lowpriority_tag_shows_arrow() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_sort_mode_alpha() -> None:
     """set_sort_mode('alpha') → rooms sorted A-Z by display_name."""
     app = HostApp()
@@ -584,7 +565,7 @@ async def test_set_sort_mode_alpha() -> None:
         _room("!m:h", "Mango", last_activity=DT_MID),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -602,7 +583,6 @@ async def test_set_sort_mode_alpha() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_sort_mode_recent() -> None:
     """set_sort_mode('recent') → rooms sorted newest-first."""
     app = HostApp()
@@ -612,7 +592,7 @@ async def test_set_sort_mode_recent() -> None:
         _room("!m:h", "Mango", last_activity=DT_MID),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -633,7 +613,6 @@ async def test_set_sort_mode_recent() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_debounced_search_does_not_rebuild_per_keystroke() -> None:
     """Rapid Input.Changed events must not trigger an immediate rebuild.
 
@@ -648,7 +627,7 @@ async def test_debounced_search_does_not_rebuild_per_keystroke() -> None:
         _room("!b:h", "Random"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -679,7 +658,6 @@ async def test_debounced_search_does_not_rebuild_per_keystroke() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_update_unread_patches_label_in_place() -> None:
     """update_unread(room_id, count) updates the unread display without
     a full OptionList rebuild — option_count unchanged, prompt updated."""
@@ -691,7 +669,7 @@ async def test_update_unread_patches_label_in_place() -> None:
         _room("!b:h", "Random"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -718,7 +696,6 @@ async def test_update_unread_patches_label_in_place() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_mute_tag_shows_bell() -> None:
     """A room tagged m.mute shows 🔕 in its rendered name."""
     from textual.widgets import OptionList
@@ -732,7 +709,7 @@ async def test_mute_tag_shows_bell() -> None:
         )
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -748,7 +725,6 @@ async def test_mute_tag_shows_bell() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_esc_key_clears_search_input() -> None:
     """Pressing ESC while the search input has focus and content clears it."""
     from textual.widgets import Input
@@ -759,7 +735,7 @@ async def test_esc_key_clears_search_input() -> None:
         _room("!b:h", "Random"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -786,7 +762,6 @@ async def test_esc_key_clears_search_input() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_clear_button_clears_search() -> None:
     """Clicking the ✕ button clears the search input."""
     from textual.widgets import Input
@@ -797,7 +772,7 @@ async def test_clear_button_clears_search() -> None:
         _room("!b:h", "Random"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -830,7 +805,6 @@ async def test_clear_button_clears_search() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_clear_button_visibility_tracks_filter() -> None:
     """The ✕ button is hidden when filter is empty, shown when active."""
     from textual.widgets import Button
@@ -838,7 +812,7 @@ async def test_clear_button_visibility_tracks_filter() -> None:
     app = HostApp()
     rooms = [_room("!a:h", "General")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -864,7 +838,6 @@ async def test_clear_button_visibility_tracks_filter() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_sort_mode_updates_dom_order() -> None:
     """set_sort_mode('alpha') must repaint the OptionList — DOM order matches
     alphabetical order after a single pilot.pause()."""
@@ -877,7 +850,7 @@ async def test_set_sort_mode_updates_dom_order() -> None:
         _room("!m:h", "Mango", last_activity=DT_MID),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -901,7 +874,6 @@ async def test_set_sort_mode_updates_dom_order() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_rooms_without_timestamps_sort_alpha_after_timestamped() -> None:
     """Rooms lacking last_activity always appear after timestamped rooms, A-Z."""
     app = HostApp()
@@ -912,7 +884,7 @@ async def test_rooms_without_timestamps_sort_alpha_after_timestamped() -> None:
         _room("!old:h", "OldRoom", last_activity=DT_OLD),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -933,7 +905,6 @@ async def test_rooms_without_timestamps_sort_alpha_after_timestamped() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sort_mode_roundtrip_alpha_then_recent() -> None:
     """Switching alpha→recent restores newest-first order."""
     app = HostApp()
@@ -943,7 +914,7 @@ async def test_sort_mode_roundtrip_alpha_then_recent() -> None:
         _room("!m:h", "Mango", last_activity=DT_MID),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -965,7 +936,6 @@ async def test_sort_mode_roundtrip_alpha_then_recent() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_all_none_timestamps_sort_alphabetically() -> None:
     """When every room lacks last_activity, the entire list is sorted A-Z."""
     app = HostApp()
@@ -975,7 +945,7 @@ async def test_all_none_timestamps_sort_alphabetically() -> None:
         _room("!m:h", "Mango"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -992,14 +962,13 @@ async def test_all_none_timestamps_sort_alphabetically() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_refresh_list_is_synchronous() -> None:
     """After set_rooms(rooms), visible_rooms is updated without an extra
     pilot.pause() to drain a deferred callback."""
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -1013,7 +982,6 @@ async def test_refresh_list_is_synchronous() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_option_list_count_after_set_rooms() -> None:
     """OptionList.option_count == len(rooms) after set_rooms."""
     from textual.widgets import OptionList
@@ -1021,7 +989,7 @@ async def test_option_list_count_after_set_rooms() -> None:
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -1036,7 +1004,6 @@ async def test_option_list_count_after_set_rooms() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_rooms_populatesoption_ids() -> None:
     """set_rooms() populates the OptionList with options using option_id IDs."""
     from textual.widgets import OptionList
@@ -1044,7 +1011,7 @@ async def test_set_rooms_populatesoption_ids() -> None:
     app = HostApp()
     rooms = [_room("!a:h", "Alpha"), _room("!b:h", "Beta")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -1060,7 +1027,6 @@ async def test_set_rooms_populatesoption_ids() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_update_unread_uses_replace_not_clear() -> None:
     """update_unread must call replace_option_prompt, NOT clear_options."""
     from textual.widgets import OptionList
@@ -1071,7 +1037,7 @@ async def test_update_unread_uses_replace_not_clear() -> None:
         _room("!b:h", "Random"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -1104,7 +1070,6 @@ async def test_update_unread_uses_replace_not_clear() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_room_selected_special_chars_in_room_id() -> None:
     """RoomSelected.room_id is the original room_id (with : and .) not the option id."""
     from textual.widgets import OptionList
@@ -1112,7 +1077,7 @@ async def test_room_selected_special_chars_in_room_id() -> None:
     app = HostApp()
     rooms = [_room("!abc:example.com", "Special")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -1135,7 +1100,6 @@ async def test_room_selected_special_chars_in_room_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_filter_changes_option_count() -> None:
     """apply_filter reduces option_count; clearing restores it."""
     from textual.widgets import OptionList
@@ -1143,7 +1107,7 @@ async def test_filter_changes_option_count() -> None:
     app = HostApp()
     rooms = [_room("!a:h", "General"), _room("!b:h", "Random")]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)
@@ -1164,7 +1128,6 @@ async def test_filter_changes_option_count() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_active_highlight_index_after_refresh() -> None:
     """After set_active_room('!b:h') + set_rooms([ra, rb]),
     ol.highlighted == ol.get_option_index(option_id('!b:h'))."""
@@ -1174,7 +1137,7 @@ async def test_active_highlight_index_after_refresh() -> None:
     ra = _room("!a:h", "Alpha")
     rb = _room("!b:h", "Beta")
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_active_room("!b:h")
@@ -1191,7 +1154,6 @@ async def test_active_highlight_index_after_refresh() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_right_click_posts_room_context_menu_via_meta() -> None:
     """Regression: on_mouse_down must use event.style.meta['option'] to find the
     clicked room, NOT ol.highlighted (which only tracks keyboard navigation).
@@ -1211,7 +1173,7 @@ async def test_right_click_posts_room_context_menu_via_meta() -> None:
         _room("!b:h", "Beta"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         room_list = app.query_one(RoomList)
         room_list.set_rooms(rooms)

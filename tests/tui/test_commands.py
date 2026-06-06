@@ -14,8 +14,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 import fakes as fakes_module
 from telemente.config import CredentialStore, Paths
 from telemente.matrix.models import RoomSummary
@@ -56,7 +54,6 @@ def _make_app_with_main() -> tuple[TelementeApp, FakeMatrixClient]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_discover_yields_all_commands() -> None:
     """discover() must yield at least the documented command names."""
     app, fake = _make_app_with_main()
@@ -74,7 +71,7 @@ async def test_discover_yields_all_commands() -> None:
         "Logout",
     }
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -91,12 +88,11 @@ async def test_discover_yields_all_commands() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_filters_by_query() -> None:
     """search('sort') returns only sort-related commands."""
     app, fake = _make_app_with_main()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -115,12 +111,11 @@ async def test_search_filters_by_query() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_no_match_returns_empty() -> None:
     """search('xyzzy') returns no hits."""
     app, fake = _make_app_with_main()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -136,7 +131,6 @@ async def test_search_no_match_returns_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cmd_sort_alpha_sets_alpha_mode() -> None:
     """_cmd_sort_alpha() calls set_sort_mode('alpha') on the RoomList."""
     app, fake = _make_app_with_main()
@@ -145,7 +139,7 @@ async def test_cmd_sort_alpha_sets_alpha_mode() -> None:
         RoomSummary(room_id="!a:h", display_name="Alpha"),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -171,7 +165,6 @@ async def test_cmd_sort_alpha_sets_alpha_mode() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cmd_sort_recent_sets_recent_mode() -> None:
     """_cmd_sort_recent() restores 'recent' sort order."""
     from datetime import datetime
@@ -190,7 +183,7 @@ async def test_cmd_sort_recent_sets_recent_mode() -> None:
         ),
     ]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -217,12 +210,11 @@ async def test_cmd_sort_recent_sets_recent_mode() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cmd_search_rooms_focuses_input() -> None:
     """_cmd_search_rooms() focuses the #room-search Input widget."""
     app, fake = _make_app_with_main()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -244,12 +236,11 @@ async def test_cmd_search_rooms_focuses_input() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cmd_toggle_members_toggles_panel() -> None:
     """_cmd_toggle_members() calls action_toggle_members() on MainScreen."""
     app, fake = _make_app_with_main()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -271,12 +262,11 @@ async def test_cmd_toggle_members_toggles_panel() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cmd_close_tab_no_active_room_notifies() -> None:
     """_cmd_close_tab() with no open tab notifies the user with a warning."""
     app, fake = _make_app_with_main()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -299,12 +289,11 @@ async def test_cmd_close_tab_no_active_room_notifies() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cmd_leave_room_no_active_room_notifies() -> None:
     """_cmd_leave_room() with no active room shows a warning notification."""
     app, fake = _make_app_with_main()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -325,14 +314,13 @@ async def test_cmd_leave_room_no_active_room_notifies() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cmd_logout_triggers_app_logout() -> None:
     """_cmd_logout() calls action_logout() which closes the client."""
     from telemente.tui.screens.login import LoginScreen
 
     app, fake = _make_app_with_main()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -343,7 +331,7 @@ async def test_cmd_logout_triggers_app_logout() -> None:
 
         provider = TelementeCommands(screen)
         provider.cmd_logout()
-        # Worker needs time to complete
+        # Two pauses: logout worker navigates to LoginScreen before app exits
         await pilot.pause()
         await pilot.pause()
 

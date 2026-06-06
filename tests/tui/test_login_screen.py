@@ -11,7 +11,6 @@ tests working without modification to assertions.
 
 from __future__ import annotations
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Label, LoadingIndicator, Static
 
@@ -66,12 +65,11 @@ def _make_host_app(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_successful_login_posts_loggedin() -> None:
     fake = FakeMatrixClient()
     app = _make_host_app(fake)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()  # let mount + screen push settle
 
         screen = app.screen
@@ -94,13 +92,12 @@ async def test_successful_login_posts_loggedin() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_failed_login_shows_error() -> None:
     fake = FakeMatrixClient()
     fake.login_should_fail = True
     app = _make_host_app(fake)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
         screen = app.screen
@@ -125,12 +122,11 @@ async def test_failed_login_shows_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_empty_fields_blocks_network() -> None:
     fake = FakeMatrixClient()
     app = _make_host_app(fake)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
         screen = app.screen
@@ -153,12 +149,11 @@ async def test_empty_fields_blocks_network() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_enter_in_password_submits() -> None:
     fake = FakeMatrixClient()
     app = _make_host_app(fake)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
         screen = app.screen
@@ -181,13 +176,12 @@ async def test_enter_in_password_submits() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_loading_state() -> None:
     fake = FakeMatrixClient()
     fake.login_should_block = True
     app = _make_host_app(fake)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
         screen = app.screen

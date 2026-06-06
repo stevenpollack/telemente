@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import RichLog
 
@@ -53,31 +52,28 @@ class _MainScreenApp(App[None]):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_log_panel_hidden_by_default(tmp_path: Path) -> None:
     log_file = tmp_path / "test.log"
     app = _MainScreenApp(log_file)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         panel = pilot.app.query_one("#lp", LogPanel)
         assert not panel.display
 
 
-@pytest.mark.asyncio
 async def test_action_toggle_log_shows_panel(tmp_path: Path) -> None:
     log_file = tmp_path / "test.log"
     app = _MainScreenApp(log_file)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.app.run_action("toggle_log")
         await pilot.pause()
         panel = pilot.app.query_one("#lp", LogPanel)
         assert panel.display
 
 
-@pytest.mark.asyncio
 async def test_action_toggle_log_hides_panel(tmp_path: Path) -> None:
     log_file = tmp_path / "test.log"
     app = _MainScreenApp(log_file)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.app.run_action("toggle_log")
         await pilot.pause()
         await pilot.app.run_action("toggle_log")
@@ -91,24 +87,22 @@ async def test_action_toggle_log_hides_panel(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_close_button_posts_close_requested(tmp_path: Path) -> None:
     log_file = tmp_path / "test.log"
     app = _PanelApp(log_file)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.click("#log-close")
         await pilot.pause()
 
     assert app.close_requests == 1
 
 
-@pytest.mark.asyncio
 async def test_esc_closes_panel(tmp_path: Path) -> None:
     log_file = tmp_path / "test.log"
     app = _PanelApp(log_file)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.query_one("#lp", LogPanel).focus()
         await pilot.press("escape")
         await pilot.pause()
@@ -121,13 +115,12 @@ async def test_esc_closes_panel(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_panel_reads_existing_log(tmp_path: Path) -> None:
     log_file = tmp_path / "test.log"
     log_file.write_text("line one\nline two\nline three\n")
 
     app = _PanelApp(log_file)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         # Give the tail worker time to read the file.
         await asyncio.sleep(0.6)
         await pilot.pause()
@@ -139,13 +132,12 @@ async def test_panel_reads_existing_log(tmp_path: Path) -> None:
         assert "line three" in text
 
 
-@pytest.mark.asyncio
 async def test_panel_tails_new_lines(tmp_path: Path) -> None:
     log_file = tmp_path / "test.log"
     log_file.write_text("existing line\n")
 
     app = _PanelApp(log_file)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await asyncio.sleep(0.4)
         await pilot.pause()
 
@@ -161,11 +153,10 @@ async def test_panel_tails_new_lines(tmp_path: Path) -> None:
         assert "appended line" in text
 
 
-@pytest.mark.asyncio
 async def test_missing_log_file_no_crash(tmp_path: Path) -> None:
     log_file = tmp_path / "nonexistent.log"
     app = _PanelApp(log_file)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await asyncio.sleep(0.4)
         await pilot.pause()
         # Should be mounted with empty content, no exception.
@@ -178,7 +169,6 @@ async def test_missing_log_file_no_crash(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_command_palette_has_toggle() -> None:
     """'Toggle log viewer' must appear in TelementeCommands discovery hits."""
     import fakes as fakes_module
@@ -189,7 +179,7 @@ async def test_command_palette_has_toggle() -> None:
     fake = fakes_module.FakeMatrixClient()
     app = TelementeApp(client=fake)  # type: ignore[arg-type]
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 

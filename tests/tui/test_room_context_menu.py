@@ -10,6 +10,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Label, Static
 
 import fakes as fakes_module
+from conftest import wait_for_workers
 from telemente.matrix.models import RoomSummary
 from telemente.tui.screens.main import MainScreen
 from telemente.tui.widgets.confirm_screen import ConfirmScreen
@@ -61,8 +62,6 @@ def _menu_item_labels(app: App[None]) -> list[str]:
 
 async def _right_click_room(pilot: object, app: HostApp, room_id: str) -> None:
     """Simulate a right-click on the option for the given room_id."""
-    import asyncio
-
     from textual.pilot import Pilot
     from textual.widgets import OptionList
 
@@ -70,8 +69,7 @@ async def _right_click_room(pilot: object, app: HostApp, room_id: str) -> None:
     assert isinstance(screen, MainScreen)
     room_list = screen.query_one(RoomList)
     room_list.set_rooms(app._client.rooms_data)
-    await asyncio.sleep(0.05)
-    await pilot.pause()  # type: ignore[attr-defined]
+    await wait_for_workers(app)
 
     ol = room_list.query_one(OptionList)
     oid = option_id(room_id)

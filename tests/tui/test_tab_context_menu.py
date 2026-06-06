@@ -6,13 +6,12 @@ OutOfBounds from pilot.click when tabs are outside the visible region.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Label, Tab
 
 import fakes as fakes_module
+from conftest import wait_for_workers
 from telemente.matrix.models import RoomSummary
 from telemente.tui.screens.main import MainScreen, tab_id
 from telemente.tui.widgets.context_menu import ContextMenu
@@ -57,7 +56,7 @@ async def _open_room(app: HostApp, room_id: str) -> MainScreen:
     room_list.set_rooms(app._client.rooms_data)
     screen.on_room_list_room_selected(RoomList.RoomSelected(room_id))
     # Give the exclusive worker time to add the pane.
-    await asyncio.sleep(0.15)
+    await wait_for_workers(app)
     return screen
 
 
@@ -83,13 +82,12 @@ async def _get_tab(screen: MainScreen, room_id: str) -> Tab:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_tab_right_click_shows_menu() -> None:
     room_id = "!room1:server"
     fake = _make_client(_room(room_id, "Room One"))
     app = HostApp(fake)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         screen = await _open_room(app, room_id)
         await pilot.pause()
@@ -110,13 +108,12 @@ async def test_tab_right_click_shows_menu() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_tab_close_from_context_menu() -> None:
     room_id = "!room1:server"
     fake = _make_client(_room(room_id, "Room One"))
     app = HostApp(fake)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         screen = await _open_room(app, room_id)
         await pilot.pause()
@@ -130,8 +127,7 @@ async def test_tab_close_from_context_menu() -> None:
 
         # Activate first item (Close tab) via Enter key.
         await pilot.press("enter")
-        await asyncio.sleep(0.15)
-        await pilot.pause()
+        await wait_for_workers(app)
 
         assert room_id not in screen.open_tabs, f"Tab not closed: {screen.open_tabs}"
         assert len(list(app.screen.query(ContextMenu))) == 0
@@ -142,13 +138,12 @@ async def test_tab_close_from_context_menu() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_no_context_menu_on_left_click_tab() -> None:
     room_id = "!room1:server"
     fake = _make_client(_room(room_id, "Room One"))
     app = HostApp(fake)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         screen = await _open_room(app, room_id)
         await pilot.pause()
@@ -170,7 +165,6 @@ async def test_no_context_menu_on_left_click_tab() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_tab_right_click_via_mouse_event() -> None:
     """pilot.click(tab, button=3) triggers on_mouse_down and shows ContextMenu."""
     room_id = "!room1:server"
@@ -205,7 +199,6 @@ async def test_tab_right_click_via_mouse_event() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_tab_right_click_dispatch_shows_menu() -> None:
     """MouseDown with widget=None (production case) shows ContextMenu via get_widget_at."""
     from rich.style import Style as RichStyle

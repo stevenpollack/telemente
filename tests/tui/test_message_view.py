@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Link, Static
 
@@ -77,7 +76,6 @@ class HostApp(App[None]):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_load_room_renders_messages_in_order() -> None:
     fake = FakeMatrixClient()
     fake.logged_in = True
@@ -88,7 +86,7 @@ async def test_load_room_renders_messages_in_order() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -108,7 +106,6 @@ async def test_load_room_renders_messages_in_order() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_switching_rooms_replaces_content() -> None:
     fake = FakeMatrixClient()
     fake.logged_in = True
@@ -121,7 +118,7 @@ async def test_switching_rooms_replaces_content() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
 
@@ -143,14 +140,13 @@ async def test_switching_rooms_replaces_content() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_send_on_enter_calls_send_text_and_clears() -> None:
     fake = FakeMatrixClient()
     fake.logged_in = True
     fake.messages_data["!r:s"] = []
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -179,14 +175,13 @@ async def test_send_on_enter_calls_send_text_and_clears() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_empty_composer_submit_noop() -> None:
     fake = FakeMatrixClient()
     fake.logged_in = True
     fake.messages_data["!r:s"] = []
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -208,7 +203,6 @@ async def test_empty_composer_submit_noop() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_append_message_for_current_room() -> None:
     fake = FakeMatrixClient()
     fake.logged_in = True
@@ -217,7 +211,7 @@ async def test_append_message_for_current_room() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!a:s")
@@ -238,7 +232,6 @@ async def test_append_message_for_current_room() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_append_message_other_room_ignored() -> None:
     fake = FakeMatrixClient()
     fake.logged_in = True
@@ -247,7 +240,7 @@ async def test_append_message_other_room_ignored() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!a:s")
@@ -267,7 +260,6 @@ async def test_append_message_other_room_ignored() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_all_encrypted_room_shows_notice() -> None:
     """When every message is undecryptable, an encryption notice appears."""
     fake = FakeMatrixClient()
@@ -278,7 +270,7 @@ async def test_all_encrypted_room_shows_notice() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!enc:s")
@@ -294,7 +286,6 @@ async def test_all_encrypted_room_shows_notice() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_mixed_room_hides_encryption_notice() -> None:
     """When some messages are readable, no encryption notice is shown."""
     fake = FakeMatrixClient()
@@ -305,7 +296,7 @@ async def test_mixed_room_hides_encryption_notice() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!mix:s")
@@ -320,7 +311,6 @@ async def test_mixed_room_hides_encryption_notice() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_switching_from_encrypted_to_readable_hides_notice() -> None:
     """The notice disappears when switching to a room with readable messages."""
     fake = FakeMatrixClient()
@@ -333,7 +323,7 @@ async def test_switching_from_encrypted_to_readable_hides_notice() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
 
@@ -353,7 +343,6 @@ async def test_switching_from_encrypted_to_readable_hides_notice() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_sent_message_appears_immediately_in_timeline() -> None:
     """After pressing Enter, the composed message must appear in the timeline
     immediately — without switching rooms or waiting for a sync event.
@@ -368,7 +357,7 @@ async def test_sent_message_appears_immediately_in_timeline() -> None:
     fake.messages_data["!r:s"] = [_msg("$e1", "!r:s", "earlier message")]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -395,7 +384,6 @@ async def test_sent_message_appears_immediately_in_timeline() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_media_message_renders_link_widget() -> None:
     """A message with media_url mounts a Link widget showing the filename."""
     fake = FakeMatrixClient()
@@ -414,7 +402,7 @@ async def test_media_message_renders_link_widget() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -432,7 +420,6 @@ async def test_media_message_renders_link_widget() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_message_with_reactions_renders_chips() -> None:
     """A Message with reactions shows a Static containing emoji and count."""
     fake = FakeMatrixClient()
@@ -450,7 +437,7 @@ async def test_message_with_reactions_renders_chips() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -475,7 +462,6 @@ async def test_message_with_reactions_renders_chips() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_react_binding_sends_reaction() -> None:
     """Focus a MessageRow, press 'e', type an emoji, press Enter → reaction sent."""
     fake = FakeMatrixClient()
@@ -483,7 +469,7 @@ async def test_react_binding_sends_reaction() -> None:
     fake.messages_data["!r:s"] = [_msg("$e1", "!r:s", "hello")]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -526,7 +512,6 @@ async def test_react_binding_sends_reaction() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_reply_binding_sends_reply() -> None:
     """Focus a MessageRow, press 'r' → reply-indicator visible; submit sends reply."""
     fake = FakeMatrixClient()
@@ -534,7 +519,7 @@ async def test_reply_binding_sends_reply() -> None:
     fake.messages_data["!r:s"] = [_msg("$parent", "!r:s", "original", sender_display_name="Bob")]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -577,7 +562,6 @@ async def test_reply_binding_sends_reply() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_G_key_scrolls_to_bottom() -> None:
     """Pressing G in the MessageView scrolls the timeline to the end."""
     fake = FakeMatrixClient()
@@ -585,7 +569,7 @@ async def test_G_key_scrolls_to_bottom() -> None:
     fake.messages_data["!r:s"] = [_msg(f"$e{i}", "!r:s", f"msg {i}") for i in range(20)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -613,7 +597,6 @@ async def test_G_key_scrolls_to_bottom() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_reply_to_shows_sender_and_body_not_event_id() -> None:
     """A reply message's in-row indicator must show 'sender: body', not the raw event_id."""
     fake = FakeMatrixClient()
@@ -639,7 +622,7 @@ async def test_reply_to_shows_sender_and_body_not_event_id() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -658,7 +641,6 @@ async def test_reply_to_shows_sender_and_body_not_event_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_optimistic_reaction_appears_immediately() -> None:
     """After pressing 'e' + emoji + Enter the reaction chip must be visible before
     any sync echo — the update is purely local/optimistic."""
@@ -667,7 +649,7 @@ async def test_optimistic_reaction_appears_immediately() -> None:
     fake.messages_data["!r:s"] = [_msg("$e1", "!r:s", "hello")]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -695,7 +677,6 @@ async def test_optimistic_reaction_appears_immediately() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_edit_binding_enters_edit_mode_and_sends() -> None:
     """shift+E on a MessageRow that belongs to me() pre-fills the composer;
     submitting sends an edit call and updates the row body."""
@@ -714,7 +695,7 @@ async def test_edit_binding_enters_edit_mode_and_sends() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -751,7 +732,6 @@ async def test_edit_binding_enters_edit_mode_and_sends() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_delete_binding_removes_row() -> None:
     """Pressing 'd' on a focused MessageRow shows ConfirmScreen; confirming redacts."""
     from textual.widgets import Button as TxtButton
@@ -766,7 +746,7 @@ async def test_delete_binding_removes_row() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -808,7 +788,6 @@ async def test_delete_binding_removes_row() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_G_key_focuses_composer() -> None:
     """Pressing G must move focus to the composer, not just scroll the timeline."""
     fake = FakeMatrixClient()
@@ -816,7 +795,7 @@ async def test_G_key_focuses_composer() -> None:
     fake.messages_data["!r:s"] = [_msg(f"$e{i}", "!r:s", f"msg {i}") for i in range(10)]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -845,7 +824,6 @@ async def test_G_key_focuses_composer() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_skin_toned_reaction_renders() -> None:
     """A reaction whose key is a skin-toned sequence must appear in the chips."""
     skin_toned = "\U0001faf6\U0001f3fb"  # 🫶🏻
@@ -865,7 +843,7 @@ async def test_skin_toned_reaction_renders() -> None:
     ]
 
     app = HostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         await view.load_room("!r:s")
@@ -903,7 +881,6 @@ class TypingHostApp(App[None]):
             self.query_one(MessageView).set_typing(event.room_id, event.user_ids)
 
 
-@pytest.mark.asyncio
 async def test_typing_indicator_shows_while_typing() -> None:
     """When TypingChanged fires with user_ids non-empty, the indicator label is visible."""
     fake = FakeMatrixClient()
@@ -911,7 +888,7 @@ async def test_typing_indicator_shows_while_typing() -> None:
     room_id = "!r:s"
 
     app = TypingHostApp(fake, room_id)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
         await fake.emit(TypingChanged(room_id=room_id, user_ids=["@bob:example.com"]))
@@ -924,7 +901,6 @@ async def test_typing_indicator_shows_while_typing() -> None:
         assert "Bob" in str(indicator.render()) or "bob" in str(indicator.render()).lower()
 
 
-@pytest.mark.asyncio
 async def test_typing_indicator_hides_when_not_typing() -> None:
     """When TypingChanged fires with user_ids=[], the indicator is hidden."""
     fake = FakeMatrixClient()
@@ -932,7 +908,7 @@ async def test_typing_indicator_hides_when_not_typing() -> None:
     room_id = "!r:s"
 
     app = TypingHostApp(fake, room_id)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
         # First show it
