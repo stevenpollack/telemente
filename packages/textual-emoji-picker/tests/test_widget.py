@@ -189,3 +189,28 @@ async def test_max_emoji_version_filter() -> None:
         labels = {str(b.label) for b in buttons}
         assert "😀" in labels, "😀 (E1.0) should appear with max_emoji_version=1.0"
         assert "🫠" not in labels, "🫠 (E14.0) should be excluded with max_emoji_version=1.0"
+
+
+async def test_skin_tone_persisted(tmp_path: object) -> None:
+    """Skin tone selection persists to disk and is restored on next open."""
+    from pathlib import Path
+    from textual.widgets import Select
+
+    persist_file = Path(str(tmp_path)) / "emoji_prefs.json"
+
+    # First session: set a skin tone.
+    app = PickerApp(persist_path=persist_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        select = app.query_one("#skin-tone-select", Select)
+        select.value = "\U0001f3fe"  # medium-dark
+        await pilot.pause()
+
+    assert persist_file.exists()
+
+    # Second session: the tone should be restored.
+    app2 = PickerApp(persist_path=persist_file)
+    async with app2.run_test() as pilot:
+        await pilot.pause()
+        select2 = app2.query_one("#skin-tone-select", Select)
+        assert select2.value == "\U0001f3fe"

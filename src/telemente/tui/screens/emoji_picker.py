@@ -10,9 +10,14 @@ module for backwards compatibility (see _emoji_data_legacy.py).
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from platformdirs import user_config_dir
 from textual.app import ComposeResult
 from textual.screen import ModalScreen
 from textual_emoji_picker import EmojiPicker as EmojiPicker
+
+_PERSIST_PATH = Path(user_config_dir("telemente")) / "emoji_picker.json"
 
 from telemente.tui.screens._emoji_data_legacy import (
     REACTION_EMOJI as REACTION_EMOJI,
@@ -39,7 +44,7 @@ class EmojiPickerScreen(ModalScreen[str]):
     """
 
     def compose(self) -> ComposeResult:
-        yield EmojiPicker()
+        yield EmojiPicker(persist_path=_PERSIST_PATH)
 
     def on_emoji_picker_emoji_selected(self, event: EmojiPicker.EmojiSelected) -> None:
         self.dismiss(event.emoji)

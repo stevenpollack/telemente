@@ -6,6 +6,7 @@ import importlib.resources
 import json
 import logging
 from collections.abc import Sequence
+from pathlib import Path
 from typing import ClassVar
 
 from emoji import EMOJI_DATA, STATUS
@@ -172,20 +173,16 @@ class EmojiPicker(Widget):
         border: round $primary;
     }
     EmojiPicker #emoji-toolbar {
-        height: auto;
+        height: 3;
         width: 1fr;
-        align: left middle;
         margin-bottom: 1;
     }
     EmojiPicker #emoji-search {
         width: 1fr;
-        margin-right: 1;
     }
     EmojiPicker #skin-tone-select {
-        width: auto;
+        width: 6;
         min-width: 6;
-        height: 1;
-        margin-top: 1;
     }
     EmojiPicker #category-tabs {
         width: 1fr;
@@ -252,6 +249,7 @@ class EmojiPicker(Widget):
         default_skin_tone: int = 1,
         max_emoji_version: float | None = 14.0,
         show_recent: bool = False,
+        persist_path: str | Path | None = None,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
@@ -261,10 +259,9 @@ class EmojiPicker(Widget):
         self._default_skin_tone = default_skin_tone
         self._max_emoji_version = max_emoji_version
         self._show_recent = show_recent  # reserved for v0.2
+        self._persist_path: Path | None = Path(persist_path) if persist_path else None
         # Currently selected Fitzpatrick modifier; empty means none.
-        self._skin_modifier: str = (
-            _FITZPATRICK_MODIFIERS[default_skin_tone - 2] if default_skin_tone >= 2 else ""
-        )
+        self._skin_modifier: str = self._load_skin_tone(default_skin_tone)
         # Build the display list once at construction time.
         # Only base emoji (no Fitzpatrick-toned variants) appear in the grid.
         self._emoji_list: list[tuple[str, str]] = self._build_emoji_list()
@@ -276,6 +273,30 @@ class EmojiPicker(Widget):
     # ---------------------------------------------------------------------------
     # Helpers
     # ---------------------------------------------------------------------------
+
+    def _load_skin_tone(self, default_skin_tone: int) -> str:
+        """Load persisted skin tone or fall back to default_skin_tone."""
+        if self._persist_path and self._persist_path.exists():
+            try:
+                data = json.loads(self._persist_path.read_text(encoding="utf-8"))
+                modifier = data.get("skin_tone", "")
+                if modifier == "" or modifier in _FITZPATRICK_MODIFIERS:
+                    return str(modifier)
+            except (json.JSONDecodeError, OSError):
+                pass
+        return _FITZPATRICK_MODIFIERS[default_skin_tone - 2] if default_skin_tone >= 2 else ""
+
+    def _save_skin_tone(self) -> None:
+        """Persist current skin tone selection."""
+        if not self._persist_path:
+            return
+        try:
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            self._persist_path.write_text(
+                json.dumps({"skin_tone": self._skin_modifier}), encoding="utf-8"
+            )
+        except OSError:
+            logger.debug("EmojiPicker: failed to persist skin tone to %s", self._persist_path)
 
     def _build_emoji_list(self) -> list[tuple[str, str]]:
         """Return sorted (codepoint, CLDR_name) for base emoji only."""
@@ -461,6 +482,7 @@ class EmojiPicker(Widget):
         if event.select.id != "skin-tone-select":
             return
         self._skin_modifier = str(event.value) if event.value != Select.BLANK else ""
+        self._save_skin_tone()
         self._refresh_grid()
         event.stop()
 
@@ -476,6 +498,7 @@ class EmojiPicker(Widget):
         if 0 <= index < len(_SKIN_TONE_OPTIONS):
             _, modifier = _SKIN_TONE_OPTIONS[index]
             self._skin_modifier = modifier
+            self._save_skin_tone()
             self.query_one("#skin-tone-select", Select).value = modifier
             self._refresh_grid()
 
