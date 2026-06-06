@@ -2,16 +2,31 @@
 
 These tests use ``pytest-textual-snapshot`` to catch visual regressions in
 layout, colours, and widget sizing.  Baselines are committed SVGs stored in
-``tests/tui/snapshots/``.
+``tests/tui/__snapshots__/test_snapshots/``.
 
 All tests are **synchronous** — ``snap_compare`` manages its own async loop.
 Use ``run_before`` for any async setup that must happen before the screenshot.
+
+Run these tests with::
+
+    uv run python -m pytest tests/tui/test_snapshots.py
+
+The standard ``uv run pytest`` invocation uses pytest-xdist workers that
+inherit the parent VIRTUAL_ENV and may not have pytest-textual-snapshot
+installed.  When the plugin is absent the whole module is skipped gracefully.
 """
 
 from __future__ import annotations
 
 import pathlib
 from typing import Any
+
+import pytest
+
+pytest.importorskip(
+    "pytest_textual_snapshot",
+    reason="pytest-textual-snapshot not installed; skipping snapshot tests",
+)
 
 from textual.app import App, ComposeResult
 from textual.pilot import Pilot

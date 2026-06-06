@@ -1,0 +1,3 @@
+# Snapshot baselines contain trailing spaces in Rich-generated SVG;
+# mark as binary so git and pre-commit hooks skip whitespace processing.
+tests/tui/__snapshots__/*.raw binary
