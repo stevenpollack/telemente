@@ -636,7 +636,7 @@ async def test_full_login_to_main_flow() -> None:
     # on_login_screen_logged_in replaces self._client with a real MatrixClient
     # then calls run_worker(_restore_and_navigate(session)). We override this
     # method to inject the fake back and navigate directly.
-    async def _fake_restore_and_navigate(sess: Session) -> None:
+    async def _fake_restore_and_navigate(_sess: Session) -> None:
         # Re-inject the fake (on_login_screen_logged_in overwrites _client)
         app._client = fake  # type: ignore[assignment]  # whitebox: FakeMatrixClient satisfies protocol
         app.push_screen(MainScreen(fake))
@@ -675,3 +675,108 @@ async def test_full_login_to_main_flow() -> None:
         visible_ids = {r.room_id for r in room_list.visible_rooms}
         assert "!a:h" in visible_ids, f"Expected General room in list, got: {visible_ids}"
         assert "!b:h" in visible_ids, f"Expected Random room in list, got: {visible_ids}"
+
+
+# ---------------------------------------------------------------------------
+# Test 15: handle_redaction removes the row from an open MessageView
+# ---------------------------------------------------------------------------
+
+
+async def test_handle_redaction_removes_row_from_message_view() -> None:
+    """emit(MessageRedacted) for the active room removes the corresponding row."""
+    from telemente.matrix.client import MessageRedacted
+    from telemente.tui.widgets.message_view import MessageRow
+
+    app, fake = _make_app()
+    fake.messages_data["!a:h"] = [
+        _msg("!a:h", "keep me", event_id="$keep"),
+        _msg("!a:h", "delete me", event_id="$del"),
+    ]
+    fake.members_data["!a:h"] = []
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        screen: MainScreen = cast(MainScreen, app.screen)
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([_room("!a:h", "General")])
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await wait_for_workers(app)
+
+        msg_view = screen.message_view_for("!a:h")
+        assert msg_view is not None
+        assert len(list(msg_view.query(MessageRow))) == 2
+
+        await fake.emit(MessageRedacted(room_id="!a:h", event_id="$del", redacted_by="$r1"))
+        await pilot.pause()
+
+        remaining = list(msg_view.query(MessageRow))
+        assert len(remaining) == 1
+        assert remaining[0].message.event_id == "$keep"
+
+
+# ---------------------------------------------------------------------------
+# Test 16: handle_typing_changed routes TypingChanged to the correct MessageView
+# ---------------------------------------------------------------------------
+
+
+async def test_handle_typing_changed_routes_to_message_view() -> None:
+    """emit(TypingChanged) for the active room shows the typing indicator."""
+    from telemente.matrix.client import TypingChanged
+
+    app, fake = _make_app()
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        screen: MainScreen = cast(MainScreen, app.screen)
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([_room("!a:h", "General")])
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await wait_for_workers(app)
+
+        msg_view = screen.message_view_for("!a:h")
+        assert msg_view is not None
+
+        await fake.emit(TypingChanged(room_id="!a:h", user_ids=["@bob:matrix.org"]))
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        indicator = msg_view.query_one("#typing-indicator", Static)
+        assert indicator.display is True
+
+
+async def test_handle_typing_changed_ignores_other_room() -> None:
+    """emit(TypingChanged) for a non-active room does not affect the active MessageView."""
+    from telemente.matrix.client import TypingChanged
+
+    app, fake = _make_app()
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        screen: MainScreen = cast(MainScreen, app.screen)
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms([_room("!a:h", "General")])
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await wait_for_workers(app)
+
+        msg_view = screen.message_view_for("!a:h")
+        assert msg_view is not None
+
+        # Typing event for a different room should not show the indicator
+        await fake.emit(TypingChanged(room_id="!b:h", user_ids=["@carol:matrix.org"]))
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        indicator = msg_view.query_one("#typing-indicator", Static)
+        assert indicator.display is False

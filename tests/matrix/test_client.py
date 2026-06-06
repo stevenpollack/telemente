@@ -1406,6 +1406,63 @@ async def test_me_returns_user_id() -> None:
 
 
 # ---------------------------------------------------------------------------
+# can_redact()
+# ---------------------------------------------------------------------------
+
+
+async def test_can_redact_own_message_returns_true() -> None:
+    """can_redact() returns True when the logged-in user is the target sender."""
+    nio_mock = build_nio_mock()
+    nio_mock.user_id = USER
+
+    client = await restore_client(nio_mock)
+    assert client.can_redact("!room:example.com", USER) is True
+
+
+async def test_can_redact_other_user_uses_power_level() -> None:
+    """can_redact() returns True for another user when power level allows it."""
+    nio_mock = build_nio_mock(rooms={"!r:example.com": make_nio_room("!r:example.com")})
+    nio_mock.user_id = USER
+    # Mock can_user_redact to return True (moderator scenario)
+    nio_mock.rooms["!r:example.com"].power_levels.can_user_redact.return_value = True
+
+    client = await restore_client(nio_mock)
+    result = client.can_redact("!r:example.com", "@other:example.com")
+    assert result is True
+    nio_mock.rooms["!r:example.com"].power_levels.can_user_redact.assert_called_once_with(USER)
+
+
+async def test_can_redact_other_user_insufficient_power_level() -> None:
+    """can_redact() returns False when power level is insufficient."""
+    nio_mock = build_nio_mock(rooms={"!r:example.com": make_nio_room("!r:example.com")})
+    nio_mock.user_id = USER
+    nio_mock.rooms["!r:example.com"].power_levels.can_user_redact.return_value = False
+
+    client = await restore_client(nio_mock)
+    result = client.can_redact("!r:example.com", "@other:example.com")
+    assert result is False
+
+
+async def test_can_redact_not_logged_in_returns_false() -> None:
+    """can_redact() returns False (not True) when not logged in."""
+    nio_mock = build_nio_mock()
+    nio_mock.user_id = USER
+    client = MatrixClient(HOMESERVER, nio_client=nio_mock)
+    # Not logged in — no restore()
+    assert client.can_redact("!r:example.com", USER) is False
+
+
+async def test_can_redact_unknown_room_returns_false() -> None:
+    """can_redact() returns False for another sender when the room is unknown."""
+    nio_mock = build_nio_mock(rooms={})
+    nio_mock.user_id = USER
+
+    client = await restore_client(nio_mock)
+    result = client.can_redact("!nonexistent:example.com", "@other:example.com")
+    assert result is False
+
+
+# ---------------------------------------------------------------------------
 # Plan 0018: cassette-backed tier-1 integration tests
 # ---------------------------------------------------------------------------
 

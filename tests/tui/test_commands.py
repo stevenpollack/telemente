@@ -337,3 +337,100 @@ async def test_cmd_logout_triggers_app_logout() -> None:
 
         assert fake.close_called
         assert isinstance(app.screen, LoginScreen)
+
+
+# ---------------------------------------------------------------------------
+# Test 11: _cmd_toggle_log toggles the log panel
+# ---------------------------------------------------------------------------
+
+
+async def test_cmd_toggle_log_toggles_panel() -> None:
+    """_cmd_toggle_log() calls action_toggle_log() toggling the log panel."""
+    app, fake = _make_app_with_main()
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+        assert screen.log_visible is False
+
+        from telemente.tui.commands import TelementeCommands
+
+        provider = TelementeCommands(screen)
+        provider.cmd_toggle_log()
+        await pilot.pause()
+
+        assert screen.log_visible is True
+
+        # Toggle again — should hide
+        provider.cmd_toggle_log()
+        await pilot.pause()
+        assert screen.log_visible is False
+
+
+# ---------------------------------------------------------------------------
+# Test 12: _cmd_toggle_favourite with active room schedules tag toggle
+# ---------------------------------------------------------------------------
+
+
+async def test_cmd_toggle_favourite_with_active_room() -> None:
+    """_cmd_toggle_favourite() calls toggle_tag_for on the active room."""
+    from conftest import wait_for_workers
+
+    app, fake = _make_app_with_main()
+    fake.rooms_data = [RoomSummary(room_id="!a:h", display_name="Alpha")]
+    fake.messages_data["!a:h"] = []
+    fake.members_data["!a:h"] = []
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms(fake.rooms_data)
+        room_list.post_message(RoomList.RoomSelected("!a:h"))
+        await wait_for_workers(app)
+
+        assert screen.active_room_id == "!a:h"
+
+        from telemente.tui.commands import TelementeCommands
+
+        provider = TelementeCommands(screen)
+        provider.cmd_toggle_favourite()
+        await wait_for_workers(app)
+
+        # set_room_tag should have been called for m.favourite
+        assert any(t == "m.favourite" for _, t, _ in fake.set_tags)
+
+
+# ---------------------------------------------------------------------------
+# Test 13: _cmd_toggle_favourite without active room notifies
+# ---------------------------------------------------------------------------
+
+
+async def test_cmd_toggle_favourite_no_active_room_notifies() -> None:
+    """_cmd_toggle_favourite() with no active room shows a warning notification."""
+    from unittest.mock import MagicMock, patch
+
+    app, fake = _make_app_with_main()
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.push_screen(MainScreen(fake))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+        assert screen.active_room_id is None
+
+        from telemente.tui.commands import TelementeCommands
+
+        provider = TelementeCommands(screen)
+        with patch.object(app, "notify", MagicMock()) as mock_notify:
+            provider.cmd_toggle_favourite()
+            await pilot.pause()
+            assert mock_notify.called
