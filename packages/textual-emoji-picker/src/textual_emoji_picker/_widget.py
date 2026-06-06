@@ -189,9 +189,11 @@ class EmojiPicker(Widget):
         margin-right: 1;
     }
     EmojiPicker #skin-tone-bar Select {
-        width: auto;
-        min-width: 4;
+        width: 5;
         height: 1;
+    }
+    EmojiPicker #skin-tone-bar SelectOverlay {
+        width: 5;
     }
     EmojiPicker #category-tabs {
         width: 1fr;
