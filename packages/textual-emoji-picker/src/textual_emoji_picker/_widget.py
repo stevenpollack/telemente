@@ -175,6 +175,7 @@ class EmojiPicker(Widget):
     EmojiPicker #emoji-toolbar {
         height: 3;
         width: 1fr;
+        align: left middle;
         margin-bottom: 1;
     }
     EmojiPicker #emoji-search {
