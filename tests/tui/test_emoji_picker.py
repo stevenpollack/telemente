@@ -104,7 +104,8 @@ async def test_emoji_picker_search_filters_results() -> None:
         await pilot.click(search)
         for ch in "heart":
             await pilot.press(ch)
-        await pilot.pause()
+        # Wait longer than the 150 ms search debounce.
+        await pilot.pause(delay=0.2)
 
         from textual.containers import Grid
 
@@ -288,7 +289,8 @@ async def test_emoji_picker_filter_reuses_existing_buttons() -> None:
         search = picker.query_one("#emoji-search", Input)
         search.value = "heart"
         picker.on_input_changed(Input.Changed(search, search.value))
-        await pilot.pause()
+        # Wait longer than the 150 ms search debounce.
+        await pilot.pause(delay=0.2)
 
         after_buttons = list(app.screen.query(Button))
         after_ids = {id(b) for b in after_buttons}
@@ -385,7 +387,8 @@ async def test_skin_tone_applied_to_capable_emoji() -> None:
         search = picker.query_one("#emoji-search", Input)
         search.value = capable_name
         picker.on_input_changed(Input.Changed(search, search.value))
-        await pilot.pause()
+        # Wait longer than the 150 ms search debounce.
+        await pilot.pause(delay=0.2)
 
         # Find the capable emoji button in the (now-filtered) grid and click it.
         grid = app.screen.query_one("#emoji-grid", Grid)
