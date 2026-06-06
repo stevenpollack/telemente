@@ -315,3 +315,50 @@ async def test_context_menu_uses_context_menu_layer() -> None:
             f"'context-menu' not in screen.layers: {screen.layers}. "
             "app.tcss must set 'layers: context-menu' on MainScreen."
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 9: MenuSeparator must not expand to terminal width (Bug 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_context_menu_with_separator_fits_content() -> None:
+    """ContextMenu containing a MenuSeparator must not stretch to terminal width.
+
+    Bug 2: Rule sets expand=True and its default CSS uses width: 1fr, which
+    inside a width: auto ContextMenu forces the menu to full terminal width.
+    The fix constrains the separator to width: auto so it stays within the menu.
+
+    Uses CSS_PATH=app.tcss so ContextMenu { width: auto } and related rules
+    apply — the same environment the real app uses.
+    """
+    from telemente.tui.widgets.context_menu import MenuSeparator
+
+    class SeparatorHostApp(App[None]):
+        CSS_PATH = _APP_TCSS
+
+        def __init__(self) -> None:
+            super().__init__()
+
+        def compose(self) -> ComposeResult:
+            yield Static("background")
+
+        def on_mount(self) -> None:
+            sep_items: list[MenuEntry] = [
+                MenuItem("Favourite", lambda: None),
+                MenuSeparator(),
+                MenuItem("Leave room", lambda: None),
+            ]
+            menu = ContextMenu(sep_items, 0, 0)
+            self.screen.mount(menu)
+
+    app = SeparatorHostApp()
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        menu = app.query_one(ContextMenu)
+        assert menu.size.width <= 30, (
+            f"ContextMenu width is {menu.size.width}, expected <= 30. "
+            "MenuSeparator is expanding the menu to terminal width."
+        )

@@ -19,7 +19,7 @@ from textual.events import Click, Key
 from textual.geometry import Offset
 from textual.message import Message as TextualMessage
 from textual.widget import Widget
-from textual.widgets import Rule, Static
+from textual.widgets import Static
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,10 @@ class ContextMenu(Widget, can_focus=True):
     def compose(self) -> ComposeResult:
         for i, entry in enumerate(self._items):
             if isinstance(entry, MenuSeparator):
-                yield Rule(classes="menu-separator")
+                # Rule sets expand=True which overrides CSS width: auto and
+                # stretches the menu to full terminal width. Use a Static
+                # divider instead so the separator stays within the menu.
+                yield Static("─" * 20, classes="menu-separator")
             else:
                 classes = "menu-item"
                 if not entry.enabled:

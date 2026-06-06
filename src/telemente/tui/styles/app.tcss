@@ -265,7 +265,11 @@ ContextMenu .menu-item.-disabled {
     color: $text-muted;
 }
 
-ContextMenu Rule {
+/* Bug 2 fix: separator rendered as Static (Rule expand=True can't be overridden
+   by CSS width: auto). Static.menu-separator is constrained here explicitly. */
+ContextMenu .menu-separator {
     height: 1;
+    width: auto;
+    margin: 0;
     color: $primary;
 }
