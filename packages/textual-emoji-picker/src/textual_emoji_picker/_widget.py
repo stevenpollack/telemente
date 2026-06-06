@@ -172,16 +172,20 @@ class EmojiPicker(Widget):
         border: round $primary;
     }
     EmojiPicker #emoji-toolbar {
-        height: 3;
+        height: auto;
         width: 1fr;
+        align: left middle;
         margin-bottom: 1;
     }
     EmojiPicker #emoji-search {
         width: 1fr;
+        margin-right: 1;
     }
     EmojiPicker #skin-tone-select {
-        width: 8;
-        min-width: 8;
+        width: auto;
+        min-width: 6;
+        height: 1;
+        margin-top: 1;
     }
     EmojiPicker #category-tabs {
         width: 1fr;
@@ -336,12 +340,18 @@ class EmojiPicker(Widget):
 
         for i, (cp, _name) in enumerate(emoji_list):
             display = _apply_skin_tone(cp, self._skin_modifier)
-            if i < len(existing):
-                if str(existing[i].label) != display:
-                    existing[i].label = display
-            else:
-                grid.mount(Button(display))
+            if i < len(existing) and str(existing[i].label) != display:
+                existing[i].label = display
 
+        # Batch-mount new buttons if the list grew.
+        if len(emoji_list) > len(existing):
+            new_buttons = [
+                Button(_apply_skin_tone(cp, self._skin_modifier))
+                for cp, _name in emoji_list[len(existing) :]
+            ]
+            grid.mount_all(new_buttons)
+
+        # Remove excess buttons if the list shrank.
         for btn in existing[len(emoji_list) :]:
             btn.remove()
 
@@ -400,6 +410,7 @@ class EmojiPicker(Widget):
         # Grid population is triggered by the TabActivated message that Tabs
         # fires for its initially-active tab; no explicit _populate_grid call here.
         self.query_one("#emoji-search", Input).focus()
+        logger.debug("EmojiPicker mounted (%d emoji loaded)", len(self._emoji_list))
 
     # ---------------------------------------------------------------------------
     # Event handlers
@@ -447,7 +458,9 @@ class EmojiPicker(Widget):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         # Emoji grid button — the displayed label already has the tone applied,
         # so post it directly.
-        self.post_message(EmojiPicker.EmojiSelected(str(event.button.label)))
+        emoji = str(event.button.label)
+        logger.debug("EmojiPicker: selected %r", emoji)
+        self.post_message(EmojiPicker.EmojiSelected(emoji))
 
     def action_skin_tone(self, index: int) -> None:
         """Switch skin tone via keyboard shortcut (Ctrl+1 through Ctrl+6)."""
@@ -458,4 +471,5 @@ class EmojiPicker(Widget):
             self._refresh_grid()
 
     def action_cancel(self) -> None:
+        logger.debug("EmojiPicker: dismissed")
         self.post_message(EmojiPicker.Cancelled())
