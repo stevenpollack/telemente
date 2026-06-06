@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-
 from telemente.matrix.cache import MessageCache
 from telemente.matrix.models import Message
 
@@ -37,13 +35,6 @@ def make_message(
         reactions=reactions or {},
         reply_to_event_id=reply_to_event_id,
     )
-
-
-@pytest.fixture
-async def cache() -> MessageCache:
-    c = MessageCache()
-    await c.open(":memory:")
-    return c
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +208,7 @@ async def test_open_recreates_on_schema_mismatch() -> None:
     result = await fresh.get_room("!r:s")
     assert len(result) == 1
     assert result[0].event_id == msg.event_id
+    await fresh.close()
 
 
 # ---------------------------------------------------------------------------

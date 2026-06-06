@@ -12,9 +12,12 @@ Only loaded when pytest-textual-snapshot is available; the module-level
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
+
+_TERMINAL_ID_RE = re.compile(r"terminal-\d+-")
 
 
 def _normalise_svg(svg: str) -> str:
@@ -23,7 +26,12 @@ def _normalise_svg(svg: str) -> str:
     Strips trailing whitespace from each line and ensures a single trailing
     newline, matching what the pre-commit trailing-whitespace and
     end-of-file-fixer hooks produce on committed baseline files.
+
+    Also replaces the per-instance terminal ID hash (e.g. terminal-1374225368-)
+    with a fixed placeholder so that object-id differences across runs don't
+    cause spurious mismatches.
     """
+    svg = _TERMINAL_ID_RE.sub("terminal-0-", svg)
     lines = "\n".join(line.rstrip() for line in svg.splitlines())
     return lines + "\n"
 

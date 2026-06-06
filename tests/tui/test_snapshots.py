@@ -110,6 +110,8 @@ def test_snapshot_main_screen_at_rest(snap_compare: Any) -> None:
         room_list = screen.query_one(RoomList)
         room_list.set_rooms(fake.rooms_data)
         await pilot.pause()
+        app.screen.set_focus(None)
+        await pilot.pause()
 
     assert snap_compare(app, terminal_size=(120, 40), run_before=_setup)
 
@@ -138,7 +140,11 @@ def test_snapshot_main_screen_one_tab(snap_compare: Any) -> None:
         room_list.set_rooms(fake.rooms_data)
         await pilot.pause()
         room_list.post_message(RoomList.RoomSelected("!general:matrix.org"))
-        await wait_for_workers(app)
+        for _ in range(3):
+            await wait_for_workers(app)
+        # Remove focus so cursor position doesn't cause non-deterministic renders.
+        app.screen.set_focus(None)
+        await pilot.pause()
 
     assert snap_compare(app, terminal_size=(120, 40), run_before=_setup)
 

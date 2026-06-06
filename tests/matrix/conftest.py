@@ -26,6 +26,7 @@ from multidict import CIMultiDict, CIMultiDictProxy
 from yarl import URL
 
 from matrix.helpers import HOMESERVER, USER
+from telemente.matrix.cache import MessageCache
 
 
 def _patched_build_response(
@@ -112,6 +113,15 @@ def patch_aioresponses_build(monkeypatch: pytest.MonkeyPatch) -> None:
     import aioresponses.core as core
 
     monkeypatch.setattr(core.RequestMatch, "_build_response", _patched_build_response)
+
+
+@pytest.fixture
+async def cache() -> AsyncGenerator[MessageCache]:
+    """In-memory MessageCache, properly closed after the test."""
+    c = MessageCache()
+    await c.open(":memory:")
+    yield c
+    await c.close()
 
 
 @pytest.fixture

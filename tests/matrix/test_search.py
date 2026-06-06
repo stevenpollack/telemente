@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-
 from matrix.helpers import HOMESERVER, build_nio_mock, make_session
 from telemente.matrix.cache import MessageCache
 from telemente.matrix.client import MatrixClient
@@ -29,13 +27,6 @@ def make_message(
         body=body,
         timestamp=datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC),
     )
-
-
-@pytest.fixture
-async def cache() -> MessageCache:
-    c = MessageCache()
-    await c.open(":memory:")
-    return c
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +141,8 @@ async def test_matrix_client_search_messages_delegates_to_cache() -> None:
 
     result = await client.search_messages("!r:s", "search")
     assert result == ["$x1"]
+
+    await cache.close()
 
 
 # ---------------------------------------------------------------------------
