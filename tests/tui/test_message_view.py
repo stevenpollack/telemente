@@ -840,6 +840,45 @@ async def test_G_key_focuses_composer() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Test 21: skin-toned reaction renders in chips
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_skin_toned_reaction_renders() -> None:
+    """A reaction whose key is a skin-toned sequence must appear in the chips."""
+    skin_toned = "\U0001faf6\U0001f3fb"  # 🫶🏻
+
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    fake.messages_data["!r:s"] = [
+        Message(
+            event_id="$e1",
+            room_id="!r:s",
+            sender="@alice:matrix.org",
+            sender_display_name="Alice",
+            body="hello",
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+            reactions={skin_toned: ["@bob:matrix.org"]},
+        )
+    ]
+
+    app = HostApp(fake)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = app.query_one(MessageView)
+        await view.load_room("!r:s")
+        await pilot.pause()
+
+        row = view.query_one(MessageRow)
+        chip_static = row.query_one(".reaction-chips", Static)
+        rendered = str(chip_static.render())
+        assert skin_toned in rendered, (
+            f"skin-toned sequence {skin_toned!r} not found in chips: {rendered!r}"
+        )
+
+
 from telemente.matrix.client import TypingChanged  # noqa: E402
 
 
@@ -857,7 +896,7 @@ class TypingHostApp(App[None]):
     def on_mount(self) -> None:
         self._client.subscribe(self._handle_event)
         view = self.query_one(MessageView)
-        view._current_room_id = self._room_id  # set active room without fetching messages
+        view._current_room_id = self._room_id  # pyright: ignore[reportPrivateUsage]
 
     def _handle_event(self, event: object) -> None:
         if isinstance(event, TypingChanged):
