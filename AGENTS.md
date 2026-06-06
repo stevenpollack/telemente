@@ -63,9 +63,16 @@ ruff + mypy clean.** Each `plans/*.md` document lists its test cases first.
     For the UI, use `tests/fakes.py::FakeMatrixClient`.
   - **Integration tests** for `MatrixClient` stub HTTP with **`aioresponses`**
     (matrix-nio uses aiohttp), exercising real nio request/response parsing.
-- **Textual tests** use `async with app.run_test() as pilot:` and drive the UI
-  with `pilot.press(...)`, `pilot.click(...)`, and `await pilot.pause()` to let
-  messages settle. Assert via `app.query_one(...)`.
+- **Textual tests** use `async with app.run_test(size=(120, 40)) as pilot:` and
+  drive the UI with `pilot.press(...)`, `pilot.click(...)`, and
+  `await wait_for_workers(app)` (from `tests/conftest.py`) to let workers and
+  messages settle. Never use `await pilot.pause(); await pilot.pause()` chains
+  or `asyncio.sleep()` — use `wait_for_workers` instead. Assert via
+  `app.query_one(...)`. Always assert `app.focused.__class__.__name__` before
+  pressing a key that requires a specific widget to have focus. Use
+  `message_hook=messages.append` in `run_test()` for cross-widget message
+  assertions. Do not use `@pytest.mark.asyncio` — `asyncio_mode = "auto"` is
+  set in `pyproject.toml`. See `tests/tui/README.md` for the full golden rules.
 - **E2EE tests** are marked `@pytest.mark.olm` and skip when libolm is absent;
   CI installs `libolm-dev`.
 - Tests mirror the package: `tests/matrix/`, `tests/tui/`.
