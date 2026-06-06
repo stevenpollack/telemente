@@ -94,7 +94,7 @@ async def test_thread_panel_shows_messages_after_load() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([msg1, msg2], False)
 
     app = ThreadHostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
@@ -103,9 +103,10 @@ async def test_thread_panel_shows_messages_after_load() -> None:
 
         rows = list(panel.query(MessageRow))
         assert len(rows) == 2
-        # First row should have the first message's body in its Static
+        # Assert user-visible content: first row shows "First", second shows "Second".
         bodies = [str(s.render()) for row in rows for s in row.query(Static)]
         assert any("First" in b for b in bodies)
+        assert any("Second" in b for b in bodies)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +119,7 @@ async def test_thread_panel_empty_thread_shows_no_rows() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([], False)
 
     app = ThreadHostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
@@ -148,12 +149,17 @@ async def test_thread_panel_close_posts_close_requested() -> None:
             closed.append(True)
 
     app = TrackingApp()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
         await pilot.pause()
-        panel.focus()
+        # Focus the close Button — it is focusable, and escape will bubble up from
+        # it through ThreadPanel, triggering ThreadPanel.BINDINGS["escape"].
+        close_btn = panel.query_one("#thread-close")
+        close_btn.focus()
+        await pilot.pause()
+        assert close_btn.has_focus, "close button must have focus before pressing escape"
         await pilot.press("escape")
         await pilot.pause()
 
@@ -179,7 +185,7 @@ async def test_thread_panel_close_button_posts_close_requested() -> None:
             closed.append(True)
 
     app = TrackingApp()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
@@ -201,7 +207,7 @@ async def test_thread_panel_append_message_adds_row() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([msg1], False)
 
     app = ThreadHostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
@@ -217,6 +223,7 @@ async def test_thread_panel_append_message_adds_row() -> None:
         assert len(rows) == 2
         bodies = [str(s.render()) for row in rows for s in row.query(Static)]
         assert any("Appended" in b for b in bodies)
+        assert any("First" in b for b in bodies)
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +237,7 @@ async def test_thread_panel_deduplicates_appended_messages() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([msg1], False)
 
     app = ThreadHostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
@@ -257,7 +264,7 @@ async def test_thread_panel_has_more_notice_shown() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([msg1], True)
 
     app = ThreadHostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
@@ -279,7 +286,7 @@ async def test_thread_panel_has_more_notice_hidden_when_complete() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([msg1], False)
 
     app = ThreadHostApp(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         panel = app.query_one(ThreadPanel)
         panel.load_thread("!r:s", "$root")
@@ -298,11 +305,11 @@ async def test_thread_panel_has_more_notice_hidden_when_complete() -> None:
 async def test_main_screen_open_thread_shows_panel() -> None:
     fake = FakeMatrixClient()
     fake.logged_in = True
-    msg1 = _msg("$m1")
+    msg1 = _msg("$m1", body="ThreadMsg")
     fake.thread_messages[("!r:s", "$root")] = ([msg1], False)
 
     app = _make_main_app(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, MainScreen)
@@ -315,6 +322,9 @@ async def test_main_screen_open_thread_shows_panel() -> None:
         assert panel.display is True
         rows = list(panel.query(MessageRow))
         assert len(rows) >= 1
+        # Assert the loaded message is the one we set up.
+        bodies = [str(s.render()) for row in rows for s in row.query(Static)]
+        assert any("ThreadMsg" in b for b in bodies)
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +338,7 @@ async def test_main_screen_close_thread_hides_panel() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([], False)
 
     app = _make_main_app(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, MainScreen)
@@ -365,7 +375,7 @@ async def test_context_menu_view_thread_appears_for_thread_reply() -> None:
             captured_menus.append(event)
 
     app = HostApp2()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         view._current_room_id = "!r:s"  # pyright: ignore[reportPrivateUsage]
@@ -402,7 +412,7 @@ async def test_context_menu_view_thread_absent_for_plain_message() -> None:
             captured_menus.append(event)
 
     app = HostApp3()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = app.query_one(MessageView)
         view._current_room_id = "!r:s"  # pyright: ignore[reportPrivateUsage]
@@ -431,7 +441,7 @@ async def test_command_palette_open_thread() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([], False)
 
     app = _make_main_app(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, MainScreen)
@@ -466,7 +476,7 @@ async def test_live_new_message_appends_to_open_thread() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([], False)
 
     app = _make_main_app(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, MainScreen)
@@ -475,7 +485,7 @@ async def test_live_new_message_appends_to_open_thread() -> None:
         await pilot.pause()
         await pilot.pause()
 
-        thread_reply = _msg("$live_reply", room_id="!r:s", thread_root_id="$root")
+        thread_reply = _msg("$live_reply", room_id="!r:s", body="LiveReply", thread_root_id="$root")
         # Directly drive handle_new_message since MainHostApp doesn't subscribe.
         screen.handle_new_message(NewMessage(message=thread_reply))
         await pilot.pause()
@@ -484,6 +494,9 @@ async def test_live_new_message_appends_to_open_thread() -> None:
         panel = screen.query_one(ThreadPanel)
         rows = list(panel.query(MessageRow))
         assert len(rows) >= 1
+        # Assert the live reply is visible to the user.
+        bodies = [str(s.render()) for row in rows for s in row.query(Static)]
+        assert any("LiveReply" in b for b in bodies)
 
 
 # ---------------------------------------------------------------------------
@@ -497,7 +510,7 @@ async def test_live_new_message_in_other_thread_ignored() -> None:
     fake.thread_messages[("!r:s", "$root")] = ([], False)
 
     app = _make_main_app(fake)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, MainScreen)

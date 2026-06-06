@@ -79,9 +79,14 @@ async def test_ctrl_f_opens_search_bar() -> None:
     fake.messages_data[ROOM_ID] = [_msg("$e1", body="hello")]
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         view = app.query_one(MessageView)
         await _load_messages(app, [_msg("$e1", body="hello")])
+        await pilot.pause()
+
+        # MessageView itself must be focused (or a child) before ctrl+f reaches it.
+        # Give focus to the composer so ctrl+f is dispatched through MessageView's tree.
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
@@ -89,6 +94,7 @@ async def test_ctrl_f_opens_search_bar() -> None:
 
         search_bar = view.query_one("#search-bar")
         assert search_bar.display is True
+        # After ctrl+f the search input must have focus — key bindings depend on it.
         assert view.query_one("#search-input", Input).has_focus
 
 
@@ -104,14 +110,20 @@ async def test_search_highlights_matching_row() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
+
         await pilot.click("#search-input")
         search_input.value = "hello"
         # Trigger Input.Changed manually
@@ -122,6 +134,9 @@ async def test_search_highlights_matching_row() -> None:
         matching = [r for r in rows if r.message.event_id == "$e1"]
         assert len(matching) == 1
         assert matching[0].has_class("-search-match")
+        # Assert observable content — the user would see "hello world" in the row.
+        bodies = [str(s.render()) for s in matching[0].query(Static)]
+        assert any("hello world" in b for b in bodies)
 
 
 # ---------------------------------------------------------------------------
@@ -136,14 +151,20 @@ async def test_search_count_label_updated() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
+
         search_input.value = "hello"
         search_input.post_message(Input.Changed(search_input, "hello"))
         await pilot.pause(0.3)
@@ -164,17 +185,31 @@ async def test_n_advances_to_next_match() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
+
         search_input.value = "hello"
         search_input.post_message(Input.Changed(search_input, "hello"))
         await pilot.pause(0.3)
+
+        # Move focus to a MessageRow so that "n" reaches MessageView's BINDINGS
+        # via bubbling, rather than being consumed as text by the focused Input.
+        rows_before = list(app.query(MessageRow))
+        assert rows_before, "at least one MessageRow must exist to receive focus"
+        rows_before[0].focus()
+        await pilot.pause()
+        assert rows_before[0].has_focus, "MessageRow must have focus before pressing n"
 
         # Advance to next match
         await pilot.press("n")
@@ -187,6 +222,9 @@ async def test_n_advances_to_next_match() -> None:
         current = [r for r in rows if r.has_class("-search-current")]
         assert len(current) == 1
         assert current[0].message.event_id == "$e2"
+        # Assert the user-visible text of the current match.
+        bodies = [str(s.render()) for s in current[0].query(Static)]
+        assert any("hello again" in b for b in bodies)
 
 
 # ---------------------------------------------------------------------------
@@ -201,17 +239,31 @@ async def test_N_goes_to_prev_match() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
+
         search_input.value = "hello"
         search_input.post_message(Input.Changed(search_input, "hello"))
         await pilot.pause(0.3)
+
+        # Move focus to a MessageRow so that "N" reaches MessageView's BINDINGS
+        # via bubbling, rather than being consumed as text by the focused Input.
+        rows_before = list(app.query(MessageRow))
+        assert rows_before, "at least one MessageRow must exist to receive focus"
+        rows_before[0].focus()
+        await pilot.pause()
+        assert rows_before[0].has_focus, "MessageRow must have focus before pressing N"
 
         # cursor starts at 0 (first match); pressing N wraps to last
         await pilot.press("N")
@@ -233,17 +285,31 @@ async def test_search_wraps_forward() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
+
         search_input.value = "hello"
         search_input.post_message(Input.Changed(search_input, "hello"))
         await pilot.pause(0.3)
+
+        # Move focus to a MessageRow before pressing n/n so that the key reaches
+        # MessageView's BINDINGS via bubbling, not eaten by the focused Input.
+        rows_before = list(app.query(MessageRow))
+        assert rows_before, "at least one MessageRow must exist to receive focus"
+        rows_before[0].focus()
+        await pilot.pause()
+        assert rows_before[0].has_focus, "MessageRow must have focus before pressing n"
 
         # Advance to last match, then wrap
         await pilot.press("n")  # cursor = 1 (last)
@@ -267,14 +333,20 @@ async def test_escape_closes_search_bar() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
+
         search_input.value = "hello"
         search_input.post_message(Input.Changed(search_input, "hello"))
         await pilot.pause(0.3)
@@ -282,7 +354,6 @@ async def test_escape_closes_search_bar() -> None:
         await pilot.press("escape")
         await pilot.pause()
 
-        view = app.query_one(MessageView)
         search_bar = view.query_one("#search-bar")
         assert search_bar.display is False
 
@@ -303,14 +374,19 @@ async def test_empty_query_clears_highlights() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
 
         # First search to get highlights
         search_input.value = "hello"
@@ -339,14 +415,20 @@ async def test_search_in_wrong_room_matches_ignored() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
+
         search_input.value = "hello"
         search_input.post_message(Input.Changed(search_input, "hello"))
         await pilot.pause(0.3)
@@ -354,6 +436,10 @@ async def test_search_in_wrong_room_matches_ignored() -> None:
         # The active room is ROOM_ID; fake returns [] for that room
         rows = list(app.query(MessageRow))
         assert all(not r.has_class("-search-match") for r in rows)
+        # The row should still show "hello" — only the highlight is absent.
+        assert len(rows) == 1
+        bodies = [str(s.render()) for s in rows[0].query(Static)]
+        assert any("hello" in b for b in bodies)
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +469,7 @@ async def test_command_palette_search_in_room() -> None:
     app = TelementeApp(client=fake, credential_store=store)  # type: ignore[arg-type]
     app.start_sync_and_subscribe()
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         app.push_screen(MainScreen(fake))
         await pilot.pause()
 
@@ -414,14 +500,20 @@ async def test_search_non_matching_rows_not_highlighted() -> None:
     fake.messages_data[ROOM_ID] = msgs
     app = SearchHostApp(fake, ROOM_ID)
 
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await _load_messages(app, msgs)
+        await pilot.pause()
+
+        view = app.query_one(MessageView)
+        view.focus()
         await pilot.pause()
 
         await pilot.press("ctrl+f")
         await pilot.pause()
 
         search_input = app.query_one("#search-input", Input)
+        assert search_input.has_focus, "search input should have focus after ctrl+f"
+
         search_input.value = "beta"
         search_input.post_message(Input.Changed(search_input, "beta"))
         await pilot.pause(0.3)
@@ -433,3 +525,10 @@ async def test_search_non_matching_rows_not_highlighted() -> None:
         assert "$e2" in matching
         assert "$e1" in non_matching
         assert "$e3" in non_matching
+
+        # Assert the user-visible content of each row.
+        rows_by_id = {r.message.event_id: r for r in rows}
+        e2_bodies = [str(s.render()) for s in rows_by_id["$e2"].query(Static)]
+        assert any("beta" in b for b in e2_bodies)
+        e1_bodies = [str(s.render()) for s in rows_by_id["$e1"].query(Static)]
+        assert any("alpha" in b for b in e1_bodies)
