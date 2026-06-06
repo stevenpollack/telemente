@@ -803,6 +803,44 @@ class MatrixClient:
             return []
         return await self._cache.search_room(room_id, query)
 
+    async def send_read_receipt(self, room_id: str, event_id: str) -> None:
+        """Send an m.read receipt for event_id in room_id.
+
+        Fire-and-forget: logs a warning on failure but does not raise, because
+        a failed receipt is non-critical (the room stays marked unread until
+        the next session).
+
+        Raises NotLoggedInError if not logged in.
+        """
+        if not self._logged_in:
+            raise NotLoggedInError("Must be logged in to send read receipts")
+        import aiohttp
+
+        url = f"{self._homeserver}/_matrix/client/v3/rooms/{room_id}/receipt/m.read/{event_id}"
+        try:
+            async with (
+                aiohttp.ClientSession() as http_session,
+                http_session.post(
+                    url,
+                    json={},
+                    headers={"Authorization": f"Bearer {self._client.access_token}"},
+                ) as resp,
+            ):
+                if resp.status not in (200, 204):
+                    logger.warning(
+                        "send_read_receipt HTTP %d for %s in %s",
+                        resp.status,
+                        event_id,
+                        room_id,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "send_read_receipt failed for %s in %s: %s",
+                event_id,
+                room_id,
+                exc,
+            )
+
     async def get_thread_messages(
         self,
         room_id: str,

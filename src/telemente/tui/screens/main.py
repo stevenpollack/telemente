@@ -98,6 +98,8 @@ class _MainClient(Protocol):
 
     async def leave_room(self, room_id: str) -> None: ...
 
+    async def send_read_receipt(self, room_id: str, event_id: str) -> None: ...
+
 
 # ---------------------------------------------------------------------------
 # MainScreen
@@ -223,6 +225,16 @@ class MainScreen(Screen[None]):
 
     def on_message_view_open_thread(self, event: MessageView.OpenThread) -> None:
         self.open_thread(event.room_id, event.root_event_id)
+
+    def on_message_view_scrolled_to_bottom(self, event: MessageView.ScrolledToBottom) -> None:
+        """Send a read receipt and clear the unread badge when scrolled to bottom."""
+        self._clear_unread(event.room_id)
+        if event.event_id:
+            self.run_worker(
+                self._client.send_read_receipt(event.room_id, event.event_id),
+                exclusive=False,
+                exit_on_error=False,
+            )
 
     def open_thread(self, room_id: str, root_event_id: str) -> None:
         """Show the thread panel and load the given thread."""
@@ -638,6 +650,12 @@ class MainScreen(Screen[None]):
         # Guard against a tab switch that happened while load_room was awaiting.
         if self.active_room_id == room_id:
             self.query_one(MemberList).load_room(room_id)
+            newest = view.newest_event_id
+            if newest:
+                # Already inside a worker; await directly so the receipt
+                # completes before this worker finishes (keeps test timing clean).
+                with contextlib.suppress(Exception):
+                    await self._client.send_read_receipt(room_id, newest)
 
     # ------------------------------------------------------------------
     # Internal helpers
