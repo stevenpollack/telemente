@@ -447,6 +447,9 @@ class FakeMatrixClient:
         await self._maybe_block("leave_room")
         self.left_rooms.append(room_id)
         self.rooms_data = [r for r in self.rooms_data if r.room_id != room_id]
+        from telemente.matrix.client import RoomsChanged
+
+        await self.emit(RoomsChanged(rooms=list(self.rooms_data)))
 
     async def set_room_tag(self, room_id: str, tag: str, order: float | None = None) -> None:
         if not self.logged_in:

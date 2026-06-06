@@ -414,13 +414,23 @@ class MainScreen(Screen[None]):
         )
 
     async def _do_leave(self, room_id: str, display_name: str) -> None:
-        """Leave the room and notify the user."""
+        """Leave the room and notify the user.
+
+        Directly closes the tab and refreshes the room list so the UI updates
+        even when the RoomsChanged event arrives late or is missed.
+        handle_rooms_changed also closes tabs and refreshes; both paths are
+        idempotent so double-execution is harmless.
+        """
         try:
             await self._client.leave_room(room_id)
             self.app.notify(f"Left {display_name}", severity="information")
         except Exception as exc:
             logger.warning("leave_room failed for %s: %s", room_id, exc)
             self.app.notify(f"Failed to leave room: {exc}", severity="error")
+            return
+        # Self-sufficient refresh: do not rely solely on the RoomsChanged event.
+        await self.close_tab(room_id)
+        self.query_one(RoomList).set_rooms(self._client.rooms())
 
     # ------------------------------------------------------------------
     # Client event handlers (plan 0009)

@@ -460,3 +460,111 @@ async def test_context_menu_does_not_overflow_screen() -> None:
                 assert offset.y <= screen.size.height - 2, (
                     f"Menu y not clamped: y={offset.y} screen_height={screen.size.height}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Test 11: leaving a room removes it from the room list (plan 0025 bug 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_leave_refreshes_room_list() -> None:
+    """After confirming leave, the left room disappears from RoomList."""
+    import asyncio
+
+    from textual.widgets import OptionList
+
+    room_id_a = "!room_a:server"
+    room_id_b = "!room_b:server"
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    fake.rooms_data = [_room(room_id_a, "Room A"), _room(room_id_b, "Room B")]
+
+    app = HostApp(fake)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms(fake.rooms_data)
+        await pilot.pause()
+
+        # Confirm leave on room_a
+        screen._confirm_leave_room(room_id_a)  # pyright: ignore[reportPrivateUsage]
+        await pilot.pause()
+
+        assert isinstance(app.screen, ConfirmScreen)
+        app.screen.dismiss(True)
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+
+        # room_a must be gone from all_rooms and the OptionList
+        remaining_ids = {r.room_id for r in room_list.all_rooms}
+        assert room_id_a not in remaining_ids, (
+            f"room_a still in all_rooms after leave: {remaining_ids}"
+        )
+
+        ol = room_list.query_one(OptionList)
+        option_ids = {ol.get_option_at_index(i).id for i in range(ol.option_count)}
+        assert _option_id(room_id_a) not in option_ids, (
+            f"room_a option still in OptionList after leave: {option_ids}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 12: leaving a room closes its tab (plan 0025 bug 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_leave_closes_tab() -> None:
+    """After confirming leave, the room's tab is removed from TabbedContent."""
+    import asyncio
+
+    from textual.widgets import TabbedContent
+
+    from telemente.tui.screens.main import _tab_id
+
+    room_id = "!room_x:server"
+    fake = FakeMatrixClient()
+    fake.logged_in = True
+    fake.rooms_data = [_room(room_id, "Room X")]
+    fake.messages_data[room_id] = []
+
+    app = HostApp(fake)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, MainScreen)
+        room_list = screen.query_one(RoomList)
+        room_list.set_rooms(fake.rooms_data)
+        await pilot.pause()
+
+        # Open the tab by selecting the room
+        room_list.post_message(RoomList.RoomSelected(room_id))
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+
+        assert room_id in screen.open_tabs, f"Tab not opened for {room_id}"
+
+        # Confirm leave
+        screen._confirm_leave_room(room_id)  # pyright: ignore[reportPrivateUsage]
+        await pilot.pause()
+
+        assert isinstance(app.screen, ConfirmScreen)
+        app.screen.dismiss(True)
+        await asyncio.sleep(0.3)
+        await pilot.pause()
+
+        assert room_id not in screen.open_tabs, (
+            f"open_tabs still contains {room_id} after leave: {list(screen.open_tabs)}"
+        )
+
+        tid = _tab_id(room_id)
+        tc = screen.query_one(TabbedContent)
+        pane_ids = {p.id for p in tc.query("TabPane")}
+        assert tid not in pane_ids, (
+            f"TabPane {tid!r} still in TabbedContent after leave: {pane_ids}"
+        )
