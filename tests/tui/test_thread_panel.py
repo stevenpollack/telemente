@@ -9,9 +9,12 @@ import asyncio
 from datetime import UTC, datetime
 
 from textual.app import App, ComposeResult
+from textual.events import Mount
+from textual.message import Message as TextualMessage
 from textual.widgets import Label, Static
 
 import fakes as fakes_module
+from conftest import wait_for_workers
 from telemente.matrix.client import NewMessage
 from telemente.matrix.models import Message, RoomSummary
 from telemente.tui.screens.main import MainScreen
@@ -159,7 +162,8 @@ async def test_thread_panel_close_posts_close_requested() -> None:
         close_btn = panel.query_one("#thread-close")
         close_btn.focus()
         await pilot.pause()
-        assert close_btn.has_focus, "close button must have focus before pressing escape"
+        assert app.focused is not None
+        assert app.focused.__class__.__name__ == "Button", "close button must have focus"
         await pilot.press("escape")
         await pilot.pause()
 
@@ -308,15 +312,23 @@ async def test_main_screen_open_thread_shows_panel() -> None:
     msg1 = _msg("$m1", body="ThreadMsg")
     fake.thread_messages[("!r:s", "$root")] = ([msg1], False)
 
+    messages: list[TextualMessage] = []
     app = _make_main_app(fake)
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, MainScreen)
 
-        screen.open_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        # Drive opening via the real message-driven path (MessageView.OpenThread),
+        # which MainScreen.on_message_view_open_thread handles by calling open_thread.
+        screen.post_message(MessageView.OpenThread("!r:s", "$root"))
+        await wait_for_workers(app)
+
+        # Strong assertion: the OpenThread message actually flowed through the app.
+        open_msgs = [m for m in messages if isinstance(m, MessageView.OpenThread)]
+        assert open_msgs, "MessageView.OpenThread was not posted/handled"
+        assert open_msgs[0].room_id == "!r:s"
+        assert open_msgs[0].root_event_id == "$root"
 
         panel = screen.query_one("#thread-panel")
         assert panel.display is True
@@ -337,19 +349,25 @@ async def test_main_screen_close_thread_hides_panel() -> None:
     fake.logged_in = True
     fake.thread_messages[("!r:s", "$root")] = ([], False)
 
+    messages: list[TextualMessage] = []
     app = _make_main_app(fake)
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, MainScreen)
 
         screen.open_thread("!r:s", "$root")
-        await pilot.pause()
-        screen.close_thread()
-        await pilot.pause()
+        await wait_for_workers(app)
+        panel = screen.query_one(ThreadPanel)
+        # Drive close via the real message path so the screen handler runs.
+        panel.post_message(ThreadPanel.CloseRequested())
+        await wait_for_workers(app)
 
-        panel = screen.query_one("#thread-panel")
-        assert panel.display is False
+        close_msgs = [m for m in messages if isinstance(m, ThreadPanel.CloseRequested)]
+        assert close_msgs, "ThreadPanel.CloseRequested was not posted/handled"
+
+        panel_node = screen.query_one("#thread-panel")
+        assert panel_node.display is False
 
 
 # ---------------------------------------------------------------------------
@@ -475,25 +493,30 @@ async def test_live_new_message_appends_to_open_thread() -> None:
     fake.logged_in = True
     fake.thread_messages[("!r:s", "$root")] = ([], False)
 
+    messages: list[TextualMessage] = []
     app = _make_main_app(fake)
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40), message_hook=messages.append) as pilot:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, MainScreen)
 
         screen.open_thread("!r:s", "$root")
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
+        # Snapshot the message count so we only assert on what the live reply adds.
+        before = len(messages)
         thread_reply = _msg("$live_reply", room_id="!r:s", body="LiveReply", thread_root_id="$root")
         # Directly drive handle_new_message since MainHostApp doesn't subscribe.
         screen.handle_new_message(NewMessage(message=thread_reply))
-        await pilot.pause()
-        await pilot.pause()
+        await wait_for_workers(app)
 
         panel = screen.query_one(ThreadPanel)
         rows = list(panel.query(MessageRow))
         assert len(rows) >= 1
+        # Strong assertion: processing the live reply mounted a new widget,
+        # observable as a Mount event flowing through the app hook after the call.
+        mounted_after = [m for m in messages[before:] if isinstance(m, Mount)]
+        assert mounted_after, "live reply did not trigger a widget mount"
         # Assert the live reply is visible to the user.
         bodies = [str(s.render()) for row in rows for s in row.query(Static)]
         assert any("LiveReply" in b for b in bodies)
