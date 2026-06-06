@@ -191,6 +191,19 @@ async def test_max_emoji_version_filter() -> None:
         assert "🫠" not in labels, "🫠 (E14.0) should be excluded with max_emoji_version=1.0"
 
 
+async def test_skin_tone_select_present() -> None:
+    """The picker must contain a #skin-tone-bar with a Select dropdown."""
+    from textual.containers import Horizontal
+    from textual.widgets import Select
+
+    app = PickerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one("#skin-tone-bar", Horizontal)
+        select = bar.query_one(Select)
+        assert select is not None
+
+
 async def test_skin_tone_persisted(tmp_path: object) -> None:
     """Skin tone selection persists to disk and is restored on next open."""
     from pathlib import Path

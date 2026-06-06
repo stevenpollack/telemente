@@ -29,12 +29,12 @@ def _normalise_svg(svg: str) -> str:
 
 
 try:
-    from syrupy.extensions.single_file import (  # type: ignore[import-not-found]
+    from syrupy.extensions.single_file import (
         SingleFileSnapshotExtension,
         WriteMode,
     )
 
-    class _NormalisedSVGExtension(SingleFileSnapshotExtension):  # type: ignore[misc]
+    class _NormalisedSVGExtension(SingleFileSnapshotExtension):
         """SVG snapshot extension that strips trailing whitespace before storage."""
 
         file_extension = "raw"
