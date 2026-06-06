@@ -172,27 +172,26 @@ class EmojiPicker(Widget):
         background: $surface;
         border: round $primary;
     }
-    EmojiPicker #emoji-toolbar {
-        height: 3;
-        width: 1fr;
-        align: left middle;
-        margin-bottom: 1;
-    }
     EmojiPicker #emoji-search {
         width: 1fr;
+        margin-bottom: 1;
+    }
+    EmojiPicker #skin-tone-bar {
+        height: 1;
+        width: 1fr;
+        align: right middle;
+        margin-top: 1;
     }
     EmojiPicker #skin-tone-label {
         width: auto;
-        height: 3;
-        content-align: left middle;
+        height: 1;
         padding: 0 1;
         color: $text-muted;
     }
     EmojiPicker #skin-tone-select {
-        width: 6;
-        min-width: 6;
-        height: 3;
-        content-align: center middle;
+        width: auto;
+        min-width: 4;
+        height: 1;
     }
     EmojiPicker #category-tabs {
         width: 1fr;
@@ -219,12 +218,6 @@ class EmojiPicker(Widget):
     EmojiPicker #emoji-grid Button:hover {
         border: none;
         background: $accent 30%;
-    }
-    EmojiPicker #emoji-hint {
-        width: 1fr;
-        text-align: center;
-        color: $text-muted;
-        margin-top: 1;
     }
     """
 
@@ -427,8 +420,15 @@ class EmojiPicker(Widget):
         initial_emoji = self._emoji_for_display("", initial_group)
 
         with Vertical():
-            with Horizontal(id="emoji-toolbar"):
-                yield Input(id="emoji-search", placeholder="Search emoji…")
+            yield Input(id="emoji-search", placeholder="Search emoji…")
+            # Tabs built at compose time with static Tab children — avoids the
+            # async add_tab() path and ensures the first tab is activated on
+            # mount via Tabs' own on_mount, which fires TabActivated.
+            yield Tabs(*self._make_category_tabs(), id="category-tabs")
+            with Grid(id="emoji-grid"):
+                for cp, _name in initial_emoji:
+                    yield Button(_apply_skin_tone(cp, self._skin_modifier))
+            with Horizontal(id="skin-tone-bar"):
                 yield Label("Skin tone:", id="skin-tone-label")
                 yield Select(
                     _SKIN_TONE_OPTIONS,
@@ -437,14 +437,6 @@ class EmojiPicker(Widget):
                     id="skin-tone-select",
                     compact=True,
                 )
-            # Tabs built at compose time with static Tab children — avoids the
-            # async add_tab() path and ensures the first tab is activated on
-            # mount via Tabs' own on_mount, which fires TabActivated.
-            yield Tabs(*self._make_category_tabs(), id="category-tabs")
-            with Grid(id="emoji-grid"):
-                for cp, _name in initial_emoji:
-                    yield Button(_apply_skin_tone(cp, self._skin_modifier))
-            yield Label("Press Enter or click to select", id="emoji-hint")
 
     def on_mount(self) -> None:
         # Set the initial active group to match what compose() pre-populated.
